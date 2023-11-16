@@ -81,7 +81,6 @@ class Chromatogram:
         # Define the average timestep in the chromatogram. This computes a mean
         # but values will typically be identical.
         self._dt = np.mean(np.diff(dataframe[self.time_col].values))
-        self._time_precision = int(np.abs(np.ceil(np.log10(self._dt))))
 
        # Blank out vars that are used elsewhere
         self.window_props = None
@@ -252,8 +251,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
                 np.array(_known_peaks) / self._dt) - self._crop_offset
 
             # Update the user specified times with the nearest location
-            updated_loc = np.round(
-                self._dt * (enforced_location_inds + self._crop_offset), decimals=self._time_precision)
+            updated_loc = self._dt * enforced_location_inds + self._crop_offset
             if type(known_peaks) == dict:
                 updated_known_peaks = known_peaks.copy()
                 for _new, _old in zip(updated_loc, _known_peaks):
@@ -375,7 +373,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
                          'signal_area': d[self.int_col].values.sum(),
                          'num_peaks': len(_peaks),
                          'amplitude': [d[d['time_idx'] == p][self.int_col].values[0] for p in _peaks],
-                         'location': [np.round(d[d['time_idx'] == p][self.time_col].values[0], decimals=self._time_precision) for p in _peaks],
+                         'location': [d[d['time_idx'] == p][self.time_col].values[0] for p in _peaks],
                          'width':  [_widths[ind] * self._dt for ind in peak_inds]}
                 window_dict[int(g)] = _dict
 
@@ -643,7 +641,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
             for i, p in enumerate(popt):
                 window_dict[f'peak_{i + 1}'] = {
                     'amplitude': p[0],
-                    'retention_time': np.round(p[1], decimals=self._time_precision),
+                    'retention_time': p[1],
                     'scale': p[2],
                     'alpha': p[3],
                     'area': self._compute_skewnorm(t_range, *p).sum(),
