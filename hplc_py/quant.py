@@ -101,7 +101,10 @@ class Chromatogram(fit_peaks.PeakFitterMixin,
         self._added_peaks = None
         self.unmixed_chromatograms = None
         self._crop_offset = 0
-
+        
+        # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
+        self.windowstates = []
+        
         # Prune to time window
         if time_window is not None:
             self.crop(time_window)

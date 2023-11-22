@@ -1,31 +1,34 @@
+import pandas as pd
 import numpy as np
 import scipy
 import warnings
 import tqdm
+from dataclasses import dataclass
 
 from hplc_py.skewnorms import skewnorms
-
+from hplc_py.deconvolve_peaks import windowstate
+    
 class PeakDeconvolver(skewnorms.SkewNorms):
     
-    def add_custom_param_bounds(self, param_bounds, _param_bounds, parorder):
-        for p in parorder:
-            if p in param_bounds.keys():
-                if p == 'amplitude':
-                    _param_bounds[p] = v['amplitude'][i] * \
-                        np.sort(param_bounds[p])
-                elif p == 'location':
-                    _param_bounds[p] = [v['location']
-                                        [i] + p for p in param_bounds[p]]
+    def add_custom_param_bounds(self, peak_idx, peak_window, param_bounds, _param_bounds, parorder):
+        for param in parorder:
+            if param in param_bounds.keys():
+                if param == 'amplitude':
+                    _param_bounds[param] = peak_window['amplitude'][peak_idx] * \
+                        np.sort(param_bounds[param])
+                elif param == 'location':
+                    _param_bounds[param] = [peak_window['location']
+                                        [peak_idx] + p for p in param_bounds[param]]
                 else:
-                    _param_bounds[p] = param_bounds[p]
+                    _param_bounds[param] = param_bounds[param]
         
         return _param_bounds
     
-    def add_peak_specific_bounds(self, i, known_peaks, parorder, paridx, v, p0, _param_bounds):
+    def add_peak_specific_bounds(self, peak_idx, known_peaks, parorder, paridx, peak_window, init_guess, _param_bounds):
         # Add peak-specific bounds if provided
         if (type(known_peaks) == dict) & (len(known_peaks) != 0):
-            if v['location'][i] in known_peaks.keys():
-                newbounds = known_peaks[v['location'][i]]
+            if peak_window['location'][peak_idx] in known_peaks.keys():
+                newbounds = known_peaks[peak_window['location'][peak_idx]]
                 tweaked = False
                 if len(newbounds) > 0:
                     for p in parorder:
@@ -33,30 +36,30 @@ class PeakDeconvolver(skewnorms.SkewNorms):
                             _param_bounds[p] = np.sort(newbounds[p])
                             tweaked = True
                             if p != 'location':
-                                p0[paridx[p]] = np.mean(newbounds[p])
+                                init_guess[paridx[p]] = np.mean(newbounds[p])
             
                     # Check if width is the only key
                     if (len(newbounds) >= 1) & ('width' not in newbounds.keys()):
                         if tweaked == False:
                             raise ValueError(
-                                f"Could not adjust bounds for peak at {v['location'][i]} because bound keys do not contain at least one of the following: `location`, `amplitude`, `scale`, `skew`. ")
+                                f"Could not adjust bounds for peak at {peak_window['location'][peak_idx]} because bound keys do not contain at least one of the following: `location`, `amplitude`, `scale`, `skew`. ")
                             
-        return p0, _param_bounds
+        return init_guess, _param_bounds
     
-    def assemble_deconvolved_window_output(self, i, v, t_range, popt, window_dict):
+    def assemble_deconvolved_window_output(self, peak_idx, peak_window, t_range, popt, window_dict):
         # Assemble the dictionary of output
-        if v['num_peaks'] > 1:
-            popt = np.reshape(popt, (v['num_peaks'], 4))
+        if peak_window['num_peaks'] > 1:
+            popt = np.reshape(popt, (peak_window['num_peaks'], 4))
         else:
             popt = [popt]
-        for i, p in enumerate(popt):
-            window_dict[f'peak_{i + 1}'] = {
+        for peak_idx, p in enumerate(popt):
+            window_dict[f'peak_{peak_idx + 1}'] = {
                 'amplitude': p[0],
                 'retention_time': p[1],
                 'scale': p[2],
                 'alpha': p[3],
                 'area': self._compute_skewnorm(t_range, *p).sum(),
-                'reconstructed_signal': self._compute_skewnorm(v['time_range'], *p)}
+                'reconstructed_signal': self._compute_skewnorm(peak_window['time_range'], *p)}
         
         return window_dict
     
@@ -69,63 +72,88 @@ class PeakDeconvolver(skewnorms.SkewNorms):
 | window should be separable by eye. Or maybe just go get something to drink.
 --------------------------------------------------------------------------------
 """)
-    def build_initial_guess(self, p0, v, i):
+    def build_initial_guess(self, init_guess, peak_window, peak_idx):
         # Set up the initial guess
-        p0.append(v['amplitude'][i])
-        p0.append(v['location'][i]),
-        p0.append(v['width'][i] / 2)  # scale parameter
-        p0.append(0)  # Skew parameter, starts with assuming Gaussian
+        init_guess.append(peak_window['amplitude'][peak_idx])
+        init_guess.append(peak_window['location'][peak_idx]),
+        init_guess.append(peak_window['width'][peak_idx] / 2)  # scale parameter
+        init_guess.append(0)  # Skew parameter, starts with assuming Gaussian
             
-        return p0
+        return init_guess
     
-    def build_default_bounds(self, i, v):
+    def build_default_bounds(self, peak_idx, peak_window):
         _param_bounds = dict(
-                        amplitude=np.sort([0.1 * v['amplitude'][i], 10 * v['amplitude'][i]]),
-                        location=[v['time_range'].min(), v['time_range'].max()],
-                        scale=[self._dt, (v['time_range'].max() - v['time_range'].min())/2],
+                        amplitude=np.sort([0.1 * peak_window['amplitude'][peak_idx], 10 * peak_window['amplitude'][peak_idx]]),
+                        location=[peak_window['time_range'].min(), peak_window['time_range'].max()],
+                        scale=[self._dt, (peak_window['time_range'].max() - peak_window['time_range'].min())/2],
                         skew=[-np.inf, np.inf])
         
         return _param_bounds
 
                 
-    def deconvolve_windows(self, k,v, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
+    def deconvolve_windows(self, peak_window_id,peak_window, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
+        
         window_dict = {}
 
         p0 = []
         bounds = [[],  []]
 
         # If there are more than 5 peaks in a mixture, throw a warning
-        if v['num_peaks'] >= 10:
+        if peak_window['num_peaks'] >= 10:
             self.get_many_peaks_warning()
         
-        for i in range(v['num_peaks']):
+        for peak_idx in range(peak_window['num_peaks']):
     
-            p0 = self.build_initial_guess(p0, v, i)
+            p0 = self.build_initial_guess(p0, peak_window, peak_idx)
 
             # Set default parameter bounds
-            _param_bounds = self.build_default_bounds(i,v)
+            _peak_bounds = self.build_default_bounds(peak_idx,peak_window)
                 
             # Modify the parameter bounds given arguments
             if len(param_bounds) != 0:
-                _param_bounds = self.add_custom_param_bounds(param_bounds, _param_bounds, parorder)
+                _peak_bounds = self.add_custom_param_bounds(peak_idx, peak_window, param_bounds, _peak_bounds, parorder)
 
             # modify the parameter bounds and guess based on peak specific user input
-            p0, _param_bounds = self.add_peak_specific_bounds(i, known_peaks, parorder, paridx, v, p0, _param_bounds)
+            p0, _peak_bounds = self.add_peak_specific_bounds(peak_idx, known_peaks, parorder, paridx, peak_window, p0, _peak_bounds)
         
             # organise the bounds into arrays for scipy input
-            for _, val in _param_bounds.items():
+            for _, val in _peak_bounds.items():
                 bounds[0].append(val[0])
                 bounds[1].append(val[1])
+            
+        # capture the state of the current window DEBUGGING
+        self.windowstates.append(
+                windowstate.WindowState(
+                                window_idx=peak_window_id,
+                                lb = bounds[0],
+                                ub = bounds[1],
+                                guess=p0,
+                                peak_window=peak_window,
+                                parorder=parorder,
+                                full_windowed_chm_df=self.window_df
+                                )
+                                )
         
         # add _param_bounds to the class _param_bounds list
-        self._param_bounds.append(_param_bounds)
+        self._param_bounds.append(_peak_bounds)
 
-        # Perform the inference
-        popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, v['time_range'],
-                                            v['signal'], p0=p0, bounds=bounds, maxfev=max_iter,
-                                            **optimizer_kwargs)
-    
-        window_dict = self.assemble_deconvolved_window_output(i, v, t_range, popt, window_dict)
+        try:
+            # Perform the inference
+            popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, peak_window['time_range'],
+                                                peak_window['signal'], p0=p0, bounds=bounds, maxfev=max_iter,
+                                                **optimizer_kwargs)
+        
+        except Exception as e:
+            print(e)
+            
+            
+            print(self.windowstates[-1].param_df.to_markdown())
+            self.windowstates[-1].plot_window()
+            self.windowstates[-1].plot_full_windowed_signal()
+            
+            import sys; sys.exit()
+        
+        window_dict = self.assemble_deconvolved_window_output(peak_idx, peak_window, t_range, popt, window_dict)
         
         return window_dict
     
@@ -211,12 +239,12 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         if verbose:
         
             self._fitting_progress_state = 1
-            iterator = tqdm.tqdm(self.window_props.items(),
+            window_prop_dict_iterator = tqdm.tqdm(self.window_props.items(),
                                  desc='Deconvolving mixture')
         
         else:
             self._fitting_progress_state = 0
-            iterator = self.window_props.items()
+            window_prop_dict_iterator = self.window_props.items()
             
         parorder = ['amplitude', 'location', 'scale', 'skew']
         
@@ -231,11 +259,21 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         # Instantiate a state variable to ensure that parameter bounds are being adjusted.
         self._param_bounds = []
         
-        for k, v in iterator:
-            window_dict = self.deconvolve_windows(k,v, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range)
-            if v['num_peaks'] == 0:
+        for peak_window_id, peak_window in window_prop_dict_iterator:
+            window_dict = self.deconvolve_windows(
+                peak_window_id=peak_window_id,
+                peak_window=peak_window,
+                param_bounds=param_bounds,
+                known_peaks=known_peaks,
+                parorder=parorder,
+                paridx=paridx,
+                max_iter=max_iter,
+                optimizer_kwargs=optimizer_kwargs,
+                t_range=t_range,
+                )
+            if peak_window['num_peaks'] == 0:
                 continue
-            peak_props[k] = window_dict
+            peak_props[peak_window_id] = window_dict
 
         self._peak_props = peak_props
         

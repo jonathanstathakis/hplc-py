@@ -34,18 +34,8 @@ def main():
         )
     
     chm.fit_peaks(approx_peak_width=0.5, buffer=1)
-    
-    print(dir(chm))
 
-    sns.relplot(
-        chm.window_df
-        .assign(window_id=lambda x: x.window_id.astype(str))
-        .query("window_type=='peak'"),
-        x='time',
-        y='signal_corrected',
-        hue='window_id',
-        kind='line'    
-    )
+    
     
     chm.show()
     

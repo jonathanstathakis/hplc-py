@@ -212,20 +212,20 @@ class WindowFinder():
 
         # Convert this to a dictionary for easy parsing
         window_dict = {}
-        for g, d in window_df[window_df['window_type'] == 'peak'].groupby('window_id'):
-            if g > 0:
+        for peak_window_id, peak_window in window_df[window_df['window_type'] == 'peak'].groupby('window_id'):
+            if peak_window_id > 0:
                 _peaks = [
-                    p for p in self._peak_indices if p in d['time_idx'].values]
+                    p for p in self._peak_indices if p in peak_window['time_idx'].values]
                 peak_inds = [x for _p in _peaks for x in np.where(
                     self._peak_indices == _p)[0]]
-                _dict = {'time_range': d[self.time_col].values,
-                         'signal': d[self.int_col].values,
-                         'signal_area': d[self.int_col].values.sum(),
+                _dict = {'time_range': peak_window[self.time_col].values,
+                         'signal': peak_window[self.int_col].values,
+                         'signal_area': peak_window[self.int_col].values.sum(),
                          'num_peaks': len(_peaks),
-                         'amplitude': [d[d['time_idx'] == p][self.int_col].values[0] for p in _peaks],
-                         'location': [d[d['time_idx'] == p][self.time_col].values[0] for p in _peaks],
+                         'amplitude': [peak_window[peak_window['time_idx'] == p][self.int_col].values[0] for p in _peaks],
+                         'location': [peak_window[peak_window['time_idx'] == p][self.time_col].values[0] for p in _peaks],
                          'width':  [_widths[ind] * self._dt for ind in peak_inds]}
-                window_dict[int(g)] = _dict
+                window_dict[int(peak_window_id)] = _dict
 
         self.window_df = window_df
         self.window_props = window_dict
