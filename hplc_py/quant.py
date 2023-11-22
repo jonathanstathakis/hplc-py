@@ -481,7 +481,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
         R"""
         .. note::
            In most cases, this function should not be called directly. Instead, 
-           it should called through the :func:`~hplc.quant.Chromatogram.fit_peaks`
+           it should called through the :func:`~hplc_py.quant.Chromatogram.fit_peaks`
 
         For each peak window, estimate the parameters of skew-normal distributions 
         which makeup the peak(s) in the window. See "Notes" for information on
@@ -703,7 +703,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
         param_bounds: `dict`, optional
             Parameter boundary modifications to be used to constrain fitting of 
             all peaks. 
-            See docstring of :func:`~hplc.quant.Chromatogram.deconvolve_peaks`
+            See docstring of :func:`~hplc_py.quant.Chromatogram.deconvolve_peaks`
             for more information.
         integration_window: `list`
             The time window over which the integrated peak areas should be computed. 
@@ -711,7 +711,7 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
             cropped chromatogram.
         correct_baseline : `bool`, optional
             If True, the baseline of the chromatogram will be automatically 
-            corrected using the SNIP algorithm. See :func:`~hplc.quant.Chromatogram.correct_baseline`
+            corrected using the SNIP algorithm. See :func:`~hplc_py.quant.Chromatogram.correct_baseline`
             for more information.
         return_peaks : `bool`, optional
             If True, a dataframe containing the peaks will be returned. Default

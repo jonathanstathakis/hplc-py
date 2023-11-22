@@ -25,6 +25,6 @@ setup(
     author="Griffin Chure",
     author_email="griffinchure@gmail.com",
     packages=find_packages(
-        exclude=('docs', 'doc', 'sandbox', 'dev', 'hplc.egg-info')),
+        exclude=('docs', 'doc', 'sandbox', 'dev', 'hplc_py.egg-info')),
     include_package_data=True
 )

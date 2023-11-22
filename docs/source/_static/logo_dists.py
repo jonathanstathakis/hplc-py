@@ -3,11 +3,11 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import hplc.quant
-import hplc.io
+import hplc_py.quant
+import hplc_py.io
 import scipy.stats
 import importlib
-importlib.reload(hplc.quant)
+importlib.reload(hplc_py.quant)
 np.random.seed(666)
 dt = 0.01
 x = np.arange(0, 40, dt)
@@ -25,7 +25,7 @@ for i in range(n_peaks):
 plt.plot(sig)
 
 _df = pd.DataFrame(np.array([x, sig]).T, columns=['time', 'signal'])
-chrom = hplc.quant.Chromatogram(_df)
+chrom = hplc_py.quant.Chromatogram(_df)
 chrom.fit_peaks(enforced_locations=locs,
                 enforcement_tolerance=1,
                 correct_baseline=False)

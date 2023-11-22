@@ -1,6 +1,6 @@
-`hplc.io`
+`hplc_py.io`
 =====================
-.. automodule:: hplc.io
+.. automodule:: hplc_py.io
    :members:
    :undoc-members:
    :show-inheritance:

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats
-from hplc.quant import Chromatogram
+from hplc_py.quant import Chromatogram
 
 locs = [17, 22, 50]
 scales = [2, 2, 3]

@@ -1,7 +1,7 @@
 # %%
 
 import importlib
-import hplc.quant
+import hplc_py.quant
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,14 +23,14 @@ def compare(a, b, tol):
 
 def fit_peaks(test_data, truth, colnames={'time': 'x', 'signal': 'y'}, tol=1.5E-2):
     """
-    Uses the `hplc.quant.Chromatogram.quantify` method to fit peaks in a chromatogram
+    Uses the `hplc_py.quant.Chromatogram.quantify` method to fit peaks in a chromatogram
     and compares the value with the ground truth.
     """
     # Define constants
     props = ['retention_time', 'amplitude', 'area', 'scale', 'skew']
 
     # Execute analysis
-    chrom = hplc.quant.Chromatogram(test_data, cols=colnames)
+    chrom = hplc_py.quant.Chromatogram(test_data, cols=colnames)
     peaks = chrom.fit_peaks(correct_baseline=False, prominence=1E-3)
     assert chrom._fitting_progress_state == 1
 
@@ -57,7 +57,7 @@ def test_peak_fitting():
     """
     # Make sure it fails if anything other than a dataframe is given.
     try:
-        chrom = hplc.quant.Chromatogram(
+        chrom = hplc_py.quant.Chromatogram(
             'test', cols={'time': 'x', 'signal': 'y'})
         assert False
     except RuntimeError:
@@ -65,7 +65,7 @@ def test_peak_fitting():
 
     # Load test data
     chrom_df = pd.read_csv('./tests/test_data/test_fitting_chrom.csv')
-    chrom = hplc.quant.Chromatogram(
+    chrom = hplc_py.quant.Chromatogram(
         chrom_df, cols={'time': 'x', 'signal': 'y'})
     try:
         chrom._assign_windows(rel_height=-1)
@@ -77,7 +77,7 @@ def test_peak_fitting():
         assert True
 
     chrom_df = pd.read_csv('./tests/test_data/test_fitting_chrom.csv')
-    chrom = hplc.quant.Chromatogram(chrom_df[chrom_df['iter'] == 1], cols={
+    chrom = hplc_py.quant.Chromatogram(chrom_df[chrom_df['iter'] == 1], cols={
                                     'time': 'x', 'signal': 'y'})
     peak_df = pd.read_csv('./tests/test_data/test_fitting_peaks.csv')
     for g, d in chrom_df.groupby('iter'):
@@ -106,7 +106,7 @@ def test_bg_estimation():
     """
     tol = 1.5E-2
     data = pd.read_csv('./tests/test_data/test_SNIP_chrom.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     _df = chrom.correct_baseline(window=0.5, return_df=True)
     with pytest.warns():
         __df = chrom.correct_baseline(window=0.5, return_df=False)
@@ -123,7 +123,7 @@ def test_bg_estimation():
         chrom.correct_baseline(window=0.5)
 
     data['y'] -= 100
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     with pytest.warns():
         chrom.correct_baseline(window=0.5)
 
@@ -139,7 +139,7 @@ def test_shouldered_peaks():
     props = ['retention_time', 'amplitude', 'area', 'scale', 'skew']
     for g, d in data.groupby('iter'):
         truth = peak_df[peak_df['iter'] == g]
-        chrom = hplc.quant.Chromatogram(d, cols={'time': 'x', 'signal': 'y'})
+        chrom = hplc_py.quant.Chromatogram(d, cols={'time': 'x', 'signal': 'y'})
         peaks = chrom.fit_peaks(known_peaks=[11],
                                 correct_baseline=False,
                                 tolerance=0.5)
@@ -158,7 +158,7 @@ def test_add_peak():
     data = pd.read_csv('./tests/test_data/test_shallow_signal_chrom.csv')
     props = ['retention_time', 'amplitude', 'area', 'scale', 'skew']
     peak_df = pd.read_csv('./tests/test_data/test_shallow_signal_peaks.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     peaks = chrom.fit_peaks(
         known_peaks={50.0: {'width': 3}}, prominence=0.5, correct_baseline=False)
     for p in props:
@@ -172,7 +172,7 @@ def test_score_reconstruction():
     """
     data = pd.read_csv('./tests/test_data/test_assessment_chrom.csv')
     scores = pd.read_csv('./tests/test_data/test_assessment_scores.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
 
     # Test that proper RuntimeException is thrown if no reconstruction is present.
     try:
@@ -195,7 +195,7 @@ def test_crop():
     improper time windows are given. 
     """
     data = pd.read_csv('./tests/test_data/test_assessment_chrom.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     try:
         chrom.crop([1, 2, 3])
         assert False
@@ -223,7 +223,7 @@ def test_crop():
         assert True
 
     # Test that cropping happens if a time window is provided.
-    chrom = hplc.quant.Chromatogram(data, time_window=[10, 20],
+    chrom = hplc_py.quant.Chromatogram(data, time_window=[10, 20],
                                     cols={'time': 'x', 'signal': 'y'})
     assert 'Cropped' in chrom.__repr__()
     assert 'Baseline Subtracted' not in chrom.__repr__()
@@ -237,7 +237,7 @@ def test_deconvolve_peaks():
     Tests that exception is properly thrown if peak fitting hasn't been performed.
     """
     data = pd.read_csv('./tests/test_data/test_assessment_chrom.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     try:
         chrom.deconvolve_peaks()
     except RuntimeError:
@@ -250,7 +250,7 @@ def test_map_peaks():
     times and tolerance and makes sure a linear calibration curve is used correctly. 
     """
     data = pd.read_csv('./tests/test_data/test_assessment_chrom.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
 
     # Check that peak mapping and calculation of the concentration works.
     peaks = chrom.fit_peaks()
@@ -301,7 +301,7 @@ def test_many_peaks():
     Ensures that a warning is raised if there are 10 or more peaks in a given window. 
     """
     data = pd.read_csv('./tests/test_data/test_many_peaks.csv')
-    chrom = hplc.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
+    chrom = hplc_py.quant.Chromatogram(data, cols={'time': 'x', 'signal': 'y'})
     with pytest.warns():
         chrom.fit_peaks()
 
@@ -329,7 +329,7 @@ def test_bounding():
             peak1['retention_time'].values[0]: {}}
 
         # Assert that it fails without providing locations.
-        chrom = hplc.quant.Chromatogram(d,  cols={'time': 'x', 'signal': 'y'})
+        chrom = hplc_py.quant.Chromatogram(d,  cols={'time': 'x', 'signal': 'y'})
         bad_peaks = chrom.fit_peaks(correct_baseline=False)
         assert len(truth) != len(bad_peaks)
 
@@ -355,7 +355,7 @@ def test_variable_integration_area():
     area agrees with the ground truth to within a tolerance of 1.5%
     """
     df = pd.read_csv('./tests/test_data/test_integration_window_chrom.csv')
-    chrom = hplc.quant.Chromatogram(df)
+    chrom = hplc_py.quant.Chromatogram(df)
 
     # Ensure that the test fails if a nonsense integration window is supplied.
     win = [1]
@@ -384,12 +384,12 @@ def test_verbosity():
     df = pd.read_csv('./tests/test_data/test_integration_window_chrom.csv')
 
     # Peak Fitting and Baseline Subtraction
-    chrom = hplc.quant.Chromatogram(df)
+    chrom = hplc_py.quant.Chromatogram(df)
     _ = chrom.fit_peaks(verbose=True)
     assert chrom._fitting_progress_state == 1
     assert chrom._bg_correction_progress_state == 1
 
-    chrom = hplc.quant.Chromatogram(df)
+    chrom = hplc_py.quant.Chromatogram(df)
     _ = chrom.fit_peaks(verbose=False)
     assert chrom._fitting_progress_state == 0
     assert chrom._bg_correction_progress_state == 0
@@ -406,7 +406,7 @@ def test_show():
     Ensures that chromatogram visualization is showing features as expected. 
     """
     df = pd.read_csv('./tests/test_data/test_integration_window_chrom.csv')
-    chrom = hplc.quant.Chromatogram(df)
+    chrom = hplc_py.quant.Chromatogram(df)
     _ = chrom.show()
     plt.close()
     assert chrom._viz_ylabel_subtraction_indication == False
@@ -478,7 +478,7 @@ def test_generic_param_bounding():
     Tests that global parameter bounds can be maniupulated. 
     """
     df = pd.read_csv('./tests/test_data/test_integration_window_chrom.csv')
-    chrom = hplc.quant.Chromatogram(df)
+    chrom = hplc_py.quant.Chromatogram(df)
     # Adjust the parameters
     adjustments = {'amplitude': [0.9, 1.1],
                    'location': [-1, 1],
