@@ -1,3 +1,6 @@
+import pandas as pd
+import numpy as np
+
 class PeakFitterMixin:
 
     def fit_peaks(self,
@@ -96,6 +99,22 @@ class PeakFitterMixin:
         is the scale parameter, and :math:`\alpha` is the skew parameter.
 
         """
+        
+        self._fit_peak_params = pd.DataFrame(
+            dict(tbl_name='fit_peak_input_params',
+                tolerance=tolerance,
+                prominence=prominence,
+                rel_height=rel_height,
+                approx_peak_width=approx_peak_width,
+                buffer=buffer,
+                max_iter=max_iter,
+                precision=precision
+            ),
+            index=[0]
+            ).T
+        
+        print(self._fit_peak_params.to_markdown())
+        
         if correct_baseline and not self._bg_corrected:
             self.correct_baseline(window=approx_peak_width,
                                     verbose=verbose, return_df=False)

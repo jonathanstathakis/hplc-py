@@ -21,4 +21,14 @@ Thats done from window df, but could also be done from window report..
 
 2023-11-22 15:29:12 - observing peak 4 of window 2, there is no obvious cause for the erronous width allocation..
 
-Generated from 
+2023-11-22 19:12:30 I have generated a joined table with all information relevant to a peak and peak window for output. I have also produced a plot display of the id'd peaks in a window, and the estimated widths, in order to gauge how its getting it wrong.
+
+From this we can see that peak 2,2 (window two, peak two) is almost completely subsumed by peak 2,1
+
+2023-11-23 00:12:42 - the window in question is ~1.9 to ~4.9.
+
+first question:
+
+Q1: what happens when we run window 1 only?
+
+Q2: can we tweak window two in such a manner that the peak width is better estimated? The width should be somewhere between 

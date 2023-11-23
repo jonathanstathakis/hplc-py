@@ -146,10 +146,15 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         except Exception as e:
             print(e)
             
+            print("# Window Parameters")
+            print(self.windowstates[-1].window_info_df.to_markdown())
             
-            print(self.windowstates[-1].param_df.to_markdown())
+            print("# Window Peak Fitting Parameters")
+            print(self.windowstates[-1]._peak_fitting_info_df.to_markdown())
+            
             self.windowstates[-1].plot_window()
-            self.windowstates[-1].plot_full_windowed_signal()
+            
+            # self.windowstates[-1].plot_full_windowed_signal()
             
             import sys; sys.exit()
         
