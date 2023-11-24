@@ -10,14 +10,11 @@ import seaborn as sns
 import termcolor
 
 from hplc_py.fit_peaks import fit_peaks
-from hplc_py.find_windows import find_windows
 from hplc_py.map_peaks import map_peaks
-from hplc_py.deconvolve_peaks import deconvolve_peaks
 
-class Chromatogram(fit_peaks.PeakFitterMixin,
-                   find_windows.WindowFinder,
-                   map_peaks.PeakMapper,
-                    deconvolve_peaks.PeakDeconvolver,                   
+class Chromatogram(
+    map_peaks.PeakMapper,
+    fit_peaks.PeakFitterMixin,
                    ):
     """
     Base class for the processing and quantification of an HPLC chromatogram.
@@ -164,103 +161,6 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
         if return_df:
             return self.df
 
-    def correct_baseline(self,
-                         window=5,
-                         return_df=False,
-                         verbose=True,
-                         precision=9):
-        R"""
-        Performs Sensitive Nonlinear Iterative Peak (SNIP) clipping to estimate 
-        and subtract background in chromatogram.
-
-        Parameters
-        ----------
-        window : `int`
-            The approximate size of signal objects in the chromatogram in dimensions
-            of time. This is related to the number of iterations undertaken by 
-            the SNIP algorithm.
-        return_df : `bool`
-            If `True`, then chromatograms (before and after background correction) are returned
-        verbose: `bool`
-            If `True`, progress will be printed to screen as a progress bar. 
-        precision: `int`
-            The number of decimals to round the subtracted signal to. Default is 9.
-
-        Returns
-        -------
-        corrected_df : `pandas.core.frame.DataFrame`
-            If `return_df = True`, then the original and the corrected chromatogram are returned.
-
-        Notes
-        -----
-        This implements the SNIP algorithm as presented and summarized in `Morhác
-        and Matousek 2008 <https://doi.org/10.1366/000370208783412762>`_. The 
-        implementation here also rounds to 9 decimal places in the subtracted signal
-        to avoid small values very near zero.
-        """
-        if self._bg_corrected == True:
-            warnings.warn(
-                'Baseline has already been corrected. Rerunning on original signal...')
-            self.int_col = self.int_col.split('_corrected')[0]
-
-        # Unpack and copy dataframe and intensity profile
-        df = self.df
-        signal = df[self.int_col].copy()
-
-        # Look at the relative magnitudes of the maximum and minimum values
-        # And throw a warning if there are appreciable negative peaks.
-        min_val = np.min(signal)
-        max_val = np.max(signal)
-        if min_val < 0:
-            if (np.abs(min_val) / max_val) >= 0.1:
-                warnings.warn("""
-\x1b[30m\x1b[43m\x1b[1m
-The chromatogram appears to have appreciable negative signal . Automated background 
-subtraction may not work as expected. Proceed with caution and visually 
-check if the subtraction is acceptable!
-\x1b[0m""")
-
-        # Clip the signal if the median value is negative
-        if (signal < 0).any():
-            shift = np.median(signal[signal < 0])
-        else:
-            shift = 0
-        signal -= shift
-        signal *= np.heaviside(signal, 0)
-
-        # Compute the LLS operator
-        tform = np.log(np.log(np.sqrt(signal.values + 1) + 1) + 1)
-
-        # Compute the number of iterations given the window size.
-        n_iter = int(((window / self._dt) - 1) / 2)
-
-        # Iteratively filter the signal
-        if verbose:
-            self._bg_correction_progress_state = 1
-            iter = tqdm.tqdm(range(1, n_iter + 1),
-                             desc="Performing baseline correction")
-        else:
-            self._bg_correction_progress_state = 0
-            iter = range(1, n_iter + 1)
-
-        for i in iter:
-            tform_new = tform.copy()
-            for j in range(i, len(tform) - i):
-                tform_new[j] = min(tform_new[j], 0.5 *
-                                   (tform_new[j+i] + tform_new[j-i]))
-            tform = tform_new
-
-        # Perform the inverse of the LLS transformation and subtract
-        inv_tform = ((np.exp(np.exp(tform) - 1) - 1)**2 - 1)
-        df[f'{self.int_col}_corrected'] = np.round(
-            (df[self.int_col].values - shift - inv_tform), decimals=precision)
-        df[f'estimated_background'] = inv_tform + shift
-        self.df = df
-        self._bg_corrected = True
-        self.int_col = f'{self.int_col}_corrected'
-        if return_df:
-            return df
-
     def _score_reconstruction(self):
         R"""
         Computes the reconstruction score on a per-window and total chromatogram
@@ -297,7 +197,7 @@ check if the subtraction is acceptable!
         for g, d in self.window_df[self.window_df['window_type'] == 'peak'].groupby('window_id'):
             # Compute the non-peak windows separately.
             window_area = np.abs(d[self.int_col].values).sum() + 1
-            window_peaks = self._peak_props[g]
+            window_peaks = self._deconvolved_peak_props[g]
             window_peak_area = np.array(
                 [np.abs(v['reconstructed_signal']) for v in window_peaks.values()]).sum() + 1
             score = np.array(window_peak_area / window_area).astype(float)
@@ -532,7 +432,10 @@ to `fit_peaks()`."""
         return score_df
 
     def show(self,
-             time_range=[]):
+             fig,
+             ax,
+             time_range=[],
+             ):
         """
         Displays the chromatogram with mapped peaks if available.
 
@@ -554,7 +457,11 @@ to `fit_peaks()`."""
         sns.set()
 
         # Set up the figure
-        fig, ax = plt.subplots(1, 1)
+        
+        if not ax:
+        
+            fig, ax = plt.subplots(1, 1)
+        
         ax.set_xlabel(self.time_col)
         if self._bg_corrected:
             self._viz_ylabel_subtraction_indication = True
@@ -567,15 +474,18 @@ to `fit_peaks()`."""
         # Plot the raw chromatogram
         ax.plot(self.df[self.time_col], self.df[self.int_col], 'k-',
                 label='raw chromatogram')
-
+        
         # Compute the skewnorm mix
         self._viz_min_one_concentration = None
         if self.peaks is not None:
             self._viz_peak_reconstruction = True
             time = self.df[self.time_col].values
+            
             # Plot the mix
             convolved = np.sum(self.unmixed_chromatograms, axis=1)
+            
             ax.plot(time, convolved, 'r--', label='inferred mixture')
+            
             for g, d in self.peaks.groupby('peak_id'):
                 label = f'peak {int(g)}'
                 if self._mapped_peaks is not None:
@@ -601,8 +511,13 @@ to `fit_peaks()`."""
                         label = f'peak {int(g)}'
                 else:
                     self._viz_mapped_peaks = False
-                ax.fill_between(time, self.unmixed_chromatograms[:, int(g) - 1], label=label,
+                    
+                ax.fill_between(time, self.unmixed_chromatograms.values[:, int(g) - 1], label=label,
                                 alpha=0.5)
+                
+                
+                ax.annotate(text=g, xy=[d.retention_time, d.maxima+2], fontsize=6)
+                ax.set_ylim(bottom=-d.maxima.max()*0.2, top=d.maxima.max()*1.1)
         else:
             self._viz_peak_reconstruction = False
         if 'estimated_background' in self.df.keys():
@@ -621,8 +536,10 @@ to `fit_peaks()`."""
                     label = '__nolegend__'
                 ax.vlines(loc, 0, ymax, linestyle='--',
                           color='dodgerblue', label=label)
-        ax.legend(bbox_to_anchor=(1.5, 1))
-        fig.patch.set_facecolor((0, 0, 0, 0))
+                
+        # ax.legend(bbox_to_anchor=(1.5, 1))
+        # fig.patch.set_facecolor((0, 0, 0, 0))
+        
         if len(time_range) == 2:
             self._viz_adjusted_xlim = True
             ax.set_xlim(time_range)
@@ -630,6 +547,8 @@ to `fit_peaks()`."""
             _y = self.df[(self.df[self.time_col] >= time_range[0]) & (
                 self.df[self.time_col] <= time_range[1])][self.int_col].values
             ax.set_ylim([ax.get_ylim()[0], 1.1 * _y.max()])
+        
+        
         else:
             self._viz_adjusted_xlim = False
         return [fig, ax]

@@ -45,10 +45,14 @@ class SkewNorms:
 
         """
         amp, loc, scale, alpha = params
+        
         _x = alpha * (x - loc) / scale
+        
         norm = np.sqrt(2 * np.pi * scale**2)**-1 * \
             np.exp(-(x - loc)**2 / (2 * scale**2))
+            
         cdf = 0.5 * (1 + scipy.special.erf(_x / np.sqrt(2)))
+        
         return amp * 2 * norm * cdf
 
     def _fit_skewnorms(self,

@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
-
-class PeakFitterMixin:
+from hplc_py.find_windows import find_windows
+from hplc_py.deconvolve_peaks import deconvolve_peaks
+from hplc_py.baseline_correct import correct_baseline
+class PeakFitterMixin(correct_baseline.BaselineCorrector, find_windows.WindowFinder, deconvolve_peaks.PeakDeconvolver):
 
     def fit_peaks(self,
                     known_peaks=[],
@@ -113,8 +115,6 @@ class PeakFitterMixin:
             index=[0]
             ).T
         
-        print(self._fit_peak_params.to_markdown())
-        
         if correct_baseline and not self._bg_corrected:
             self.correct_baseline(window=approx_peak_width,
                                     verbose=verbose, return_df=False)
@@ -155,12 +155,27 @@ class PeakFitterMixin:
         time = self.df[self.time_col].values
         out = np.zeros((len(time), len(peak_df)))
         iter = 0
-        for _, _v in self._peak_props.items():
+        for _, _v in self._deconvolved_peak_props.items():
             for _, v in _v.items():
                 params = [v['amplitude'], v['retention_time'],
                             v['scale'], v['alpha']]
                 out[:, iter] = self._compute_skewnorm(time, *params)
                 iter += 1
+        
+        # round the individual signals to the specified precision
+        
         self.unmixed_chromatograms = np.round(out, decimals=precision)
+        
+        # assemble the individual signals as a frame with the peak ids and time axis.
+        
+        self.unmixed_chromatograms = pd.DataFrame(self.unmixed_chromatograms, columns=self.peaks.peak_id.values, index=time)
+        
+        
+        # compute the maxima of each peak and add to the peak_df
+        
+        peak_df.insert(0, 'maxima', self.unmixed_chromatograms.max().values)
+        
+        self.peak_df = peak_df[['peak_id','retention_time','maxima','area','amplitude','scale','skew']].reset_index(drop=True)
+        
         if return_peaks:
             return peak_df

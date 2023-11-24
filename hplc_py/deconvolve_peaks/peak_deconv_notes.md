@@ -31,4 +31,14 @@ first question:
 
 Q1: what happens when we run window 1 only?
 
-Q2: can we tweak window two in such a manner that the peak width is better estimated? The width should be somewhere between 
+Q2: can we tweak window two in such a manner that the peak width is better estimated? The width should be somewhere between..
+
+2023-11-23 23:58:35
+
+There is an abundance of information about the fundamentals of peak deconvolution, namely [this](http://emilygraceripka.com/blog/16) post from Dr. Ripka. There is also a series of detailed tutorials by the University of Maryland [here](https://terpconnect.umd.edu/~toh/spectrum/SignalsAndNoise.html).
+
+From this and the `hplc-py` code we can deduct that `scipy.signal.peak_widths` is the problem, it is underestimating the width of peak (2,2). Sharpening the peak may increase the measured width enough to get it over the default bound. Furthermore, following Ripkas example we could create our own fitting regime, at least to understand the problem.
+
+First thing i need to do is to extract the signal then apply a sharpening filter ( which it appears I will have to define), then experiment with `peak_widths`.
+
+The window is from 2 to 4.5.

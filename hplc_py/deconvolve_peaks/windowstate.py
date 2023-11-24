@@ -123,6 +123,7 @@ class WindowState:
         error_peak = self._peak_fitting_info_df.query('is_oob==1')
         width_start, width_end=error_peak.location-error_peak.width/2, error_peak.location+error_peak.width/2
         
+        print("# Error Peak")
         print(error_peak.to_markdown())
         
         fig, ax = plt.subplots(1)

@@ -82,39 +82,43 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         return init_guess
     
     def build_default_bounds(self, peak_idx, peak_window):
-        _param_bounds = dict(
+        
+        _peak_bounds = dict(
                         amplitude=np.sort([0.1 * peak_window['amplitude'][peak_idx], 10 * peak_window['amplitude'][peak_idx]]),
                         location=[peak_window['time_range'].min(), peak_window['time_range'].max()],
                         scale=[self._dt, (peak_window['time_range'].max() - peak_window['time_range'].min())/2],
                         skew=[-np.inf, np.inf])
         
-        return _param_bounds
+        return _peak_bounds
 
                 
-    def deconvolve_windows(self, peak_window_id,peak_window, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
+    def deconvolve_windows(self, peak_window_id,window_dict, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
         
-        window_dict = {}
+        deconvolved_window_dict = {}
 
         p0 = []
         bounds = [[],  []]
 
         # If there are more than 5 peaks in a mixture, throw a warning
-        if peak_window['num_peaks'] >= 10:
+        if window_dict['num_peaks'] >= 10:
             self.get_many_peaks_warning()
         
-        for peak_idx in range(peak_window['num_peaks']):
-    
-            p0 = self.build_initial_guess(p0, peak_window, peak_idx)
+        
+        assert window_dict['num_peaks']>0, f"\n{window_dict}"
+        
+        for i, peak_idx in enumerate(range(window_dict['num_peaks'])):
+            
+            p0 = self.build_initial_guess(p0, window_dict, peak_idx)
 
             # Set default parameter bounds
-            _peak_bounds = self.build_default_bounds(peak_idx,peak_window)
-                
+            _peak_bounds = self.build_default_bounds(peak_idx,window_dict)
+            
             # Modify the parameter bounds given arguments
             if len(param_bounds) != 0:
-                _peak_bounds = self.add_custom_param_bounds(peak_idx, peak_window, param_bounds, _peak_bounds, parorder)
+                _peak_bounds = self.add_custom_param_bounds(peak_idx, window_dict, param_bounds, _peak_bounds, parorder)
 
             # modify the parameter bounds and guess based on peak specific user input
-            p0, _peak_bounds = self.add_peak_specific_bounds(peak_idx, known_peaks, parorder, paridx, peak_window, p0, _peak_bounds)
+            p0, _peak_bounds = self.add_peak_specific_bounds(peak_idx, known_peaks, parorder, paridx, window_dict, p0, _peak_bounds)
         
             # organise the bounds into arrays for scipy input
             for _, val in _peak_bounds.items():
@@ -128,21 +132,23 @@ class PeakDeconvolver(skewnorms.SkewNorms):
                                 lb = bounds[0],
                                 ub = bounds[1],
                                 guess=p0,
-                                peak_window=peak_window,
+                                peak_window=window_dict,
                                 parorder=parorder,
                                 full_windowed_chm_df=self.window_df
                                 )
                                 )
         
-        # add _param_bounds to the class _param_bounds list
+        assert '_peak_bounds' in locals()
+        
+        # add _peak_bounds to the class _param_bounds list
         self._param_bounds.append(_peak_bounds)
 
         try:
             # Perform the inference
-            popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, peak_window['time_range'],
-                                                peak_window['signal'], p0=p0, bounds=bounds, maxfev=max_iter,
+            popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, window_dict['time_range'],
+                                                window_dict['signal'], p0=p0, bounds=bounds, maxfev=max_iter,
                                                 **optimizer_kwargs)
-        
+            
         except Exception as e:
             print(e)
             
@@ -155,12 +161,11 @@ class PeakDeconvolver(skewnorms.SkewNorms):
             self.windowstates[-1].plot_window()
             
             # self.windowstates[-1].plot_full_windowed_signal()
-            
-            import sys; sys.exit()
+            raise ValueError
         
-        window_dict = self.assemble_deconvolved_window_output(peak_idx, peak_window, t_range, popt, window_dict)
+        deconvolved_window_dict = self.assemble_deconvolved_window_output(peak_idx, window_dict, t_range, popt, deconvolved_window_dict)
         
-        return window_dict
+        return deconvolved_window_dict
     
     def find_integration_area(self, integration_window):
         # Determine the areas over which to integrate the window
@@ -255,7 +260,7 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         
         paridx = {k: -(i+1) for i, k in enumerate(reversed(parorder))}
         
-        peak_props = {}
+        deconvolved_peak_props = {}
         
         self._bounds = []
         
@@ -265,9 +270,9 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         self._param_bounds = []
         
         for peak_window_id, peak_window in window_prop_dict_iterator:
-            window_dict = self.deconvolve_windows(
+            deconvolved_window_dict = self.deconvolve_windows(
                 peak_window_id=peak_window_id,
-                peak_window=peak_window,
+                window_dict=peak_window,
                 param_bounds=param_bounds,
                 known_peaks=known_peaks,
                 parorder=parorder,
@@ -278,8 +283,8 @@ class PeakDeconvolver(skewnorms.SkewNorms):
                 )
             if peak_window['num_peaks'] == 0:
                 continue
-            peak_props[peak_window_id] = window_dict
+            deconvolved_peak_props[peak_window_id] = deconvolved_window_dict
 
-        self._peak_props = peak_props
+        self._deconvolved_peak_props = deconvolved_peak_props
         
-        return peak_props
+        return deconvolved_peak_props
