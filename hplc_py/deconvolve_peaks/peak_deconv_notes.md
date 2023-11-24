@@ -42,3 +42,17 @@ From this and the `hplc-py` code we can deduct that `scipy.signal.peak_widths` i
 First thing i need to do is to extract the signal then apply a sharpening filter ( which it appears I will have to define), then experiment with `peak_widths`.
 
 The window is from 2 to 4.5.
+
+2023-11-24 08:59:17
+
+so sharpening the peaks is resulting in a pretty good fit for the majority of the peaks, however we're encountering an undefined error in the first 2 min region, and some of the seriously overlapped peaks in the later areas are not well fit because not all of the component peaks are being detected so the peak that is is being modelled as very skewed. Need to find a compromise. Got all the moving parts here, just need the right combination.
+
+~~2023-11-24 10:02:51 I am trying to produce a subplot of `chm.show()` cut into bins to display different regions. To do this I have had to modify the function to accept a fig and ax object to plot on, and now I have encountered an interesting issue - the output of `fit_peaks` is not de-normalized. Im not sure if thats by design or not, but we should add it in. Best way to do that will be to define the inverse of the normalization function.~~
+
+2023-11-24 12:07:44 - the answer is that the peak df is not peak properties, it is the best fit values. In the case of amplitude it appears that even though the documentation states that it is the amplitude maxima, it appears to be the amplitude of the centroid. I suppose the authors didnt think that the true amplitude was worth reporting when the area is of more interest. How can I get the peak amplitudes? From the reconstructed signals.
+
+2023-11-24 12:38:19 - have added peak maxima to `peak_df` and stored `unmixed_chromatograms` as a DF with the peak id as columns and retention time as index.
+
+2023-11-24 13:11:22 - have pushed all recent modifications to remote. Now to look into optimizing the fit. We've still got the problem with 0 - 2 mins to solve as well..
+
+I want to start over with the raw data prior to resampling and see if that has any effect on the results. To do that best thing will be to install my branch in my main project.
