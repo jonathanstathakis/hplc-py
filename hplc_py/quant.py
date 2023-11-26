@@ -1,3 +1,11 @@
+"""
+2023-11-27 08:56:43
+
+Design notes:
+
+Chromatogram object will have a df member, class objects such as BaselineCorrector will not, only provide methods that operate on that df. therefore for testing will have to invert chm to apply on df.
+"""
+
 import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -124,7 +132,7 @@ class Chromatogram(
                 raise ValueError("columns must consist of int or float")
             
 
-        self._dt = self.get_timestep(self.df[self.time_col])
+        self._dt = self.compute_timestep(self.df[self.time_col])
         
         # Prune to time window
         if time_window is not None:
@@ -133,7 +141,7 @@ class Chromatogram(
         
         return self
     
-    def get_timestep(self, time_series: ArrayLike)->ArrayLike:
+    def compute_timestep(self, time_series: ArrayLike)->ArrayLike:
         # Define the average timestep in the chromatogram. This computes a mean
         # but values will typically be identical.
         

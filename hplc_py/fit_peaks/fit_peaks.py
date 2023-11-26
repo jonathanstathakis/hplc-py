@@ -118,7 +118,7 @@ class PeakFitter(correct_baseline.BaselineCorrector, find_windows.WindowFinder, 
             ).T
         
         if correct_baseline and not self._bg_corrected:
-            self.correct_baseline(window=approx_peak_width,
+            self.correct_baseline(windowsize=approx_peak_width,
                                     verbose=verbose, return_df=False)
 
         # Assign the window bounds
