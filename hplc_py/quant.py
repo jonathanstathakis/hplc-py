@@ -78,7 +78,7 @@ class Chromatogram(
         self.time_col = None
         self.int_col = None
         self.dt = None
-        self._crop_offset = None
+        self._crop_offset = 0
         self.window_props = None
         self.scores = None
         self._peak_indices = None
@@ -88,7 +88,8 @@ class Chromatogram(
         self._mapped_peaks = None
         self._added_peaks = None
         self.unmixed_chromatograms = None
-        self._crop_offset = 0
+        # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
+        self.windowstates = []
     
     def load_data(self,
                 time: ArrayLike,
@@ -113,24 +114,31 @@ class Chromatogram(
         self.time_col = timecol_label
         self.int_col = signalcol_label
 
-        # Construct the chromatogram df
-        self.df = pd.DataFrame([[time, signal]], columns=[self.time_col, self.int_col], index=np.arange(len(time)))
-
-        # Define the average timestep in the chromatogram. This computes a mean
-        # but values will typically be identical.
-        def get_timestep(time_series: ArrayLike)->ArrayLike:
-            self._dt = np.mean(np.diff(time_series))
-
-        self._dt = get_timestep(self.df[self.time_col])
+        # Construct the chromatogram df and name the column and index
+        self.df = pd.DataFrame(np.array([time, signal]).reshape(-1,2), columns=[self.time_col, self.int_col], index=np.arange(len(time)))
+        self.df = self.df.rename_axis("index",axis=0)
+        self.df = self.df.rename_axis("dimensions",axis=1)
         
-        # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
-        self.windowstates = []
+        for col in self.df:
+            if not isinstance(self.df.loc[0, col], (int, float)):
+                raise ValueError("columns must consist of int or float")
+            
+
+        self._dt = self.get_timestep(self.df[self.time_col])
         
         # Prune to time window
         if time_window is not None:
-            self.df = self.crop(time_window)
+            self.df, self.crop(self.df, self.time_col, time_window)
+            self._crop_offset = self.get_crop_offset(time_window[0], self._dt)
         
         return self
+    
+    def get_timestep(self, time_series: ArrayLike)->ArrayLike:
+        # Define the average timestep in the chromatogram. This computes a mean
+        # but values will typically be identical.
+        
+        dt = np.mean(np.diff(time_series))
+        return dt        
 
     def __repr__(self):
         trange = f'(t: {self.df[self.time_col].values[0]} - {self.df[self.time_col].values[-1]})'
@@ -148,8 +156,10 @@ class Chromatogram(
         return rep
 
     def crop(self,
-             time_window=None,
-             ):
+             df: pd.DataFrame,
+             time_col: str,
+             time_window:list=None,
+             )->pd.DataFrame:
         R"""
         Restricts the time dimension of the DataFrame in place.
 
@@ -166,6 +176,7 @@ class Chromatogram(
         cropped_df : pandas DataFrame
             If `return_df = True`, then the cropped dataframe is returned.
         """
+        
         if self.peaks is not None:
             raise RuntimeError("""
 You are trying to crop a chromatogram after it has been fit. Make sure that you 
@@ -173,17 +184,32 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
         if len(time_window) != 2:
             raise ValueError(
                 f'`time_window` must be of length 2 (corresponding to start and end points). Provided list is of length {len(time_window)}.')
+            
+        for val in time_window:
+            if not isinstance(val, (int,float)):
+                raise ValueError(f"each val in `time_window` must be int or float")
+        
         if time_window[0] >= time_window[1]:
             raise RuntimeError(
                 f'First index in `time_window` must be ≤ second index.')
 
         # Apply the crop and return
-        self.df = self.df[(self.df[self.time_col] >= time_window[0]) &
-                          (self.df[self.time_col] <= time_window[1])]
-        # set the offset
-        self._crop_offset = int(time_window[0] / self._dt)
+        try:
+            mask = ((df[time_col]>=time_window[0])&(df[time_col]<=time_window[1]))
+        except Exception as e:
+            print(e)
+            print(time_col)
+            print(time_window[0])
+            print(time_window[1])
+            print(df)
+            raise ValueError
         
-        return self.df
+        df = df[mask]
+        
+        return df
+    
+    def get_crop_offset(self, time_start: int|float, dt: int|float)->float:
+        return int(time_start/dt)
 
     def _score_reconstruction(self):
         R"""
