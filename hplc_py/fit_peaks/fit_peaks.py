@@ -3,9 +3,11 @@ import numpy as np
 from hplc_py.find_windows import find_windows
 from hplc_py.deconvolve_peaks import deconvolve_peaks
 from hplc_py.baseline_correct import correct_baseline
-class PeakFitterMixin(correct_baseline.BaselineCorrector, find_windows.WindowFinder, deconvolve_peaks.PeakDeconvolver):
+
+class PeakFitter(correct_baseline.BaselineCorrector, find_windows.WindowFinder, deconvolve_peaks.PeakDeconvolver):
 
     def fit_peaks(self,
+                    df: pd.DataFrame,
                     known_peaks=[],
                     tolerance=0.5,
                     prominence=1E-2,
@@ -152,7 +154,7 @@ class PeakFitterMixin(correct_baseline.BaselineCorrector, find_windows.WindowFin
         self.peaks = peak_df
 
         # Compute the mixture
-        time = self.df[self.time_col].values
+        time = df[self.time_col].values
         out = np.zeros((len(time), len(peak_df)))
         iter = 0
         for _, _v in self._deconvolved_peak_props.items():

@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from numpy.typing import ArrayLike
 import scipy.signal
 import scipy.optimize
 import scipy.special
@@ -11,10 +12,13 @@ import termcolor
 
 from hplc_py.fit_peaks import fit_peaks
 from hplc_py.map_peaks import map_peaks
+from hplc_py.baseline_correct import correct_baseline
+from hplc_py.find_windows import find_windows
+from hplc_py.hplc_py_typing.hplc_py_typing import checkArrayLike
+from pandas import _typing
 
 class Chromatogram(
     map_peaks.PeakMapper,
-    fit_peaks.PeakFitterMixin,
                    ):
     """
     Base class for the processing and quantification of an HPLC chromatogram.
@@ -44,10 +48,7 @@ class Chromatogram(
     """
 
     def __init__(self,
-                 file,
-                 time_window=None,
-                 cols={'time': 'time',
-                       'signal': 'signal'}):
+                 ):
         """
         Instantiates a chromatogram object on which peak detection and quantification
         is performed.
@@ -69,25 +70,15 @@ class Chromatogram(
             of the chromatogram. Default is 
             `{'time':'time', 'signal':'signal'}`. 
        """
-
-        # Peform type checks and throw exceptions where necessary.
-        if (type(file) is not pd.core.frame.DataFrame):
-            raise RuntimeError(
-                f'Argument must be a Pandas DataFrame. Argument is of type {type(file)}')
-
-        # Assign class variables
-        self.time_col = cols['time']
-        self.int_col = cols['signal']
-
-        # Load the chromatogram and necessary components to self.
-        dataframe = file.copy()
-        self.df = dataframe
-
-        # Define the average timestep in the chromatogram. This computes a mean
-        # but values will typically be identical.
-        self._dt = np.mean(np.diff(dataframe[self.time_col].values))
-
-       # Blank out vars that are used elsewhere
+       # initialize
+        self.baseline=correct_baseline.BaselineCorrector()
+        self._windows=find_windows.WindowFinder()
+        self.fit_peaks = fit_peaks.PeakFitter()
+        self.df = None
+        self.time_col = None
+        self.int_col = None
+        self.dt = None
+        self._crop_offset = None
         self.window_props = None
         self.scores = None
         self._peak_indices = None
@@ -98,15 +89,48 @@ class Chromatogram(
         self._added_peaks = None
         self.unmixed_chromatograms = None
         self._crop_offset = 0
+    
+    def load_data(self,
+                time: ArrayLike,
+                signal: ArrayLike,
+                timecol_label: str='time',
+                signalcol_label: str='signal',
+                time_window=None,
+                ):
+        
+        """
+        Replace the init logic with a specific loading function, primarily for decoupling functionality.
+        """
+        
+        # input validation
+        
+        if not checkArrayLike(time):
+            raise TypeError(f"time series must be ArrayLike, but passed {type(time)}")
+        if not checkArrayLike(signal):
+            raise TypeError(f"signal series must be ArrayLike, but passed {type(signal)}")
+        
+        # Assign column labels
+        self.time_col = timecol_label
+        self.int_col = signalcol_label
+
+        # Construct the chromatogram df
+        self.df = pd.DataFrame([[time, signal]], columns=[self.time_col, self.int_col], index=np.arange(len(time)))
+
+        # Define the average timestep in the chromatogram. This computes a mean
+        # but values will typically be identical.
+        def get_timestep(time_series: ArrayLike)->ArrayLike:
+            self._dt = np.mean(np.diff(time_series))
+
+        self._dt = get_timestep(self.df[self.time_col])
         
         # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
         self.windowstates = []
         
         # Prune to time window
         if time_window is not None:
-            self.crop(time_window)
-        else:
-            self.df = dataframe
+            self.df = self.crop(time_window)
+        
+        return self
 
     def __repr__(self):
         trange = f'(t: {self.df[self.time_col].values[0]} - {self.df[self.time_col].values[-1]})'
@@ -125,7 +149,7 @@ class Chromatogram(
 
     def crop(self,
              time_window=None,
-             return_df=False):
+             ):
         R"""
         Restricts the time dimension of the DataFrame in place.
 
@@ -158,8 +182,8 @@ do this before calling `fit_peaks()` or provide the argument `time_window` to th
                           (self.df[self.time_col] <= time_window[1])]
         # set the offset
         self._crop_offset = int(time_window[0] / self._dt)
-        if return_df:
-            return self.df
+        
+        return self.df
 
     def _score_reconstruction(self):
         R"""
@@ -432,8 +456,8 @@ to `fit_peaks()`."""
         return score_df
 
     def show(self,
-             fig,
-             ax,
+             fig=None,
+             ax=None,
              time_range=[],
              ):
         """

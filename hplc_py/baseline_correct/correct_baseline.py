@@ -5,6 +5,7 @@ import warnings
 
 class BaselineCorrector:
     def correct_baseline(self,
+                         df: pd.DataFrame,
                          window=5,
                          return_df=False,
                          verbose=True,
@@ -44,7 +45,7 @@ class BaselineCorrector:
             self.int_col = self.int_col.split('_corrected')[0]
 
         # Unpack and copy dataframe and intensity profile
-        df = self.df
+        
         signal = df[self.int_col].copy()
 
         # Look at the relative magnitudes of the maximum and minimum values

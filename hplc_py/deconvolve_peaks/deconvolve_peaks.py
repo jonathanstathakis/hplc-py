@@ -7,10 +7,18 @@ from dataclasses import dataclass
 
 from hplc_py.skewnorms import skewnorms
 from hplc_py.deconvolve_peaks import windowstate
+
+import logging
+logger = logging.getLogger(__name__)
     
 class PeakDeconvolver(skewnorms.SkewNorms):
     
     def add_custom_param_bounds(self, peak_idx, peak_window, param_bounds, _param_bounds, parorder):
+        
+        if not set(param_bounds.keys()).issubset(_param_bounds.keys()):
+            raise ValueError(f"param_bounds must be one of {_param_bounds.keys()}, got {param_bounds.keys()}")
+            
+        
         for param in parorder:
             if param in param_bounds.keys():
                 if param == 'amplitude':
@@ -63,10 +71,10 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         
         return window_dict
     
-    def get_many_peaks_warning(self):
+    def get_many_peaks_warning(self, window_dict):
         return warnings.warn(f"""
 -------------------------- Hey! Yo! Heads up! ----------------------------------
-| This time window (from {np.round(v['time_range'].min(), decimals=4)} to {np.round(v['time_range'].max(), decimals=3)}) has {v['num_peaks']} candidate peaks.
+| This time window (from {np.round(window_dict['time_range'].min(), decimals=4)} to {np.round(window_dict['time_range'].max(), decimals=3)}) has {window_dict['num_peaks']} candidate peaks.
 | This is a complex mixture and may take a long time to properly fit depending 
 | on how well resolved the peaks are. Reduce `buffer` if the peaks in this      
 | window should be separable by eye. Or maybe just go get something to drink.
@@ -92,21 +100,22 @@ class PeakDeconvolver(skewnorms.SkewNorms):
         return _peak_bounds
 
                 
-    def deconvolve_windows(self, peak_window_id,window_dict, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
+    def deconvolve_windows(self, peak_window_id, window_dict, param_bounds, known_peaks, parorder, paridx, max_iter, optimizer_kwargs, t_range):
         
         deconvolved_window_dict = {}
-
+    
         p0 = []
         bounds = [[],  []]
 
         # If there are more than 5 peaks in a mixture, throw a warning
         if window_dict['num_peaks'] >= 10:
-            self.get_many_peaks_warning()
+            self.get_many_peaks_warning(window_dict)
         
         
         assert window_dict['num_peaks']>0, f"\n{window_dict}"
         
-        for i, peak_idx in enumerate(range(window_dict['num_peaks'])):
+        # build guess and bounds for the window
+        for peak_idx in range(window_dict['num_peaks']):
             
             p0 = self.build_initial_guess(p0, window_dict, peak_idx)
 
@@ -145,6 +154,9 @@ class PeakDeconvolver(skewnorms.SkewNorms):
 
         try:
             # Perform the inference
+            
+            logger.info(f"fitting window {peak_window_id}")
+            
             popt, _ = scipy.optimize.curve_fit(self._fit_skewnorms, window_dict['time_range'],
                                                 window_dict['signal'], p0=p0, bounds=bounds, maxfev=max_iter,
                                                 **optimizer_kwargs)

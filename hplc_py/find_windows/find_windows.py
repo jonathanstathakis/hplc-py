@@ -1,9 +1,10 @@
 import scipy
 import numpy as np
 import warnings
+import pandas as pd
 
 class WindowFinderMixin:
-    def negative_baseline_correct(self, df):
+    def negative_baseline_correct(self, df: pd.DataFrame)->tuple:
             
             intensity = df[self.int_col].values
             int_sign = np.sign(intensity)
@@ -127,6 +128,7 @@ class WindowFinderMixin:
 
 class WindowFinder(WindowFinderMixin):
     def _assign_windows(self,
+                        df: pd.DataFrame,
                         known_peaks=[],
                         tolerance=0.5,
                         prominence=0.01,
@@ -170,7 +172,7 @@ class WindowFinder(WindowFinderMixin):
 
         # Correct for a negative baseline
         
-        intensity, int_sign, norm_int = self.negative_baseline_correct(self.df)
+        intensity, int_sign, norm_int = self.negative_baseline_correct(df)
 
         # Preform automated peak detection and set window ranges
         peaks, _ = scipy.signal.find_peaks(
@@ -254,8 +256,8 @@ class WindowFinder(WindowFinderMixin):
         
         return _dict
     
-    def setup_window_df(self):
-        window_df = self.df.copy(deep=True)
+    def setup_window_df(self, df: pd.DataFrame):
+        window_df = df.copy(deep=True)
         window_df.sort_values(by=self.time_col, inplace=True)
         window_df['time_idx'] = np.arange(len(window_df))
         window_df['window_id'] = 0
