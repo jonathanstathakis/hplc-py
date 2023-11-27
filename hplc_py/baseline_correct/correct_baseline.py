@@ -4,7 +4,7 @@ import tqdm
 import warnings
 import copy
 from numpy.typing import ArrayLike
-from hplc_py.hplc_py_typing.hplc_py_typing import checkArrayLike
+from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 
 class BaselineCorrector:
     
@@ -56,7 +56,7 @@ class BaselineCorrector:
         to avoid small values very near zero.
         """
 
-        if not checkArrayLike(intensity):
+        if not isArrayLike(intensity):
             raise TypeError(f"intensity must be Arraylike, got {type(intensity)}")
 
         if not isinstance(timestep, (int,float)):

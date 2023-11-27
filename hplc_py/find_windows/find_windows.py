@@ -1,140 +1,81 @@
-import scipy
+"""
+1. Identify peaks in chromatographic data
+2. clip the chromatogram into discrete peak windows
+
+- Use `scipy.signal.find_peaks` with prominence as main filter
+
+operation # 1 - find peaks
+1. normalize before applying algorithm to generalise prominence filter settings
+2. obtain the peak maxima indices
+
+operation # 2 - clip the chromatogram into windows
+
+- a window is defined as a region where peaks are overlapping or nearly overlapping.
+- a window is identified by measuring the peak width at lowest contour line, peaks with 
+overlapping contour lines are defined as influencing each other, therefore in the same window.
+- buffer parameter used to control where windows start and finish, their magnitude (?)
+"""
+
+from scipy import signal
 import numpy as np
 import warnings
 import pandas as pd
+from numpy.typing import ArrayLike
+from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
+import matplotlib.pyplot as plt
 
-class WindowFinderMixin:
-    def negative_baseline_correct(self, df: pd.DataFrame)->tuple:
-            
-            intensity = df[self.int_col].values
-            int_sign = np.sign(intensity)
-            norm_int = (intensity - intensity.min()) / \
-                (intensity.max() - intensity.min())
-            self.normint = int_sign * norm_int
-            
-            return intensity, int_sign, norm_int    
-
-    def get_amps_inds(self, intensity, peaks):
-        # Get the amplitudes and the indices of each peak
-        amps = np.sign(intensity[peaks])
-        pos_inds = amps > 0
-        neg_inds = amps < 0
-        
-        return amps, pos_inds, neg_inds
+class WindowFinderPlotter:
+    def __init__(self):
+        self.fig, self.ax = plt.subplots(1)
     
-    def get_peak_width_props(self, i, inds, rel_height, intensity, peak_indices, _widths, _left, _right):
-            
-            if i == 0:
-                _intensity = intensity
-            else:
-                _intensity = -intensity
-            if len(inds) > 0:
-                __widths, _, _, _ = scipy.signal.peak_widths(_intensity,
-                                                                peak_indices,
-                                                                rel_height=0.5)
-                _widths[inds] = __widths[inds]
-
-                _, _, __left, __right = scipy.signal.peak_widths(_intensity,
-                                                                    peak_indices,
-                                                                    rel_height=rel_height)
-                _left[inds] = __left[inds]
-                _right[inds] = __right[inds]
-                
-            return _left, _right
+    def plot_width_calc_overlay(self, intensity, peak_idx, width_df):
+        """
+        For plotting the initial peak width calculations
+        """
+        # signal
+        self.ax.plot(intensity, label='signal')
+        # peak maxima
+        self.ax.plot(peak_idx, intensity[peak_idx], '.', label='peak maxima')
+        # widths measured at the countour line. widths are measured at 0.5, but then 
+        # the left and right bases are returned for the user input value
         
-    def add_known_peaks(self, known_peaks, tolerance, buffer):
-                # Get the enforced peak positions
-        if type(known_peaks) == dict:
-            _known_peaks = list(known_peaks.keys())
-        else:
-            _known_peaks = known_peaks
+        width_df.pipe(lambda x: plt.hlines(y= x['chl'],xmin=x['left'], xmax=x['right'], label='widths', color='orange'))
+        self.ax.plot()
+        self.ax.legend()
+        
+        return self.ax
+    
+    def plot_peak_ranges(self, ax, intensity:ArrayLike, ranges:list):
+        """
+        To be used to plot the result of WindowFinder.compute_peak_ranges
+        """
+        ax.plot(intensity, label='signal')
+        for r in ranges:
+            ax.plot(
+                    r,
+                    np.zeros(r.shape),
+                    color='r')
+        return ax
+    
 
-        # Find the nearest location in the time array given the user-specified time
-        enforced_location_inds = np.int_(
-            np.array(_known_peaks) / self._dt) - self._crop_offset
-
-        # Update the user specified times with the nearest location
-        updated_loc = self._dt * enforced_location_inds + self._crop_offset
-        if type(known_peaks) == dict:
-            updated_known_peaks = known_peaks.copy()
-            for _new, _old in zip(updated_loc, _known_peaks):
-                updated_known_peaks[_new] = updated_known_peaks.pop(_old)
-            _known_peaks = list(updated_known_peaks)
-        else:
-            updated_known_peaks = list(np.copy(known_peaks))
-            for _old, _new in enumerate(updated_loc):
-                updated_known_peaks[_old] = _new
-            _known_peaks = updated_known_peaks
-        self._known_peaks = updated_known_peaks
-
-        # Clear peacks that are within a tolerance of the provided locations
-        # of known peaks.
-        for i, loc in enumerate(enforced_location_inds):
-            autodetected = np.nonzero(
-                np.abs(self._peak_indices - loc) <= (tolerance / self._dt))[0]
-            if len(autodetected) > 0:
-                # Remove the autodetected peak
-                self._peak_indices = np.delete(
-                    self._peak_indices, autodetected[0])
-                _widths = np.delete(_widths, autodetected[0])
-                _left = np.delete(_left, autodetected[0])
-                _right = np.delete(_right, autodetected[0])
-
-        # Add the provided locations of known peaks and adjust parameters as necessary.
-        for i, loc in enumerate(enforced_location_inds):
-            self._peak_indices = np.append(self._peak_indices, loc)
-            if self._added_peaks is None:
-                self._added_peaks = []
-            self._added_peaks.append((loc + self._crop_offset) * self._dt)
-            if type(known_peaks) == dict:
-                _sel_loc = updated_known_peaks[_known_peaks[i]]
-                if 'width' in _sel_loc.keys():
-                    _widths = np.append(
-                        _widths, _sel_loc['width'] / self._dt)
-                else:
-                    _widths = np.append(_widths, 1 / self._dt)
-            else:
-                _widths = np.append(_widths, 1 / self._dt)
-            _left = np.append(_left, loc - _widths[-1] - buffer)
-            _right = np.append(_right, loc + _widths[-1] + buffer)
-
-    def handle_background_windows(self, window_df, bg_windows, tidx):
-            split_inds = np.nonzero(
-                    np.diff(bg_windows['time_idx'].values) - 1)[0]
-
-                # If there is only one background window
-            if (len(split_inds) == 0):
-                window_df.loc[window_df['time_idx'].isin(
-                        bg_windows['time_idx'].values), 'window_id'] = 1
-                window_df.loc[window_df['time_idx'].isin(
-                        bg_windows['time_idx'].values), 'window_type'] = 'interpeak'
-
-                # If more than one split ind, set up all ranges.
-            elif split_inds[0] != 0:
-                split_inds += 1
-                split_inds = np.insert(split_inds, 0, 0)
-                split_inds = np.append(split_inds, len(tidx))
-
-            bg_ranges = [bg_windows.iloc[np.arange(
-                    split_inds[i], split_inds[i+1], 1)]['time_idx'].values for i in range(len(split_inds)-1)]
-            win_idx = 1
-            for i, rng in enumerate(bg_ranges):
-                if len(rng) >= 10:
-                    window_df.loc[window_df['time_idx'].isin(
-                            rng), 'window_id'] = win_idx
-                    window_df.loc[window_df['time_idx'].isin(
-                            rng), 'window_type'] = 'interpeak'
-                    win_idx += 1
-
-class WindowFinder(WindowFinderMixin):
+class WindowFinder:
+    
+    def __init__(self, viz:bool=True):
+        self.window_df = pd.DataFrame()
+        self.__viz=viz
+        
+        if self.__viz:
+            self.plotter = WindowFinderPlotter()
+    
     def _assign_windows(self,
-                        df: pd.DataFrame,
+                        time: ArrayLike,
+                        intensity: ArrayLike,
                         known_peaks=[],
                         tolerance=0.5,
                         prominence=0.01,
                         rel_height=1,
                         buffer=0,
-                        peak_kwargs={}):
+                        peak_kwargs:dict=dict())->pd.DataFrame:
     
         R"""
         Breaks the provided chromatogram down to windows of likely peaks. 
@@ -167,84 +108,104 @@ class WindowFinder(WindowFinderMixin):
             the window IDs. Window ID of -1 corresponds to area not assigned to 
             any peaks
         """
+
+        # input validation
         if (rel_height < 0) | (rel_height > 1):
             raise ValueError(f' `rel_height` must be [0, 1].')
-
-        # Correct for a negative baseline
         
-        intensity, int_sign, norm_int = self.negative_baseline_correct(df)
+        if not isArrayLike(time):
+            raise TypeError(f"time must be array-like, got {type(intensity)}")
 
-        # Preform automated peak detection and set window ranges
-        peaks, _ = scipy.signal.find_peaks(
-            int_sign * norm_int, prominence=prominence, **peak_kwargs)
-        self._peak_indices = peaks
+        if not isArrayLike(intensity):
+            raise TypeError(f"intensity must be array-like, got {type(intensity)}")
         
-        amps, pos_inds, neg_inds = self.get_amps_inds(intensity, peaks)
-
-        # Set up storage vectors for peak quantities
-        _widths = np.zeros_like(amps)
-        _left = np.zeros(len(amps)).astype(int)
-        _right = np.zeros(len(amps)).astype(int)
+    def assign_windows(self,
+                       time: ArrayLike,
+                       intensity: ArrayLike,
+                       buffer:int=0,
+                       prominence: float=0.01,
+                       rel_height: float=1,
+                       peak_kwargs:dict=dict()
+                       ):
         
-        # Get the peak properties
-        with warnings.catch_warnings():
-            warnings.simplefilter(
-                "ignore", category=scipy.signal._peak_finding_utils.PeakPropertyWarning)
-            
-            for i, inds in enumerate([pos_inds, neg_inds]):
-                _left, _right = self.get_peak_width_props(i, inds, rel_height, intensity, self._peak_indices, _widths, _left, _right)    
+        norm_int = self.normalize_intensity(intensity)
+        width_df = self.identify_peaks(time,
+                                       norm_int,
+                                       prominence,
+                                       rel_height,
+                                       peak_kwargs
+                                       )
+    
+        # calculate the range of each peak, returned as a list of ranges. Essentially
+        # translates the calculated widths to time intervals, modified by the buffer
+        ranges = self.compute_peak_ranges(
+                                        norm_int,
+                                        width_df['left'],
+                                        width_df['right'],
+                                        buffer,
+        )
+    
+        # Identiy subset ranges
+        ranges_mask = self.mask_subset_ranges(ranges)
+
+        # Keep only valid ranges and baselines        
+        self.ranges = self.validate_ranges(ranges, ranges_mask)
         
-        # Determine if peaks should be added.
-        if len(known_peaks) > 0:
-            self.add_known_peaks(known_peaks, tolerance, buffer)
-        else:
-            self._known_peaks = known_peaks
-
-        # Set window ranges
-        ranges = self.set_window_ranges(buffer, norm_int, _left, _right)
-
-        # Identiy subset ranges and remove
-        valid = self.remove_subset_ranges(ranges)
-
-        # Keep only valid ranges and baselines
-        ranges = [r for i, r in enumerate(ranges) if valid[i] is True]
-        self.ranges = ranges
-
-        # Copy the dataframe and return the windows
-        window_df = self.setup_window_df()
+        assert False
+        
+        # assign windows
         
         for i, r in enumerate(ranges):
-            window_df.loc[window_df['time_idx'].isin(r),
+            self.window_df.loc[self.window_df['time_idx'].isin(r),
                           'window_id'] = int(i + 1)
 
         # Determine the windows for the background (nonpeak) areas.
-        bg_windows = window_df[window_df['window_id'] == 0]
+        bg_windows = self.window_df[self.window_df['window_id'] == 0]
         tidx = bg_windows['time_idx'].values
 
         if len(bg_windows) > 0:
-            self.handle_background_windows(window_df, bg_windows, tidx)
-        window_df = window_df[window_df['window_id'] > 0]
+            self.handle_background_windows(self.window_df, bg_windows, tidx)
+        self.window_df = self.window_df[self.window_df['window_id'] > 0]
 
         # Convert this to a dictionary for easy parsing
         window_dicts = {}
-        for peak_window_id, peak_window in window_df[window_df['window_type'] == 'peak'].groupby('window_id'):
+        for peak_window_id, peak_window in self.window_df[self.window_df['window_type'] == 'peak'].groupby('window_id'):
             if peak_window_id > 0:
-                _dict = self.create_window_dict(_widths, peak_window)
+                _dict = self.create_window_dict(peak_idx, width_df['width'], peak_window)
                 window_dicts[int(peak_window_id)] = _dict
 
-        self.window_df = window_df
+        
         self.window_props = window_dicts
         
-        return window_df
+        return self.window_df
+    
+    def compute_peak_idx(self, norm_int: ArrayLike, prominence:float, peak_kwargs:dict=dict())->ArrayLike:
+            # Preform automated peak detection and set window ranges
+            
+            if not isArrayLike(norm_int):
+                raise TypeError(f"norm_int should be array-like, got {type(norm_int)}")
+    
+            if norm_int.ndim!=1:
+                raise ValueError('norm_int has too many dimensions, ensure is 1D array')
+            
+            if not len(norm_int)>1:
+                raise ValueError(f'norm_int not long enough, got {len(norm_int)}')
+            
+            peak_idx, _ = signal.find_peaks(
+                                norm_int,
+                                prominence =prominence,
+                                **peak_kwargs)
+        
+            return peak_idx
 
-    def create_window_dict(self, _widths, peak_window):
+    def create_window_dict(self, peak_idx, _widths, peak_window):
         _peak_idx = [
-                    p for p in self._peak_indices if p in peak_window['time_idx'].values]
+                    p for p in peak_idx if p in peak_window['time_idx'].values]
                 
         assert len(_peak_idx)>0
                 
         peak_inds = [x for _idx in _peak_idx for x in np.where(
-                    self._peak_indices == _idx)[0]]
+                    peak_idx == _idx)[0]]
         
         _dict = {'time_range': peak_window[self.time_col].values,
                          'signal': peak_window[self.int_col].values,
@@ -256,16 +217,32 @@ class WindowFinder(WindowFinderMixin):
         
         return _dict
     
-    def setup_window_df(self, df: pd.DataFrame):
-        window_df = df.copy(deep=True)
-        window_df.sort_values(by=self.time_col, inplace=True)
-        window_df['time_idx'] = np.arange(len(window_df))
-        window_df['window_id'] = 0
-        window_df['window_type'] = 'peak'
+    def setup_window_df(self, length: int):
+        
+        window_df = pd.DataFrame(
+            dict(
+        time_idx= np.arange(length),
+        window_id=0,
+        window_type= 'peak',
+            )
+        )
         return window_df
 
-    def remove_subset_ranges(self, ranges):
-        valid = [True] * len(ranges)
+    def mask_subset_ranges(self, ranges):
+        """
+        Generate a boolean mask of the peak ranges array which defaults to True, but
+        False if for range i, range i+1 is a subset of range i.
+        """
+        # generate an array of True values
+        valid = np.full(len(ranges), True)
+        
+        '''
+        if there is more than one range in ranges, set up two identical nested loops.
+        The inner loop skips the first iteration then checks if the values in range i+1
+        are a subset of range i, if they are, range i+1 is marked as invalid. 
+        A subset is defined as one where the entirety of the subset is contained within
+        the superset.
+        '''
         if len(ranges) > 1:
             for i, r1 in enumerate(ranges):
                 for j, r2 in enumerate(ranges):
@@ -274,10 +251,204 @@ class WindowFinder(WindowFinderMixin):
                             valid[j] = False
         return valid
 
-    def set_window_ranges(self, buffer, norm_int, _left, _right):
+    def compute_peak_ranges(self,
+                          norm_int:ArrayLike,
+                          left_base:ArrayLike,
+                          right_base:ArrayLike,
+                          buffer:int=0,
+                          ):
+        """
+        calculate the range of each peak based on the left and right base extended by 
+        the buffer size, restricted to positive values and the length of the intensity
+        array.
+        
+        Return a list of possible peak ranges
+        """
         ranges = []
-        for l, r in zip(_left, _right):
-            _range = np.arange(int(l - buffer), int(r + buffer), 1)
-            _range = _range[(_range >= 0) & (_range <= len(norm_int))]
-            ranges.append(_range)
+        
+        for l, r in zip(left_base, right_base):
+            
+            peak_range = np.arange(int(l - buffer), int(r + buffer), 1)
+            
+            peak_range = peak_range[(peak_range >= 0) & (peak_range <= len(norm_int))]
+            
+            ranges.append(peak_range)
+            
         return ranges
+    
+    def normalize_intensity(self, intensity: ArrayLike)->ArrayLike:
+        """
+        Calculate and return the min-max normalized intensity, accounting for a negative baseline by extracting direction prior to normalization then reapplying before returning.
+        """
+        
+        """
+        if the range of values is [-5,-4,-3,-2,-1,0,1,2,3] then for say -1 the calculation is:
+        
+        y = (-1 - - 5)/(3 - - 5)
+        y = (4)/(8)
+        y = 1/2
+        
+        but if y was 1:
+        
+        y = (1 - - 5)/(3 - - 5)
+        y = (6)/(8)
+        y = 3/4
+        
+        and zero:
+        
+        y = (0 - - 5)/( 3 - - 5)
+        y = 5/8
+        
+        The denominator stays the same regardless of the input. prior to the subtraction it reduces the numerator to:
+        
+        y = (x/8)-(min(x)/8)
+        
+        if x is negative, this becomes an addition, if positive, becomes a subtraction, contracting everything down to the range defined.
+        
+        for [-5,-4,-3,-2,-1,0,1,2,3]:
+        
+        int_sign = [-1, -1, -1, -1, -1, 0, 1, 1, 1]
+        
+        y = (x+5/8)
+        and
+                   [-5, -4,  -3,  -2,  -1,  0,  1,  2,  3]
+        
+        norm_int = [0, 1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, 1]
+        
+        multupling that by the negative sign would give you:
+        
+        [0, -1/8, -1/4, -3/8, -1/2, -5/8, +3/4, +7/8, +1]
+        
+        then multiplying again would simply reverse it.
+        """
+        
+        if not isArrayLike(intensity):
+            raise TypeError(f"intensity must be ArrayLike, got {intensity}")
+        
+        norm_int_magnitude = (intensity - intensity.min()) / \
+            (intensity.max() - intensity.min())
+        
+        norm_int = norm_int_magnitude
+
+        return norm_int
+
+    def get_amps_inds(self, intensity: ArrayLike, peak_idx: ArrayLike)-> tuple:
+        # Get the amplitudes and the indices of each peak
+        peak_maxima_sign = np.sign(intensity[peak_idx])
+        peak_maxima_pos = peak_maxima_sign > 0
+        peak_maxima_neg = peak_maxima_sign < 0
+        
+        if not peak_maxima_sign.dtype==float:
+            raise TypeError(f"peak_maximas_sign must be float, got {peak_maxima_sign.dtype}")
+        if not peak_maxima_pos.dtype==bool:
+            raise TypeError(f"peak_maxima_pos must be bool, got {peak_maxima_pos.dtype}")
+        if not peak_maxima_neg.dtype==bool:
+            raise TypeError(f"peak_maxima_pos must be bool, got {peak_maxima_neg.dtype}")
+        
+        return peak_maxima_sign, peak_maxima_pos, peak_maxima_neg
+    
+    def get_peak_width_props(self,
+                             intensity:ArrayLike,
+                             peak_idx:ArrayLike,
+                             rel_height:int|float=1,
+                             )->tuple:
+        """
+        return the left and right bases of each peak as seperate arrays.
+        """
+        
+        
+        # Set up storage vectors for peak quantities
+        l = len(peak_idx
+                )
+        
+        width_df = pd.DataFrame(
+            dict(
+            peak_idx = peak_idx,
+            width = np.zeros_like(l),
+            chl = 0,
+            left=0,
+            right=0
+            )
+        )
+        
+        # get the widths in index units at rel_height 0.5
+        width_df['width'], _, _, _ = signal.peak_widths(intensity,
+                                                        peak_idx,
+                                                        rel_height=0.5)
+        
+        # contour line height
+        _, width_df['clh'], width_df['left'], width_df['right'] = signal.peak_widths(intensity,
+                                                                peak_idx,
+                                                                rel_height=rel_height)
+            
+        
+        return width_df
+        
+    def handle_background_windows(self, window_df, bg_windows, tidx):
+            split_inds = np.nonzero(
+                    np.diff(bg_windows['time_idx'].values) - 1)[0]
+
+                # If there is only one background window
+            if (len(split_inds) == 0):
+                window_df.loc[window_df['time_idx'].isin(
+                        bg_windows['time_idx'].values), 'window_id'] = 1
+                window_df.loc[window_df['time_idx'].isin(
+                        bg_windows['time_idx'].values), 'window_type'] = 'interpeak'
+
+                # If more than one split ind, set up all ranges.
+            elif split_inds[0] != 0:
+                split_inds += 1
+                split_inds = np.insert(split_inds, 0, 0)
+                split_inds = np.append(split_inds, len(tidx))
+
+            bg_ranges = [bg_windows.iloc[np.arange(
+                    split_inds[i], split_inds[i+1], 1)]['time_idx'].values for i in range(len(split_inds)-1)]
+            win_idx = 1
+            for i, rng in enumerate(bg_ranges):
+                if len(rng) >= 10:
+                    window_df.loc[window_df['time_idx'].isin(
+                            rng), 'window_id'] = win_idx
+                    window_df.loc[window_df['time_idx'].isin(
+                            rng), 'window_type'] = 'interpeak'
+                    win_idx += 1
+                    
+    def validate_ranges(self, ranges:list, mask:list)->list:
+        
+        validated_ranges = []
+        for i, r in enumerate(ranges):
+            if mask[i]:
+                validated_ranges.append(r)
+            
+        return validated_ranges
+        
+    def identify_peaks(self, time: ArrayLike,
+                       intensity: ArrayLike,
+                       prominence:float=0.01,
+                       rel_height:float=1,
+                       peak_kwargs:dict=dict(),
+                       ):
+        # setup
+        self.window_df = self.setup_window_df(len(time))
+        
+        peak_idx = self.compute_peak_idx(intensity,
+                                         prominence,
+                                         peak_kwargs)
+        
+        # Get the peak properties
+        with warnings.catch_warnings():
+            warnings.simplefilter(
+                "ignore", category=signal._peak_finding_utils.PeakPropertyWarning)
+            
+            
+        width_df = self.get_peak_width_props(
+                                                  intensity,
+                                                  peak_idx,
+                                                  rel_height,
+                                                  )    
+        
+        # create the widths plot for viz.
+        if self.__viz:
+            self.plotter.plot_width_calc_overlay(intensity, peak_idx, width_df)
+        plt.show()
+        
+        return width_df

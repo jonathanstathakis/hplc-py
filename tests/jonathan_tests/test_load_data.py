@@ -5,18 +5,18 @@ import matplotlib.pyplot as plt
 import copy
 
 from hplc_py.quant import Chromatogram
-from hplc_py.hplc_py_typing.hplc_py_typing import checkArrayLike
+from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
         
 @pytest.fixture
-def timestep(chm, time_array)-> float:
-    timestep = chm.get_timestep(time_array)
+def timestep(chm, time)-> float:
+    timestep = chm.get_timestep(time)
     assert timestep, "timestep not initialized"
     
     assert timestep > 0, "timestep unrealistic"
     return timestep
 
-def test_timestep(timestep, time_array, loaded_chm):
-    assert timestep == loaded_chm.get_timestep(time_array), "calculated timesteps differ"
+def test_timestep(timestep, time, loaded_chm):
+    assert timestep == loaded_chm.get_timestep(time), "calculated timesteps differ"
     
 @pytest.fixture
 def valid_time_windows():

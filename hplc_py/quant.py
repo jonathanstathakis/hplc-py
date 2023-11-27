@@ -22,7 +22,7 @@ from hplc_py.fit_peaks import fit_peaks
 from hplc_py.map_peaks import map_peaks
 from hplc_py.baseline_correct import correct_baseline
 from hplc_py.find_windows import find_windows
-from hplc_py.hplc_py_typing.hplc_py_typing import checkArrayLike
+from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 from pandas import _typing
 
 class Chromatogram(
@@ -56,6 +56,7 @@ class Chromatogram(
     """
 
     def __init__(self,
+                 viz:bool=True
                  ):
         """
         Instantiates a chromatogram object on which peak detection and quantification
@@ -80,7 +81,7 @@ class Chromatogram(
        """
        # initialize
         self.baseline=correct_baseline.BaselineCorrector()
-        self._windows=find_windows.WindowFinder()
+        self.findwindows=find_windows.WindowFinder(viz=viz)
         self.fit_peaks = fit_peaks.PeakFitter()
         self.df = None
         self.time_col = None
@@ -113,9 +114,9 @@ class Chromatogram(
         
         # input validation
         
-        if not checkArrayLike(time):
+        if not isArrayLike(time):
             raise TypeError(f"time series must be ArrayLike, but passed {type(time)}")
-        if not checkArrayLike(signal):
+        if not isArrayLike(signal):
             raise TypeError(f"signal series must be ArrayLike, but passed {type(signal)}")
         
         # Assign column labels

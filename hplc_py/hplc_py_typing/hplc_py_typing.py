@@ -1,6 +1,6 @@
 from typing import Any
 
-def checkArrayLike(x: Any):
+def isArrayLike(x: Any):
     
     if not any(x):
         raise ValueError("x is None")
