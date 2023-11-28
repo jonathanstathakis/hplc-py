@@ -25,8 +25,8 @@ from hplc_py.fit_peaks import fit_peaks
 from hplc_py.map_peaks import map_peaks
 from hplc_py.baseline_correct import correct_baseline
 from hplc_py.find_windows import find_windows
-from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
-from pandas import _typing
+from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFIn
+
 
 class Chromatogram(
     map_peaks.PeakMapper,
@@ -86,7 +86,11 @@ class Chromatogram(
         self.baseline=correct_baseline.BaselineCorrector()
         self.findwindows=find_windows.WindowFinder(viz=viz)
         self.fit_peaks = fit_peaks.PeakFitter()
-        self.df=pd.DataFrame()
+        self._internal_df = pd.DataFrame({'time':pd.Series([0], dtype=float),
+                                       'amp':pd.Series([0], dtype=float),
+                                       'bcorr':pd.Series([0], dtype=float),
+                                       'background':pd.Series([0], dtype=float),
+                                        }).pipe(pt.DataFrame[SignalDFIn])
         self.time_col = ""
         self.int_col = ""
         self.dt = 0
@@ -104,11 +108,8 @@ class Chromatogram(
         self.windowstates:list = []
     
     def load_data(self,
-                time: pt.Series[float]|npt.NDArray[np.float64],
-                signal: pt.Series[float]|npt.NDArray[np.float64],
-                timecol_label: str='time',
-                signalcol_label: str='signal',
-                time_window=None,
+                signal_df: pt.DataFrame[SignalDFIn],
+                time_window: list[float]=[],
                 ):
         
         """
@@ -117,52 +118,48 @@ class Chromatogram(
         
         # input validation
         
-        if not isArrayLike(time):
-            raise TypeError(f"time series must be ArrayLike, but passed {type(time)}")
-        if not isArrayLike(signal):
-            raise TypeError(f"signal series must be ArrayLike, but passed {type(signal)}")
+        if not isinstance(signal_df, pd.DataFrame):
+            raise TypeError(
+                "`signal_df` must be a Pandas DataFrame with"
+                "float columns 'time' and 'signal"
+                )
         
         # Assign column labels
-        self.time_col = timecol_label
-        self.int_col = signalcol_label
+        self.time_col = 'time'
+        self.int_col = 'amp'
 
-        # Construct the chromatogram df and name the column and index
+        # store the chromatogram df and (re)name the column and index
         
+        self._internal_df[['amp','time']] = signal_df[['amp','time']]
         
-        self.df = pd.DataFrame(
-                                {
-                                    self.time_col:time,
-                                    self.int_col:signal
-                                }
-                                )
+        self._internal_df = self._internal_df.rename_axis("index",axis=0)
+        self._internal_df = self._internal_df.rename_axis("dimensions",axis=1)
         
-        self.df = self.df.rename_axis("index",axis=0)
-        
-        self.df = self.df.rename_axis("dimensions",axis=1)
-        
-        for col in self.df:
-            if not isinstance(self.df.loc[0, col], (int, float)):
-                raise ValueError("columns must consist of int or float")
+        for col in self._internal_df:
+            if not isinstance(self._internal_df.loc[0, col], float):
+                raise ValueError("columns must be float")
             
 
-        self._dt = self.compute_timestep(self.df[self.time_col])
+        self._dt = self.compute_timestep(self._internal_df['time'])
         
         # Prune to time window
-        if time_window is not None:
-            self.df, self.crop(self.df, self.time_col, time_window)
+        if len(time_window)>0:
+            
+            self._internal_df = self.crop(self._internal_df, 'time', time_window)
+            
             self._crop_offset = self.get_crop_offset(time_window[0], self._dt)
         
         return self
     
-    def compute_timestep(self, time_array: npt.NDArray[np.float64])->npt.NDArray[np.float64]:
+    def compute_timestep(self, time_array: npt.NDArray[np.float64])->np.float64:
         # Define the average timestep in the chromatogram. This computes a mean
         # but values will typically be identical.
         
         dt = np.mean(np.diff(time_array))
-        return dt        
+        return dt.astype(np.float64)
 
     def __repr__(self):
-        trange = f'(t: {self.df[self.time_col].values[0]} - {self.df[self.time_col].values[-1]})'
+        trange = f'(t: {self._internal_df[self.time_col].values[0]} - {self._internal_df[self.time_col].values[-1]})'
         rep = f"""Chromatogram:"""
         if self._crop_offset > 0:
             rep += f'\n\t\u2713 Cropped {trange}'
@@ -177,8 +174,7 @@ class Chromatogram(
         return rep
 
     def crop(self,
-             df: pt.DataFrame,
-             time_col: str,
+             df: pt.DataFrame[SignalDFIn],
              time_window:list=[],
              )->pt.DataFrame:
         R"""
@@ -200,34 +196,12 @@ class Chromatogram(
         
         if self.peaks is not None:
             raise RuntimeError("""
-You are trying to crop a chromatogram after it has been fit. Make sure that you 
-do this before calling `fit_peaks()` or provide the argument `time_window` to the `fit_peaks()`.""")
-        if len(time_window) != 2:
-            raise ValueError(
-                f'`time_window` must be of length 2 (corresponding to start and end points). Provided list is of length {len(time_window)}.')
-            
-        for val in time_window:
-            if not isinstance(val, (int,float)):
-                raise ValueError(f"each val in `time_window` must be int or float")
+        You are trying to crop a chromatogram after it has been fit. Make sure that you 
+        do this before calling `fit_peaks()` or provide the argument `time_window` to the `fit_peaks()`.""")
         
-        if time_window[0] >= time_window[1]:
-            raise RuntimeError(
-                f'First index in `time_window` must be ≤ second index.')
-
-        # Apply the crop and return
-        try:
-            mask = ((df[time_col]>=time_window[0])&(df[time_col]<=time_window[1]))
-        except Exception as e:
-            print(e)
-            print(time_col)
-            print(time_window[0])
-            print(time_window[1])
-            print(df)
-            raise ValueError
+        df = df.query("(time>=@time_window[0])&(time<=@time_window[1])").pipe(pt.DataFrame[SignalDFIn])
         
-        df = df[mask]
-        
-        return df
+        return df.pipe(pt.DataFrame[SignalDFIn])
     
     def get_crop_offset(self, time_start: int|float, dt: int|float)->float:
         return int(time_start/dt)
@@ -543,14 +517,14 @@ to `fit_peaks()`."""
         ax.set_ylabel(ylabel)
 
         # Plot the raw chromatogram
-        ax.plot(self.df[self.time_col], self.df[self.int_col], 'k-',
+        ax.plot(self._internal_df[self.time_col], self._internal_df[self.int_col], 'k-',
                 label='raw chromatogram')
         
         # Compute the skewnorm mix
         self._viz_min_one_concentration = None
         if self.peaks is not None:
             self._viz_peak_reconstruction = True
-            time = self.df[self.time_col].values
+            time = self._internal_df[self.time_col].values
             
             # Plot the mix
             convolved = np.sum(self.unmixed_chromatograms, axis=1)
@@ -591,9 +565,9 @@ to `fit_peaks()`."""
                 ax.set_ylim(bottom=-d.maxima.max()*0.2, top=d.maxima.max()*1.1)
         else:
             self._viz_peak_reconstruction = False
-        if 'estimated_background' in self.df.keys():
+        if 'estimated_background' in self._internal_df.keys():
             self._viz_subtracted_baseline = True
-            ax.plot(self.df[self.time_col], self.df['estimated_background'],
+            ax.plot(self._internal_df[self.time_col], self._internal_df['estimated_background'],
                     color='dodgerblue', label='estimated background', zorder=1)
         else:
             self._viz_subtracted_baseline = False
@@ -615,8 +589,8 @@ to `fit_peaks()`."""
             self._viz_adjusted_xlim = True
             ax.set_xlim(time_range)
             # Determine the max min and max value of the chromatogram within range.
-            _y = self.df[(self.df[self.time_col] >= time_range[0]) & (
-                self.df[self.time_col] <= time_range[1])][self.int_col].values
+            _y = self._internal_df[(self._internal_df[self.time_col] >= time_range[0]) & (
+                self._internal_df[self.time_col] <= time_range[1])][self.int_col].values
             ax.set_ylim([ax.get_ylim()[0], 1.1 * _y.max()])
         
         

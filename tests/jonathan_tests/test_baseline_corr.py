@@ -1,12 +1,13 @@
-import numpy as np
 import pytest
 import pandas as pd
-from pandas import DataFrame, Series
+import numpy as np
+
+import pandera.typing as pt
 import numpy as np
 import numpy.typing as npt
 import matplotlib.pyplot as plt
 from hplc_py.quant import Chromatogram
-from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
+from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike, SignalDFIn
 from scipy import integrate
 
 """
@@ -14,39 +15,56 @@ from scipy import integrate
 
 test `correct_baseline`
 """
+@pytest.fixture
+def amp(testsignal):
+  return testsignal.amp.to_numpy(dtype=np.float64)
 
-def test_get_tform(loaded_chm: Chromatogram, intensity_raw):
+# testdata: pt.DataFrame[SignalDF]
+
+@pytest.fixture
+def compressed_amp(chm: Chromatogram, amp: npt.NDArray[np.float64])-> npt.NDArray[np.float64]:
+  
+  # intensity raw compressed
+  intensity_rc = chm.baseline.compute_compressed_signal(amp)
+  
+  assert intensity_rc
+  
+  return intensity_rc
+
+def test_get_tform(chm: Chromatogram,
+                   amp
+                   ):
     
-    tform = loaded_chm.baseline.compute_compressed_signal(intensity_raw)
+    tform = chm.baseline.compute_compressed_signal(amp)
     
     assert np.all(tform)
     assert isinstance(tform, np.ndarray)
 
+
+def test_compute_inv_tfrom(chm: Chromatogram,
+                           amp,
+                           )->None:
+
+  chm.baseline.compute_inv_tform(amp)
+
+
 @pytest.fixture
-def compressed_intensity(chm: Chromatogram, intensity_raw: npt.NDArray[np.float64])-> npt.NDArray:
+def bcorr(chm: Chromatogram, amp: npt.NDArray[np.float64], windowsize:int, timestep: np.float64):
   
-  # intensity raw compressed
-  intensity_rc = chm.baseline.compute_compressed_signal(intensity_raw)
+  bcorr = chm.baseline.correct_baseline(amp, windowsize, timestep)[0]
   
-  print(type(intensity_rc))
-
-
-def test_compute_inv_tfrom(chm: Chromatogram, intensity_raw: npt.NDArray[np.float64])->None:
-  # chm.baseline.
-  chm.baseline.compute_inv_tform(intensity_raw)
-
+  return bcorr
+  
 def test_correct_baseline(
-                        intensity_raw,
+                        amp,
+                        bcorr,
                         time,
-                        intensity_corrected,
                           )->None:
-    
-    
     
     # pass the test if the area under the corrected signal is less than the area under the raw signal
     
-    raw_auc = integrate.trapezoid(intensity_raw, time)
-    bcorr_auc = integrate.trapezoid(intensity_corrected, time)
+    raw_auc = integrate.trapezoid(amp, time)
+    bcorr_auc = integrate.trapezoid(bcorr, time)
     
     assert raw_auc>bcorr_auc
     

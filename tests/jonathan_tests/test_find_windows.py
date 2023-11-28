@@ -9,15 +9,18 @@ import matplotlib.pyplot as plt
 import copy
 from hplc_py.quant import Chromatogram
 from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
+
+from hplc_py.hplc_py_typing.hplc_py_typing import WidthDF, WindowedSignalDF
+
 plt.style.use('bmh')
 
 @pytest.fixture
-def int_cn(chm: Chromatogram, intensity_corrected:npt.NDArray[np.float64])->npt.NDArray[np.float64]:
+def int_cn(chm: Chromatogram, bcorr:npt.NDArray[np.float64])->npt.NDArray[np.float64]:
     '''
     `int_cn` has the base data as the first element of the namespace then the process 
     in order. i.e. intensity: [corrected, normalized]
     '''
-    int_cn = chm.findwindows.normalize_intensity(intensity_corrected)
+    int_cn = chm.findwindows.normalize_intensity(bcorr)
     
     assert any(int_cn)
     assert isArrayLike(int_cn)
@@ -32,7 +35,7 @@ def prominence():
 
 @pytest.fixture
 def peak_idx(chm: Chromatogram,
-              int_cn:npt.NDArray[np.float64],
+              int_cn:pt.Series[float],
               prominence: int|float,
               )->pt.Series:
     
@@ -47,41 +50,30 @@ def peak_idx(chm: Chromatogram,
     
     return peak_idx
 
-def test_peak_idx(peak_idx):
-    assert any(peak_idx)
-
-
 @pytest.fixture
 def width_df(chm: Chromatogram,
-                              intensity_corrected: pt.Series[float],
+                              bcorr: pt.Series[float],
                               peak_idx: pt.Series[int],
                               ):
     
     width_df = chm.findwindows.build_width_df(
-                                         intensity_corrected,
-                                         peak_idx=peak_idx,
+                                         peak_idx,
+                                         bcorr,
                                          )
     return width_df
 
 @pytest.fixture
-def norm_int(chm: Chromatogram,intensity_corrected):
-    norm_int = chm.findwindows.normalize_intensity(intensity_corrected)
+def norm_int(chm: Chromatogram,
+             bcorr: npt.NDArray[np.float64],
+             ):
+    norm_int = chm.findwindows.normalize_intensity(bcorr)
     return norm_int
-
-def test_norm_int(norm_int:npt.NDArray[np.float64])->None:
-    assert len(norm_int)>0
-    assert np.min(norm_int)==0
-    assert np.max(norm_int)==1
-
-def test_width_df(width_df):
-    assert isinstance(width_df, pd.DataFrame)
-    assert not width_df.empty
     
 @pytest.fixture
 def all_ranges(
     chm:Chromatogram,
-    norm_int,
-    width_df,
+    norm_int:pt.Series[float],
+    width_df:pt.DataFrame[WidthDF],
 ):
     ranges = chm.findwindows.compute_individual_peak_ranges(norm_int, width_df['left'],width_df['right'])
     
@@ -122,6 +114,41 @@ def ranges_with_subset_mask(chm, ranges_with_subset):
     new_mask = chm.findwindows.mask_subset_ranges(ranges_with_subset)
     assert any(new_mask==False)
     return new_mask
+
+@pytest.fixture
+def windowed_df(chm: Chromatogram,
+              norm_int: npt.NDArray[np.float64],
+              time: npt.NDArray[np.float64],
+              width_df: pt.DataFrame[WidthDF],
+              ):
+    window_df = chm.findwindows.window_signal_df(
+        norm_int,
+        time,
+        width_df.left.to_numpy(np.float64),
+        width_df.right.to_numpy(np.float64),
+    )
+    
+    return window_df
+
+def test_peak_idx(peak_idx):
+    assert any(peak_idx)
+
+def test_norm_int(norm_int:npt.NDArray[np.float64])->None:
+    assert len(norm_int)>0
+    assert np.min(norm_int)==0
+    assert np.max(norm_int)==1
+
+def test_width_df(width_df):
+    assert isinstance(width_df, pd.DataFrame)
+    assert not width_df.empty
+
+def test_window_df(windowed_df):
+    
+    assert not windowed_df.empty
+    
+    print(
+        windowed_df
+    )
 
 def test_validate_ranges(chm,
                          all_ranges,
@@ -166,26 +193,27 @@ def test_mock_validate_ranges(ranges_with_subset, ranges_with_subset_mask):
     
     return validated_ranges
 
+def test_construct_dict_of_window_dicts(chm: Chromatogram, window_df: pt.DataFrame[WindowedSignalDF], width_df: pt.DataFrame[WidthDF])->None:
+    
+    window_dicts = chm.findwindows.construct_dict_of_window_dicts(window_df,width_df,)
+
+    assert any(window_dicts)
+    
+    print(window_dicts)
+    
+    return None
+
 def test_find_windows(chm: Chromatogram,
                       time: pt.Series,
                       timestep: float,
-                      intensity_corrected: pt.Series,)->None:
+                      bcorr: pt.Series,)->None:
     
-    if intensity_corrected.ndim!=1:
+    if bcorr.ndim!=1:
         raise ValueError
     
     chm.findwindows.assign_windows(
                         time,
-                        intensity_corrected,
+                        bcorr,
                         timestep,
                         
                         )
-    
-def test_ranges(chm):
-  ranges = chm.findwindows.compute_individual_peak_ranges(
-    [0.1,0.2,0.3,0.4,0.5],
-    [0.01,0.04,0.40,0.45],
-    [0.003,0.07,0.43,0.49],
-  )
-  
-  print(ranges)

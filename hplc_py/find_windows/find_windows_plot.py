@@ -5,24 +5,24 @@ import pandera.typing as pt
 import numpy.typing as npt
 import matplotlib.pyplot as plt
 
-from hplc_py.find_windows.find_windows_df_typing import WindowDF, WidthDF
+from hplc_py.hplc_py_typing.hplc_py_typing import WindowedSignalDF, WidthDF
 
 class WindowFinderPlotter:
     def __init__(self):
         self.fig, self.ax = plt.subplots(1)
     
     def plot_width_calc_overlay(self,
-                                intensity: pt.Series,
-                                peak_idx: pt.Series,
+                                amp: npt.NDArray[np.float64],
+                                peak_idx: npt.NDArray[np.int64],
                                 width_df: pt.DataFrame[WidthDF]
                                 ):
         """
         For plotting the initial peak width calculations
         """
         # signal
-        self.ax.plot(intensity, label='signal')
+        self.ax.plot(amp, label='signal')
         # peak maxima
-        self.ax.plot(peak_idx, intensity[peak_idx], '.', label='peak maxima')
+        self.ax.plot(peak_idx, amp[peak_idx], '.', label='peak maxima')
         # widths measured at the countour line. widths are measured at 0.5, but then 
         # the left and right bases are returned for the user input value
         

@@ -1,35 +1,31 @@
 import numpy as np
 import pandas as pd
-from pandera.typing import Series
+import pandera as pa
+import pandera.typing as pt
 import tqdm
 import warnings
 import copy
 from typing import Any
-from numpy.typing import NDArray
-
-
-from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
+import numpy.typing as npt
 
 class BaselineCorrector:
     
     def __init__(self):
         self._bg_corrected = False
-        self._int_col = None
         self._int_corr_col_suffix = "_corrected"
         self._windowsize=None,
         self._n_iter=None
         self._verbose=True
-        self._shift = 0
         self._background_col = 'background'
         
         self._bg_correction_progress_state=None
         
     def correct_baseline(self,
-                         intensity: Series[float],
+                         signal: npt.NDArray[np.float64],
                          windowsize:int=5,
-                         timestep:int|float=0,
+                         timestep:np.float64=np.float64(0),
                          verbose:bool=True,
-                         precision=9)->tuple[Series[float], Series[float]]:
+                         precision=9)->tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         R"""
         Performs Sensitive Nonlinear Iterative Peak (SNIP) clipping to estimate 
         and subtract background in chromatogram.
@@ -60,15 +56,7 @@ class BaselineCorrector:
         to avoid small values very near zero.
         """
 
-        if not isArrayLike(intensity):
-            raise TypeError(f"intensity must be Arraylike, got {type(intensity)}")
-
-        if not isinstance(timestep, (int,float)):
-            raise TypeError(f"timestep must be int or float, got {type(timestep)}")
-        
-        if not isinstance(windowsize, int):
-            raise TypeError(f"windowsize must be int, got {type(windowsize)}")
-        
+        shift = np.float64(0)
         self._verbose=verbose
         self._precision=precision
         
@@ -76,22 +64,26 @@ class BaselineCorrector:
             warnings.warn(
                 'Baseline has already been corrected. Rerunning on original signal...')
         
-        # Unpack and copy dataframe and intensity profile
-        intensity = copy.deepcopy(intensity)
+        
+        # enforce array datatype
+        amp = np.asarray(signal, np.float64)
+        
+        if amp.ndim!=1:
+            raise ValueError("amp has too many dimensions, please enter a 1D array")
 
         # Look at the relative magnitudes of the maximum and minimum values
         # And throw a warning if there are appreciable negative peaks.
         
-        has_negatives = self.check_for_negatives(intensity)
+        has_negatives = self.check_for_negatives(amp)
         
         if has_negatives:
             # Clip the signal if the median value is negative
-            self._shift = self.compute_shift(intensity)
+            shift = self.compute_shift(amp)
             
-            intensity = self.clip_signal(intensity, self._shift)
+            amp = self.clip_signal(amp, shift)
         
         # compute the LLS operator to reduce signal dynamic range
-        s_compressed = self.compute_compressed_signal(intensity)
+        s_compressed = self.compute_compressed_signal(amp)
         
         # iteratively filter the compressed signal
         s_compressed_prime = self.compute_s_compressed_minimum(s_compressed, windowsize, timestep, verbose)
@@ -100,40 +92,46 @@ class BaselineCorrector:
         
         inv_tform = self.compute_inv_tform(s_compressed_prime)
         
-        background_corrected_intensity =self.transform_and_subtract(intensity, self._precision, inv_tform, self._shift)
+        background_corrected_intensity =self.transform_and_subtract(amp,
+                                                                    precision,
+                                                                    inv_tform,
+                                                                    shift
+                                                                    )
         
-        background =self.compute_background(inv_tform, self._shift)
+        background =self.compute_background(inv_tform, shift)
         
         self._bg_corrected = True
         
         return background_corrected_intensity, background
+        
+        
 
-    def compute_compressed_signal(self, signal: NDArray[np.float64])-> np.ndarray:
+    def compute_compressed_signal(self, signal: npt.NDArray[np.float64])-> npt.NDArray[np.float64]:
         """
         return a compressed signal using the LLS operator.
         """
         tform = np.log(np.log(np.sqrt(signal + 1) + 1) + 1)
         
-        return tform
+        return tform.astype(np.float64)
     
-    def compute_inv_tform(self, tform: NDArray[np.float64])-> NDArray[np.float64]:
+    def compute_inv_tform(self, tform: npt.NDArray[np.float64])-> npt.NDArray[np.float64]:
         # invert the transformer
         inv_tform = ((np.exp(np.exp(tform) - 1) - 1)**2 - 1)
-        return inv_tform
+        return inv_tform.astype(np.float64)
         
     def transform_and_subtract(self,
-                               signal: Series[float],
+                               signal: npt.NDArray[np.float64],
                                precision:int,
-                               inv_tform: NDArray[np.float64],
-                               shift:float,
-                               )->np.ndarray:
+                               inv_tform: npt.NDArray[np.float64],
+                               shift:np.float64|int=0,
+                               )->npt.NDArray[np.float64]:
         
         
         transformed_signal = np.round((signal - shift - inv_tform), decimals=precision)
         
-        return transformed_signal
+        return transformed_signal.astype(np.float64)
 
-    def check_for_negatives(self, signal:Series)->None:
+    def check_for_negatives(self, signal:npt.NDArray[np.float64])->bool:
         
         has_negatives = False
         
@@ -156,21 +154,23 @@ class BaselineCorrector:
 
         return has_negatives
 
-    def compute_shift(self, signal: Series)->float:
+    def compute_shift(self, signal: npt.NDArray[np.float64])->np.float64:
 
         # the shift is computed as the median of the negative signal values
             
-        shift:float = np.median(signal[signal < 0])
+        shift = np.median(signal[signal < 0])
+        
+        shift = shift.astype(np.float64)
         
         return shift
     
-    def clip_signal(self, signal: Series, shift: float)-> Series:
+    def clip_signal(self, signal: npt.NDArray[np.float64], shift: np.float64)-> npt.NDArray[np.float64]:
         
         signal -= shift
         
         signal *= np.heaviside(signal, 0)
         
-        return signal
+        return signal.astype(np.float64)
     
     def compute_n_iter(self, windowsize: int, dt: float)->int:
         
@@ -185,7 +185,7 @@ class BaselineCorrector:
         """
         return range(1, n_iter + 1)
     
-    def compute_s_compressed_minimum(self, s_compressed: Series[float], windowsize:int, timestep: int|float, verbose:bool=True)->Series[float]:
+    def compute_s_compressed_minimum(self, s_compressed: npt.NDArray[np.float64], windowsize:int, timestep: int|float, verbose:bool=True) -> npt.NDArray[np.float64]:
         """
         Apply the filter to find the minimum of s_compressed to approximate the baseline
         """
@@ -205,20 +205,22 @@ class BaselineCorrector:
             iterator = self.compute_iterator(self._n_iter)
         
         # avoid Unbound warning
-        s_compressed_prime = Series()
+        s_compressed_prime = pd.Series([])
         
         for i in iterator:
             s_compressed_prime = s_compressed.copy()
+            
             for j in range(i, len(s_compressed) - i):
+                
                 s_compressed_prime[j] = min(s_compressed_prime[j],
                                 0.5 * (s_compressed_prime[j+i] + s_compressed_prime[j-i]))
-                
-        return s_compressed_prime
+        
+        return s_compressed_prime.astype(np.float64)
     
     def compute_background(self,
-                           inv_tform: NDArray[np.float64],
-                           shift:NDArray[np.float64]
-                           )->NDArray[np.float64]:
+                           inv_tform: npt.NDArray[np.float64],
+                           shift:np.float64=np.float64(0),
+                           )->npt.NDArray[np.float64]:
         
         background = inv_tform + shift
         

@@ -117,7 +117,7 @@ def test_bg_estimation():
     assert __df is None
 
     window = int(0.5 / np.mean(np.diff(data['x'].values)))
-    assert np.isclose(chrom.df['estimated_background'].values[window:-window],
+    assert np.isclose(chrom._internal_df['estimated_background'].values[window:-window],
                       data['bg'].values[window:-window], rtol=tol).all()
 
     with pytest.warns():
@@ -215,7 +215,7 @@ def test_crop():
     assert returned_df is not None
 
     chrom.crop([10, 20])
-    assert (chrom.df.x.values[0] >= 10) & (chrom.df.x.values[-1] <= 20)
+    assert (chrom._internal_df.x.values[0] >= 10) & (chrom._internal_df.x.values[-1] <= 20)
     _ = chrom.fit_peaks()
     try:
         chrom.crop([1, 2])
@@ -230,7 +230,7 @@ def test_crop():
     assert 'Baseline Subtracted' not in chrom.__repr__()
     assert 'Peak(s) Detected' not in chrom.__repr__()
     assert 'Enforced Peak Location(s)' not in chrom.__repr__()
-    assert (chrom.df.x.values[0] >= 10) & (chrom.df.x.values[-1] <= 20)
+    assert (chrom._internal_df.x.values[0] >= 10) & (chrom._internal_df.x.values[-1] <= 20)
 
 
 def test_deconvolve_peaks():
@@ -489,8 +489,8 @@ def test_generic_param_bounding():
     adj_pars = chrom._param_bounds[0]
 
     # Make sure the adjustments match
-    _loc = chrom.df['time'].values[chrom._peak_indices]
-    _amp = chrom.df['signal_corrected'].values[chrom._peak_indices]
+    _loc = chrom._internal_df['time'].values[chrom._peak_indices]
+    _amp = chrom._internal_df['signal_corrected'].values[chrom._peak_indices]
     truth = {'amplitude': _amp * adjustments['amplitude'],
              'location': _loc + adjustments['location'],
              'scale': [1, 3],
