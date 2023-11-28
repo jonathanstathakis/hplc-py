@@ -1,11 +1,11 @@
 import pytest
 import pandas as pd
+from pandas import DataFrame, Series
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
 
 from hplc_py.quant import Chromatogram
-from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
         
 @pytest.fixture
 def timestep(chm, time)-> float:

@@ -7,8 +7,11 @@ Chromatogram object will have a df member, class objects such as BaselineCorrect
 """
 
 import pandas as pd
+import pandera as pa
+import pandera.typing as pt
 import numpy as np
-from numpy.typing import ArrayLike
+import numpy.typing as npt
+
 import scipy.signal
 import scipy.optimize
 import scipy.special
@@ -83,14 +86,14 @@ class Chromatogram(
         self.baseline=correct_baseline.BaselineCorrector()
         self.findwindows=find_windows.WindowFinder(viz=viz)
         self.fit_peaks = fit_peaks.PeakFitter()
-        self.df = None
-        self.time_col = None
-        self.int_col = None
-        self.dt = None
+        self.df=pd.DataFrame()
+        self.time_col = ""
+        self.int_col = ""
+        self.dt = 0
         self._crop_offset = 0
-        self.window_props = None
-        self.scores = None
-        self._peak_indices = None
+        self.window_props = ""
+        self.scores = ""
+        self._peak_indices = ""
         self.peaks = None
         self._guesses = None
         self._bg_corrected = False
@@ -98,11 +101,11 @@ class Chromatogram(
         self._added_peaks = None
         self.unmixed_chromatograms = None
         # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
-        self.windowstates = []
+        self.windowstates:list = []
     
     def load_data(self,
-                time: ArrayLike,
-                signal: ArrayLike,
+                time: pt.Series[float]|npt.NDArray[np.float64],
+                signal: pt.Series[float]|npt.NDArray[np.float64],
                 timecol_label: str='time',
                 signalcol_label: str='signal',
                 time_window=None,
@@ -124,8 +127,17 @@ class Chromatogram(
         self.int_col = signalcol_label
 
         # Construct the chromatogram df and name the column and index
-        self.df = pd.DataFrame(np.array([time, signal]).reshape(-1,2), columns=[self.time_col, self.int_col], index=np.arange(len(time)))
+        
+        
+        self.df = pd.DataFrame(
+                                {
+                                    self.time_col:time,
+                                    self.int_col:signal
+                                }
+                                )
+        
         self.df = self.df.rename_axis("index",axis=0)
+        
         self.df = self.df.rename_axis("dimensions",axis=1)
         
         for col in self.df:
@@ -142,11 +154,11 @@ class Chromatogram(
         
         return self
     
-    def compute_timestep(self, time_series: ArrayLike)->ArrayLike:
+    def compute_timestep(self, time_array: npt.NDArray[np.float64])->npt.NDArray[np.float64]:
         # Define the average timestep in the chromatogram. This computes a mean
         # but values will typically be identical.
         
-        dt = np.mean(np.diff(time_series))
+        dt = np.mean(np.diff(time_array))
         return dt        
 
     def __repr__(self):
@@ -165,10 +177,10 @@ class Chromatogram(
         return rep
 
     def crop(self,
-             df: pd.DataFrame,
+             df: pt.DataFrame,
              time_col: str,
-             time_window:list=None,
-             )->pd.DataFrame:
+             time_window:list=[],
+             )->pt.DataFrame:
         R"""
         Restricts the time dimension of the DataFrame in place.
 

@@ -1,25 +1,26 @@
 import pandas as pd
+from pandas import DataFrame, Series
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 
-def subset_data(df: pd.DataFrame):
+def subset_data(dfDataFrame):
     
     df = df.query("(time<=4.5)&(time>=2)")
     return df
 
-def sharpen_data(df: pd.DataFrame):
+def sharpen_data(dfDataFrame):
     
     return df
 
-def find_peak_profiles(df: pd.DataFrame, ):
+def find_peak_profiles(dfDataFrame, ):
     """
     find_peak_profiles return the peak idx, amplitudes, widths, and left and right interpolated intersection points
 
     _extended_summary_
 
     :param df: _description_
-    :type df: pd.DataFrame
+    :type dfDataFrame
     :return: _description_
     :rtype: _type_
     """
@@ -55,7 +56,7 @@ def find_peak_profiles(df: pd.DataFrame, ):
     
     return peaks_df
 
-def plot_results(signal_df: pd.DataFrame, peak_df: pd.DataFrame)->None:
+def plot_results(signal_dfDataFrame, peak_dfDataFrame)->None:
     """
     Create a plot of the result of the peak widths calculations superimposed on the signal. Draw a horizontal line from left_ips to right_ips at width_heights, label the peaks etc.
     """

@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas import DataFrame, Series
 import numpy as np
 from hplc_py.find_windows import find_windows
 from hplc_py.deconvolve_peaks import deconvolve_peaks
@@ -7,7 +8,7 @@ from hplc_py.baseline_correct import correct_baseline
 class PeakFitter(correct_baseline.BaselineCorrector, find_windows.WindowFinder, deconvolve_peaks.PeakDeconvolver):
 
     def fit_peaks(self,
-                    df: pd.DataFrame,
+                    dfDataFrame,
                     known_peaks=[],
                     tolerance=0.5,
                     prominence=1E-2,

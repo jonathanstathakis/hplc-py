@@ -1,9 +1,13 @@
 import numpy as np
 import pandas as pd
+from pandera.typing import Series
 import tqdm
 import warnings
 import copy
-from numpy.typing import ArrayLike
+from typing import Any
+from numpy.typing import NDArray
+
+
 from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 
 class BaselineCorrector:
@@ -21,11 +25,11 @@ class BaselineCorrector:
         self._bg_correction_progress_state=None
         
     def correct_baseline(self,
-                         intensity: ArrayLike,
+                         intensity: Series[float],
                          windowsize:int=5,
-                         timestep:int|float=None,
+                         timestep:int|float=0,
                          verbose:bool=True,
-                         precision=9)->tuple:
+                         precision=9)->tuple[Series[float], Series[float]]:
         R"""
         Performs Sensitive Nonlinear Iterative Peak (SNIP) clipping to estimate 
         and subtract background in chromatogram.
@@ -104,7 +108,7 @@ class BaselineCorrector:
         
         return background_corrected_intensity, background
 
-    def compute_compressed_signal(self, signal: ArrayLike)-> np.ndarray:
+    def compute_compressed_signal(self, signal: NDArray[np.float64])-> np.ndarray:
         """
         return a compressed signal using the LLS operator.
         """
@@ -112,24 +116,24 @@ class BaselineCorrector:
         
         return tform
     
-    def compute_inv_tform(self, tform: np.array)-> np.array:
+    def compute_inv_tform(self, tform: NDArray[np.float64])-> NDArray[np.float64]:
         # invert the transformer
         inv_tform = ((np.exp(np.exp(tform) - 1) - 1)**2 - 1)
         return inv_tform
         
     def transform_and_subtract(self,
-                               signal: ArrayLike,
+                               signal: Series[float],
                                precision:int,
-                               inv_tform: np.array,
+                               inv_tform: NDArray[np.float64],
                                shift:float,
-                               )->pd.DataFrame:
+                               )->np.ndarray:
         
         
         transformed_signal = np.round((signal - shift - inv_tform), decimals=precision)
         
         return transformed_signal
 
-    def check_for_negatives(self, signal:pd.Series)->None:
+    def check_for_negatives(self, signal:Series)->None:
         
         has_negatives = False
         
@@ -152,15 +156,15 @@ class BaselineCorrector:
 
         return has_negatives
 
-    def compute_shift(self, signal: ArrayLike)->ArrayLike:
+    def compute_shift(self, signal: Series)->float:
 
         # the shift is computed as the median of the negative signal values
             
-        shift = np.median(signal[signal < 0])
+        shift:float = np.median(signal[signal < 0])
         
         return shift
     
-    def clip_signal(self, signal: ArrayLike, shift: float)-> ArrayLike:
+    def clip_signal(self, signal: Series, shift: float)-> Series:
         
         signal -= shift
         
@@ -181,7 +185,7 @@ class BaselineCorrector:
         """
         return range(1, n_iter + 1)
     
-    def compute_s_compressed_minimum(self, s_compressed: ArrayLike, windowsize:int, timestep: int|float, verbose:bool=True)->ArrayLike:
+    def compute_s_compressed_minimum(self, s_compressed: Series[float], windowsize:int, timestep: int|float, verbose:bool=True)->Series[float]:
         """
         Apply the filter to find the minimum of s_compressed to approximate the baseline
         """
@@ -199,7 +203,10 @@ class BaselineCorrector:
         else:
             self._bg_correction_progress_state = 0
             iterator = self.compute_iterator(self._n_iter)
-            
+        
+        # avoid Unbound warning
+        s_compressed_prime = Series()
+        
         for i in iterator:
             s_compressed_prime = s_compressed.copy()
             for j in range(i, len(s_compressed) - i):
@@ -208,6 +215,11 @@ class BaselineCorrector:
                 
         return s_compressed_prime
     
-    def compute_background(self, inv_tform: np.array, shift:np.array)->np.array:
+    def compute_background(self,
+                           inv_tform: NDArray[np.float64],
+                           shift:NDArray[np.float64]
+                           )->NDArray[np.float64]:
+        
         background = inv_tform + shift
+        
         return background

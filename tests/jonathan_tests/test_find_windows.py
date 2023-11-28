@@ -1,8 +1,10 @@
 import pytest
+
 import pandas as pd
+import pandera.typing as pt
 import numpy as np
-import numpy as np
-from numpy.typing import ArrayLike
+import numpy.typing as npt
+
 import matplotlib.pyplot as plt
 import copy
 from hplc_py.quant import Chromatogram
@@ -10,7 +12,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 plt.style.use('bmh')
 
 @pytest.fixture
-def int_cn(chm: Chromatogram, intensity_corrected:ArrayLike)->ArrayLike:
+def int_cn(chm: Chromatogram, intensity_corrected:npt.NDArray[np.float64])->npt.NDArray[np.float64]:
     '''
     `int_cn` has the base data as the first element of the namespace then the process 
     in order. i.e. intensity: [corrected, normalized]
@@ -30,9 +32,9 @@ def prominence():
 
 @pytest.fixture
 def peak_idx(chm: Chromatogram,
-              int_cn:ArrayLike,
+              int_cn:npt.NDArray[np.float64],
               prominence: int|float,
-              )->ArrayLike:
+              )->pt.Series:
     
     peak_idx = chm.findwindows.compute_peak_idx(
         int_cn,
@@ -51,31 +53,29 @@ def test_peak_idx(peak_idx):
 
 @pytest.fixture
 def width_df(chm: Chromatogram,
-                              intensity_corrected: ArrayLike,
-                              peak_idx: ArrayLike,
+                              intensity_corrected: pt.Series[float],
+                              peak_idx: pt.Series[int],
                               ):
     
-    width_df = chm.findwindows.get_peak_width_props(
+    width_df = chm.findwindows.build_width_df(
                                          intensity_corrected,
-                                         peak_idx=peak_idx
+                                         peak_idx=peak_idx,
                                          )
-    assert isinstance(width_df, pd.DataFrame)
-    assert not width_df.empty
     return width_df
 
 @pytest.fixture
 def norm_int(chm: Chromatogram,intensity_corrected):
     norm_int = chm.findwindows.normalize_intensity(intensity_corrected)
+    return norm_int
+
+def test_norm_int(norm_int:npt.NDArray[np.float64])->None:
     assert len(norm_int)>0
     assert np.min(norm_int)==0
     assert np.max(norm_int)==1
-    return norm_int
-
-def test_norm_int(norm_int):
-    assert all(norm_int)
 
 def test_width_df(width_df):
-    assert width_df
+    assert isinstance(width_df, pd.DataFrame)
+    assert not width_df.empty
     
 @pytest.fixture
 def all_ranges(
@@ -83,7 +83,7 @@ def all_ranges(
     norm_int,
     width_df,
 ):
-    ranges = chm.findwindows.compute_peak_ranges(norm_int, width_df['left'],width_df['right'])
+    ranges = chm.findwindows.compute_individual_peak_ranges(norm_int, width_df['left'],width_df['right'])
     
     for range in ranges:
         assert all(range)
@@ -167,8 +167,9 @@ def test_mock_validate_ranges(ranges_with_subset, ranges_with_subset_mask):
     return validated_ranges
 
 def test_find_windows(chm: Chromatogram,
-                      time: ArrayLike,
-                      intensity_corrected: ArrayLike,)->None:
+                      time: pt.Series,
+                      timestep: float,
+                      intensity_corrected: pt.Series,)->None:
     
     if intensity_corrected.ndim!=1:
         raise ValueError
@@ -176,4 +177,15 @@ def test_find_windows(chm: Chromatogram,
     chm.findwindows.assign_windows(
                         time,
                         intensity_corrected,
+                        timestep,
+                        
                         )
+    
+def test_ranges(chm):
+  ranges = chm.findwindows.compute_individual_peak_ranges(
+    [0.1,0.2,0.3,0.4,0.5],
+    [0.01,0.04,0.40,0.45],
+    [0.003,0.07,0.43,0.49],
+  )
+  
+  print(ranges)

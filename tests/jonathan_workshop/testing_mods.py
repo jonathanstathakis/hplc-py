@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from pandas import DataFrame, Series
 import numpy as np
 from hplc_py.quant import Chromatogram
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ def get_parquet_data(filepath:str):
     data = pd.read_parquet(filepath)
     return data
 
-def sharpen_signal(signal: pd.Series, k: float=1):
+def sharpen_signal(signal: Series, k: float=1):
     
     sharpened_signal = signal-k*signal.diff().diff()
     

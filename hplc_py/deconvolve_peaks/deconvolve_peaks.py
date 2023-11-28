@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas import DataFrame, Series
 import numpy as np
 import scipy
 import warnings
@@ -143,7 +144,7 @@ class PeakDeconvolver(skewnorms.SkewNorms):
                                 guess=p0,
                                 peak_window=window_dict,
                                 parorder=parorder,
-                                full_windowed_chm_df=self.window_df
+                                full_windowed_chm_df=window_df
                                 )
                                 )
         

@@ -1,16 +1,23 @@
 import pytest
 import pandas as pd
+import pandera as pa
+import pandera.typing as pt
 import numpy as np
-from numpy.typing import ArrayLike
+import numpy.typing as npt
+
 from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 from hplc_py.quant import Chromatogram
 
+class TestDataDF(pa.DataFrameModel):
+    x: pt.Series[float]
+    y: pt.Series[float]
+              
 @pytest.fixture
 def testdata_path():
     return "tests/test_data/test_many_peaks.csv"
 
 @pytest.fixture
-def testdata(testdata_path)-> pd.DataFrame:
+def testdata(testdata_path)->pt.DataFrame[TestDataDF]:
     data = pd.read_csv(testdata_path)
     
     assert isinstance(data, pd.DataFrame)
@@ -22,13 +29,13 @@ def chm():
     return Chromatogram(viz=False)
 
 @pytest.fixture
-def time(testdata):
+def time(testdata: pt.DataFrame[TestDataDF]):
     assert isinstance(testdata, pd.DataFrame)
     assert isArrayLike(testdata.x)
     return testdata.x.values
 
 @pytest.fixture
-def timestep(chm: Chromatogram, time)->float:
+def timestep(chm: Chromatogram, time:npt.NDArray[np.float64])->float:
     timestep =  chm.compute_timestep(time)
     assert timestep
     assert isinstance(timestep, float)
@@ -50,11 +57,11 @@ def bcorr_col(intcol:str)->str:
     return intcol+"_corrected"
 
 @pytest.fixture
-def intensity_corrected(chm: Chromatogram, timestep: float, intensity_raw: ArrayLike, windowsize: int)->ArrayLike:
+def intensity_corrected(chm: Chromatogram, timestep: float, intensity_raw: pt.Series[float], windowsize: int)->pt.Series:
     background_corrected_intensity = chm.baseline.correct_baseline(intensity_raw, windowsize, timestep)[0]
     return background_corrected_intensity
 
-def background(chm: Chromatogram, timestep: float, signal_array: ArrayLike, windowsize: int)->ArrayLike:
+def background(chm: Chromatogram, timestep: float, signal_array: pt.Series[float], windowsize: int)->pt.Series[float]:
     background = chm.baseline.correct_baseline(signal_array, windowsize, timestep)[1]
     return background
 
