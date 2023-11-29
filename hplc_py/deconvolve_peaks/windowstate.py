@@ -58,8 +58,8 @@ class WindowState:
         
         self._peak_fitting_info_df = pd.merge(left=self.window_peak_properties_df.drop(['tbl_name'],axis=1),
                                               right=self.param_df.drop(['tbl_name','window_idx'],axis=1),
-                                              left_on='peak_idx',
-                                              right_on='peak_idx',
+                                              left_on='maxima_idx',
+                                              right_on='maxima_idx',
                                               suffixes=['_l','_r'])
         
         self._peak_fitting_info_df.insert(0, 'tbl_name','window_peak_fit_info')
@@ -83,7 +83,7 @@ class WindowState:
         # recreate peak index as a function of the length of the bounds array
         base_range = np.arange(self._num_peaks)+1
         
-        peak_idx = np.repeat(base_range, len(self._parorder))
+        maxima_idx = np.repeat(base_range, len(self._parorder))
         
         parorder_idx = self._parorder*self._num_peaks
         
@@ -93,7 +93,7 @@ class WindowState:
             dict(
             tbl_name='parameters',
             window_idx = self._window_idx,
-            peak_idx = peak_idx,
+            maxima_idx = maxima_idx,
             params=parorder_idx,
             lb=self._lb,
             guess=self._guess,
@@ -164,7 +164,7 @@ class WindowState:
          dict(
              tbl_name='peak_info',
              window_idx = self._window_idx,
-             peak_idx = np.arange(1, len(self._amplitudes)+1),
+             maxima_idx = np.arange(1, len(self._amplitudes)+1),
              location=self._locations,
              amplitude=self._amplitudes,
              width=self._widths

@@ -1,6 +1,14 @@
+"""
+TODO:
+
+- Finish defining the test schemas and use them where appropriate
+- further define the tests.
+"""
+
 import pytest
 
 import pandas as pd
+import pandera as pa
 import pandera.typing as pt
 import numpy as np
 import numpy.typing as npt
@@ -10,12 +18,12 @@ import copy
 from hplc_py.quant import Chromatogram
 from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
 
-from hplc_py.hplc_py_typing.hplc_py_typing import WidthDF, WindowedSignalDF
+from hplc_py.hplc_py_typing.hplc_py_typing import PeakDF, TestOutPeakDF, BaseWindowedSignalDF, TestOutWindowedSignalDF, TestAugmentedFrameWidthMetrics
 
 plt.style.use('bmh')
 
 @pytest.fixture
-def int_cn(chm: Chromatogram, bcorr:npt.NDArray[np.float64])->npt.NDArray[np.float64]:
+def amp_cn(chm: Chromatogram, bcorr:npt.NDArray[np.float64])->npt.NDArray[np.float64]:
     '''
     `int_cn` has the base data as the first element of the namespace then the process 
     in order. i.e. intensity: [corrected, normalized]
@@ -29,41 +37,17 @@ def int_cn(chm: Chromatogram, bcorr:npt.NDArray[np.float64])->npt.NDArray[np.flo
     
     return int_cn
 
-@ pytest.fixture
-def prominence():
-    return 0.01
+@pytest.fixture
+def peak_df(chm: Chromatogram,
+              amp_cn:npt.NDArray[np.float64],
+              )->npt.NDArray[np.float64]:
+    
+    peak_df = chm.findwindows.build_peak_df(amp_cn)
+    
+    return peak_df.pipe(pt.DataFrame[PeakDF])
 
 @pytest.fixture
-def peak_idx(chm: Chromatogram,
-              int_cn:pt.Series[float],
-              prominence: int|float,
-              )->pt.Series:
-    
-    peak_idx = chm.findwindows.compute_peak_idx(
-        int_cn,
-        prominence
-        )
-    
-    assert any(peak_idx)
-    assert len(peak_idx)>0
-    assert all(peak_idx>0)
-    
-    return peak_idx
-
-@pytest.fixture
-def width_df(chm: Chromatogram,
-                              bcorr: pt.Series[float],
-                              peak_idx: pt.Series[int],
-                              ):
-    
-    width_df = chm.findwindows.build_width_df(
-                                         peak_idx,
-                                         bcorr,
-                                         )
-    return width_df
-
-@pytest.fixture
-def norm_int(chm: Chromatogram,
+def norm_amp(chm: Chromatogram,
              bcorr: npt.NDArray[np.float64],
              ):
     norm_int = chm.findwindows.normalize_intensity(bcorr)
@@ -72,10 +56,14 @@ def norm_int(chm: Chromatogram,
 @pytest.fixture
 def all_ranges(
     chm:Chromatogram,
-    norm_int:pt.Series[float],
-    width_df:pt.DataFrame[WidthDF],
+    norm_amp:npt.NDArray[np.float64],
+    peak_df:pt.DataFrame[PeakDF],
 ):
-    ranges = chm.findwindows.compute_individual_peak_ranges(norm_int, width_df['left'],width_df['right'])
+    ranges = chm.findwindows.compute_individual_peak_ranges(
+        norm_amp,
+        peak_df['rl_left'],
+        peak_df['rl_right']
+        )
     
     for range in ranges:
         assert all(range)
@@ -114,41 +102,6 @@ def ranges_with_subset_mask(chm, ranges_with_subset):
     new_mask = chm.findwindows.mask_subset_ranges(ranges_with_subset)
     assert any(new_mask==False)
     return new_mask
-
-@pytest.fixture
-def windowed_df(chm: Chromatogram,
-              norm_int: npt.NDArray[np.float64],
-              time: npt.NDArray[np.float64],
-              width_df: pt.DataFrame[WidthDF],
-              ):
-    window_df = chm.findwindows.window_signal_df(
-        norm_int,
-        time,
-        width_df.left.to_numpy(np.float64),
-        width_df.right.to_numpy(np.float64),
-    )
-    
-    return window_df
-
-def test_peak_idx(peak_idx):
-    assert any(peak_idx)
-
-def test_norm_int(norm_int:npt.NDArray[np.float64])->None:
-    assert len(norm_int)>0
-    assert np.min(norm_int)==0
-    assert np.max(norm_int)==1
-
-def test_width_df(width_df):
-    assert isinstance(width_df, pd.DataFrame)
-    assert not width_df.empty
-
-def test_window_df(windowed_df):
-    
-    assert not windowed_df.empty
-    
-    print(
-        windowed_df
-    )
 
 def test_validate_ranges(chm,
                          all_ranges,
@@ -191,29 +144,81 @@ def test_mock_validate_ranges(ranges_with_subset, ranges_with_subset_mask):
         if ranges_with_subset_mask[i]:
             validated_ranges.append(r)
     
-    return validated_ranges
+    return None
 
-def test_construct_dict_of_window_dicts(chm: Chromatogram, window_df: pt.DataFrame[WindowedSignalDF], width_df: pt.DataFrame[WidthDF])->None:
+@pytest.fixture
+def windowed_signal_df(
+              chm: Chromatogram,
+              amp: npt.NDArray[np.float64],
+              norm_amp: npt.NDArray[np.float64],
+              time: npt.NDArray[np.float64],
+              peak_df: pt.DataFrame[PeakDF],
+              ):
+    window_df = chm.findwindows.window_signal_df(
+        amp,
+        norm_amp,
+        time,
+        peak_df.rl_left.to_numpy(np.float64),
+        peak_df.rl_right.to_numpy(np.float64),
+    )
     
-    window_dicts = chm.findwindows.construct_dict_of_window_dicts(window_df,width_df,)
+    return window_df
 
-    assert any(window_dicts)
+def test_norm_amp(norm_amp:npt.NDArray[np.float64])->None:
+    assert len(norm_amp)>0
+    assert np.min(norm_amp)==0
+    assert np.max(norm_amp)==1
+
+def test_peak_df(peak_df: pt.DataFrame[PeakDF]):
+    TestOutPeakDF(peak_df)
     
-    print(window_dicts)
+def test_maxima_idx(norm_amp: npt.NDArray[np.float64]):
+    
+    from scipy.signal import find_peaks
+    
+    maxima, _ = find_peaks(norm_amp)
+    
+def test_window_df(windowed_signal_df):
+    
+    TestOutWindowedSignalDF(windowed_signal_df)
+
+def test_create_augmented_df(chm: Chromatogram,
+                                        windowed_signal_df: pt.DataFrame[BaseWindowedSignalDF],
+                                        peak_df: pt.DataFrame[PeakDF],
+                                        timestep: np.float64,
+                                        )->None:
+    
+    
+    # seperate the below into individual test schemas
+    
+    augmented_df = (chm.findwindows
+                    .create_augmented_df(
+        peak_df,
+        windowed_signal_df,
+        timestep            
+        )       
+    )
+        
+    try:
+        augmented_df.pipe(TestAugmentedFrameWidthMetrics)
+    except Exception as e:
+        raise ValueError(f"schema error: {e}")
     
     return None
 
-def test_find_windows(chm: Chromatogram,
-                      time: pt.Series,
+def test_assign_windows(chm: Chromatogram,
+                      time: npt.NDArray[np.float64],
                       timestep: float,
-                      bcorr: pt.Series,)->None:
+                      bcorr: npt.NDArray[np.float64],)->None:
     
     if bcorr.ndim!=1:
         raise ValueError
     
-    chm.findwindows.assign_windows(
+    assert len(time)>0
+    assert len(bcorr)>0
+    
+    chm.findwindows.profile_peaks_assign_windows(
                         time,
                         bcorr,
                         timestep,
-                        
                         )

@@ -196,6 +196,14 @@ class BaselineCorrector:
         # Compute the number of iterations given the window size.
         self._n_iter=self.compute_n_iter(windowsize, timestep)
         
+        try:
+            s_compressed=np.asarray(s_compressed, dtype=np.float64)
+        except Exception as e:
+            raise ValueError("s_compressed should be castable to an array of float")
+        
+        if s_compressed.ndim!=1:
+            raise ValueError(f"s_compressed must be 1D array, got {s_compressed.ndim}")
+        
         if verbose:
             self._bg_correction_progress_state = 1
             iterator = tqdm.tqdm(self.compute_iterator(self._n_iter),
