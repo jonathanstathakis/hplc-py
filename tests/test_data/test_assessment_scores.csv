@@ -1,4 +1,4 @@
-window_id,window_type,status
+window_idx,window_type,status
 1,interpeak,needs review
 2,interpeak,invalid
 3,interpeak,valid

@@ -184,8 +184,8 @@ def test_score_reconstruction():
 
     _ = chrom.fit_peaks(prominence=0.9, rel_height=0.99, buffer=100)
     fit_scores = chrom.assess_fit(rtol=1E-3, verbose=False)
-    for g, d in scores.groupby(['window_id', 'window_type']):
-        _d = fit_scores[(fit_scores['window_id'] == g[0]) & (
+    for g, d in scores.groupby(['window_idx', 'window_type']):
+        _d = fit_scores[(fit_scores['window_idx'] == g[0]) & (
             fit_scores['window_type'] == g[1])]['status'].values
         assert (_d == d['status'].values).all()
 

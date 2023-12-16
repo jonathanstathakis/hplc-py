@@ -1,10 +1,11 @@
 import scipy
 import numpy as np
+import numpy.typing as npt
 
 class SkewNorms:
     def _compute_skewnorm(self,
                           x,
-                          *params):
+                          *params)->npt.NDArray[np.float64]:
         R"""
         Computes the lineshape of a skew-normal distribution given the shape,
         location, and scale parameters
@@ -53,7 +54,10 @@ class SkewNorms:
             
         cdf = 0.5 * (1 + scipy.special.erf(_x / np.sqrt(2)))
         
-        return amp * 2 * norm * cdf
+        dist = amp * 2 * norm * cdf
+        
+        print('computed')
+        return dist
 
     def _fit_skewnorms(self,
                        x,
@@ -86,6 +90,12 @@ class SkewNorms:
             value for all distributions modeled to construct the peak in the 
             chromatogram.
         """
+        if len(params) % 4 != 0:
+            raise ValueError(
+                "length of params must be divisible by 4\n"
+                f"length of params = {len(params)}"
+                )
+        
         # Get the number of peaks and reshape for easy indexing
         n_peaks = int(len(params) / 4)
         params = np.reshape(params, (n_peaks, 4))

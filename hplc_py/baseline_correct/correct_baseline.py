@@ -22,38 +22,12 @@ class BaselineCorrector:
         
     def correct_baseline(self,
                          signal: npt.NDArray[np.float64],
+                         timestep:np.float64,
                          windowsize:int=5,
-                         timestep:np.float64=np.float64(0),
                          verbose:bool=True,
                          precision=9)->tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         R"""
-        Performs Sensitive Nonlinear Iterative Peak (SNIP) clipping to estimate 
-        and subtract background in chromatogram.
-
-        Parameters
-        ----------
-        window : `int`
-            The approximate size of signal objects in the chromatogram in dimensions
-            of time. This is related to the number of iterations undertaken by 
-            the SNIP algorithm.
-        return_df : `bool`
-            If `True`, then chromatograms (before and after background correction) are returned
-        verbose: `bool`
-            If `True`, progress will be printed to screen as a progress bar. 
-        precision: `int`
-            The number of decimals to round the subtracted signal to. Default is 9.
-
-        Returns
-        -------
-        corrected_df : `pandas.core.frame.DataFrame`
-            If `return_df = True`, then the original and the corrected chromatogram are returned.
-
-        Notes
-        -----
-        This implements the SNIP algorithm as presented and summarized in `Morhác
-        and Matousek 2008 <https://doi.org/10.1366/000370208783412762>`_. The 
-        implementation here also rounds to 9 decimal places in the subtracted signal
-        to avoid small values very near zero.
+ 
         """
 
         shift = np.float64(0)
@@ -86,7 +60,11 @@ class BaselineCorrector:
         s_compressed = self.compute_compressed_signal(amp)
         
         # iteratively filter the compressed signal
-        s_compressed_prime = self.compute_s_compressed_minimum(s_compressed, windowsize, timestep, verbose)
+        s_compressed_prime = self.compute_s_compressed_minimum(s_compressed,
+                                                               windowsize,
+                                                               timestep,
+                                                               verbose
+                                                               )
 
         # Perform the inverse of the LLS transformation and subtract
         
@@ -114,7 +92,7 @@ class BaselineCorrector:
         
         return tform.astype(np.float64)
     
-    def compute_inv_tform(self, tform: npt.NDArray[np.float64])-> npt.NDArray[np.float64]:
+    def compute_inv_tform(self, tform: pt.Series[np.float64]|npt.NDArray[np.float64])-> npt.NDArray[np.float64]:
         # invert the transformer
         inv_tform = ((np.exp(np.exp(tform) - 1) - 1)**2 - 1)
         return inv_tform.astype(np.float64)
@@ -172,7 +150,7 @@ class BaselineCorrector:
         
         return signal.astype(np.float64)
     
-    def compute_n_iter(self, windowsize: int, dt: float)->int:
+    def compute_n_iter(self, windowsize: int, dt: np.float64)->int:
         
         assert isinstance(windowsize, int)
         assert isinstance(dt, float)
@@ -185,7 +163,7 @@ class BaselineCorrector:
         """
         return range(1, n_iter + 1)
     
-    def compute_s_compressed_minimum(self, s_compressed: npt.NDArray[np.float64], windowsize:int, timestep: int|float, verbose:bool=True) -> npt.NDArray[np.float64]:
+    def compute_s_compressed_minimum(self, s_compressed: npt.NDArray[np.float64], windowsize:int, timestep: np.float64, verbose:bool=True) -> pt.Series[float] | npt.NDArray[np.float64]:
         """
         Apply the filter to find the minimum of s_compressed to approximate the baseline
         """
@@ -197,11 +175,11 @@ class BaselineCorrector:
         self._n_iter=self.compute_n_iter(windowsize, timestep)
         
         try:
-            s_compressed=np.asarray(s_compressed, dtype=np.float64)
+            _s_compressed=np.asarray(s_compressed, dtype=np.float64)
         except Exception as e:
             raise ValueError("s_compressed should be castable to an array of float")
         
-        if s_compressed.ndim!=1:
+        if _s_compressed.ndim!=1:
             raise ValueError(f"s_compressed must be 1D array, got {s_compressed.ndim}")
         
         if verbose:
@@ -212,18 +190,18 @@ class BaselineCorrector:
             self._bg_correction_progress_state = 0
             iterator = self.compute_iterator(self._n_iter)
         
-        # avoid Unbound warning
-        s_compressed_prime = pd.Series([])
-        
         for i in iterator:
-            s_compressed_prime = s_compressed.copy()
+            s_compressed_prime = _s_compressed.copy()
             
-            for j in range(i, len(s_compressed) - i):
+            for j in range(i, len(_s_compressed) - i):
                 
                 s_compressed_prime[j] = min(s_compressed_prime[j],
                                 0.5 * (s_compressed_prime[j+i] + s_compressed_prime[j-i]))
+                
+            _s_compressed = s_compressed_prime
         
-        return s_compressed_prime.astype(np.float64)
+        s_compressed_series = pd.Series(_s_compressed, dtype=np.float64)
+        return s_compressed_series
     
     def compute_background(self,
                            inv_tform: npt.NDArray[np.float64],

@@ -6,7 +6,7 @@ import seaborn as sns
 
 class WindowState:
     def __init__(self,
-                 window_idx=None,
+                 window_idxx=None,
                  lb=None,
                  ub=None,
                  guess=None,
@@ -15,7 +15,7 @@ class WindowState:
                  full_windowed_chm_df=None,
                  ):
     
-        self._window_idx=window_idx
+        self._window_idxx=window_idxx
         self._lb=lb
         self._ub=ub
         self._guess=guess
@@ -40,7 +40,7 @@ class WindowState:
         self.signal_df = pd.DataFrame(
             dict(
                 tbl_name = 'signal',
-                window_idx = self._window_idx,
+                window_idxx = self._window_idxx,
                 time=self._time_range,
                 signal=self._signal
             )
@@ -49,7 +49,7 @@ class WindowState:
         self.window_info_df = pd.DataFrame(
             dict(
                 tbl_name='window_info',
-                window_idx=self._window_idx,
+                window_idxx=self._window_idxx,
                 num_peaks=self._num_peaks,
                 signal_area=self._signalarea
             ),
@@ -57,9 +57,9 @@ class WindowState:
         )
         
         self._peak_fitting_info_df = pd.merge(left=self.window_peak_properties_df.drop(['tbl_name'],axis=1),
-                                              right=self.param_df.drop(['tbl_name','window_idx'],axis=1),
-                                              left_on='maxima_idx',
-                                              right_on='maxima_idx',
+                                              right=self.param_df.drop(['tbl_name','window_idxx'],axis=1),
+                                              left_on='time_idx',
+                                              right_on='time_idx',
                                               suffixes=['_l','_r'])
         
         self._peak_fitting_info_df.insert(0, 'tbl_name','window_peak_fit_info')
@@ -67,11 +67,11 @@ class WindowState:
     def plot_full_windowed_signal(self):
         sns.relplot(
             self.full_windowed_chm_df
-            .assign(window_id=lambda x: x.window_id.astype(str))
+            .assign(window_idx=lambda x: x.window_idx.astype(str))
             .query("window_type=='peak'"),
             x='time',
             y='signal_corrected',
-            hue='window_id',
+            hue='window_idx',
             kind='line'    
         )
         plt.show()
@@ -83,7 +83,7 @@ class WindowState:
         # recreate peak index as a function of the length of the bounds array
         base_range = np.arange(self._num_peaks)+1
         
-        maxima_idx = np.repeat(base_range, len(self._parorder))
+        time_idx = np.repeat(base_range, len(self._parorder))
         
         parorder_idx = self._parorder*self._num_peaks
         
@@ -92,8 +92,8 @@ class WindowState:
         parameter_df = pd.DataFrame(
             dict(
             tbl_name='parameters',
-            window_idx = self._window_idx,
-            maxima_idx = maxima_idx,
+            window_idxx = self._window_idxx,
+            time_idx = time_idx,
             params=parorder_idx,
             lb=self._lb,
             guess=self._guess,
@@ -144,7 +144,7 @@ class WindowState:
                    )
         
         ax.annotate("error peak", (error_peak.location+0.05, error_peak.amplitude))
-        fig.suptitle(f"window {self._window_idx}")
+        fig.suptitle(f"window {self._window_idxx}")
         
         import matplotlib.ticker as plticker
         
@@ -163,8 +163,8 @@ class WindowState:
         peak_window_df = pd.DataFrame(
          dict(
              tbl_name='peak_info',
-             window_idx = self._window_idx,
-             maxima_idx = np.arange(1, len(self._amplitudes)+1),
+             window_idxx = self._window_idxx,
+             time_idx = np.arange(1, len(self._amplitudes)+1),
              location=self._locations,
              amplitude=self._amplitudes,
              width=self._widths

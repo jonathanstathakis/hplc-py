@@ -4,6 +4,14 @@
 Design notes:
 
 Chromatogram object will have a df member, class objects such as BaselineCorrector will not, only provide methods that operate on that df. therefore for testing will have to invert chm to apply on df.
+
+2023-12-10 18:09:25
+
+Response to above:
+
+that concept worked for baseline corrector, which operates on a 1 dimensional array of data with length N, but
+for the peak deconvolution etc operating on an indexed array is better for development purposes, if not the most computationally efficient method.
+
 """
 
 import pandas as pd
@@ -21,10 +29,11 @@ import warnings
 import seaborn as sns
 import termcolor
 
-from hplc_py.fit_peaks import fit_peaks
 from hplc_py.map_peaks import map_peaks
 from hplc_py.baseline_correct import correct_baseline
 from hplc_py.find_windows import find_windows
+from hplc_py.deconvolve_peaks import mydeconvolution
+from hplc_py import show 
 from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFIn
 
 
@@ -83,16 +92,13 @@ class Chromatogram(
             `{'time':'time', 'signal':'signal'}`. 
        """
        # initialize
-        self.baseline=correct_baseline.BaselineCorrector()
-        self.findwindows=find_windows.WindowFinder(viz=viz)
-        self.fit_peaks = fit_peaks.PeakFitter()
-        self._internal_df = pd.DataFrame({'time':pd.Series([0], dtype=float),
-                                       'amp':pd.Series([0], dtype=float),
-                                       'bcorr':pd.Series([0], dtype=float),
-                                       'background':pd.Series([0], dtype=float),
-                                        }).pipe(pt.DataFrame[SignalDFIn])
+        self._baseline=correct_baseline.BaselineCorrector()
+        self._findwindows=find_windows.WindowFinder(viz=viz)
+        self._deconvolve=mydeconvolution.PPeakDeconvolver()
+        self.show=show.Show()
+        self._internal_df = pt.DataFrame[SignalDFIn]
         self.time_col = ""
-        self.int_col = ""
+        self.amp_col = ""
         self.dt = 0
         self._crop_offset = 0
         self.window_props = ""
@@ -118,45 +124,84 @@ class Chromatogram(
         
         # input validation
         
-        if not isinstance(signal_df, pd.DataFrame):
-            raise TypeError(
-                "`signal_df` must be a Pandas DataFrame with"
-                "float columns 'time' and 'signal"
-                )
+        SignalDFIn(signal_df)
         
         # Assign column labels
         self.time_col = 'time'
-        self.int_col = 'amp'
+        self.amp_col = 'amp'
 
         # store the chromatogram df and (re)name the column and index
         
-        self._internal_df[['amp','time']] = signal_df[['amp','time']]
+        self._internal_df = signal_df.copy(deep=True)
         
         self._internal_df = self._internal_df.rename_axis("index",axis=0)
         self._internal_df = self._internal_df.rename_axis("dimensions",axis=1)
-        
-        for col in self._internal_df:
-            if not isinstance(self._internal_df.loc[0, col], float):
-                raise ValueError("columns must be float")
-            
 
-        self._dt = self.compute_timestep(self._internal_df['time'])
+        self._timestep = self.compute_timestep(self._internal_df['time'].to_numpy(np.float64))
         
         # Prune to time window
         if len(time_window)>0:
             
-            self._internal_df = self.crop(self._internal_df, 'time', time_window)
+            self._internal_df = self.crop(self._internal_df, time_window)
             
-            self._crop_offset = self.get_crop_offset(time_window[0], self._dt)
+            self._crop_offset = self.get_crop_offset(time_window[0], self._timestep)
         
-        return self
+        return self._internal_df
+    
+    def fit_peaks(
+        self,
+        bline_kwargs: dict={},
+        fwindows_kwargs: dict={},
+        deconvolve_kwargs: dict={},
+    ):
+        '''
+        Process master method
+        '''
+        
+        # baseline correction
+        
+        amp = self._internal_df.loc[:,self.amp_col].to_numpy(np.float64)
+        timestep = self._timestep
+        
+        bcorr_amp, background = self._baseline.correct_baseline(
+            amp,
+            timestep,
+            **bline_kwargs,
+        )
+        
+        # peak profiling and windowing
+        
+        
+        s_df, p_df, w_df = self._findwindows.profile_peaks_assign_windows(
+            self._internal_df[self.time_col],
+            bcorr_amp,
+            timestep,
+            **fwindows_kwargs,
+        )
+        
+        self.signal_df = s_df
+        self.peak_df = p_df
+        self.window_df = w_df
+        
+        # peak deconvolution
+        
+        self.popt_df, self.unmixed_df = self._deconvolve.deconvolve_peaks(
+            self.signal_df,
+            self.peak_df,
+            self.window_df,
+            timestep
+        )
+        
+        return self.popt_df, self.unmixed_df
+        
     
     def compute_timestep(self, time_array: npt.NDArray[np.float64])->np.float64:
         # Define the average timestep in the chromatogram. This computes a mean
         # but values will typically be identical.
         
-        dt = np.mean(np.diff(time_array))
-        return dt.astype(np.float64)
+        dt = np.diff(time_array)
+        mean_dt = np.mean(dt)
+        return mean_dt.astype(np.float64)
 
     def __repr__(self):
         trange = f'(t: {self._internal_df[self.time_col].values[0]} - {self._internal_df[self.time_col].values[-1]})'
@@ -176,7 +221,7 @@ class Chromatogram(
     def crop(self,
              df: pt.DataFrame[SignalDFIn],
              time_window:list=[],
-             )->pt.DataFrame:
+             )->pt.DataFrame[SignalDFIn]:
         R"""
         Restricts the time dimension of the DataFrame in place.
 
@@ -234,20 +279,20 @@ class Chromatogram(
         to compute the score.  
 
         """
-        columns = ['window_id', 'time_start', 'time_end', 'signal_area',
+        columns = ['window_idx', 'time_start', 'time_end', 'signal_area',
                    'inferred_area', 'signal_variance', 'signal_mean', 'signal_fano_factor', 'reconstruction_score']
         score_df = pd.DataFrame([])
         # Compute the per-window reconstruction
 
-        for g, d in self.window_df[self.window_df['window_type'] == 'peak'].groupby('window_id'):
+        for g, d in self.window_df[self.window_df['window_type'] == 'peak'].groupby('window_idx'):
             # Compute the non-peak windows separately.
-            window_area = np.abs(d[self.int_col].values).sum() + 1
+            window_area = np.abs(d[self.amp_col].values).sum() + 1
             window_peaks = self._deconvolved_peak_props[g]
             window_peak_area = np.array(
                 [np.abs(v['reconstructed_signal']) for v in window_peaks.values()]).sum() + 1
             score = np.array(window_peak_area / window_area).astype(float)
-            signal_var = np.var(np.abs(d[self.int_col].values))
-            signal_mean = np.mean(np.abs(d[self.int_col].values))
+            signal_var = np.var(np.abs(d[self.amp_col].values))
+            signal_mean = np.mean(np.abs(d[self.amp_col].values))
             # Account for an edge case to avoid dividing by zero
             if signal_mean == 0:
                 signal_mean += 1E-9
@@ -263,13 +308,13 @@ class Chromatogram(
         # Compute the score for the non-peak regions
         nonpeak = self.window_df[self.window_df['window_type'] == 'interpeak']
         if len(nonpeak) > 0:
-            for g, d in nonpeak.groupby('window_id'):
-                total_area = np.abs(d[self.int_col].values).sum() + 1
-                recon_area = np.sum(np.abs(self.unmixed_chromatograms), axis=1)[
+            for g, d in nonpeak.groupby('window_idx'):
+                total_area = np.abs(d[self.amp_col].values).sum() + 1
+                unmixed_area = np.sum(np.abs(self.unmixed_chromatograms), axis=1)[
                     d['time_idx'].values].sum() + 1
-                nonpeak_score = recon_area / total_area
-                signal_var = np.var(np.abs(d[self.int_col].values))
-                signal_mean = np.mean(np.abs(d[self.int_col].values))
+                nonpeak_score = unmixed_area / total_area
+                signal_var = np.var(np.abs(d[self.amp_col].values))
+                signal_mean = np.mean(np.abs(d[self.amp_col].values))
                 # Account for an edge case to avoide dividing by zero
                 if signal_mean == 0:
                     signal_mean += 1E-9
@@ -278,7 +323,7 @@ class Chromatogram(
                 # Add to score dataframe
                 x = [g, d[self.time_col].min(),
                      d[self.time_col].max(),
-                     total_area, recon_area, signal_var, signal_mean, signal_fano, nonpeak_score]
+                     total_area, unmixed_area, signal_var, signal_mean, signal_fano, nonpeak_score]
                 _df = pd.DataFrame(
                     {c: xi for c, xi in zip(columns, x)}, index=[g - 1])
                 _df['window_type'] = 'interpeak'
@@ -368,7 +413,7 @@ class Chromatogram(
         score_df = pd.DataFrame([])
         mean_fano = _score_df[_score_df['window_type']
                               == 'peak']['signal_fano_factor'].mean()
-        for g, d in _score_df.groupby(['window_type', 'window_id']):
+        for g, d in _score_df.groupby(['window_type', 'window_idx']):
 
             tolpass = np.round(np.abs(d['reconstruction_score'].values[0] - 1),
                                decimals=int(np.abs(np.ceil(np.log10(rtol))))) <= rtol
@@ -406,7 +451,7 @@ Reconstruction of Peaks
         else:
             self._report_card_progress_state = 0
 
-        for g, d in score_df[score_df['window_type'] == 'peak'].groupby('window_id'):
+        for g, d in score_df[score_df['window_type'] == 'peak'].groupby('window_idx'):
             status = d['status'].values[0]
             if status == 'valid':
                 warning = ''
@@ -435,7 +480,7 @@ tolerance `rtol`."""
 Signal Reconstruction of Interpeak Windows
 ==========================================
                   """)
-            for g, d in score_df[score_df['window_type'] == 'interpeak'].groupby('window_id'):
+            for g, d in score_df[score_df['window_type'] == 'interpeak'].groupby('window_idx'):
                 status = d['status'].values[0]
                 if status == 'valid':
                     warning = ''
@@ -476,7 +521,7 @@ to `fit_peaks()`."""
 --------------------------------------------------------------------------------""")
         return score_df
 
-    def show(self,
+    def oldshow(self,
              fig=None,
              ax=None,
              time_range=[],
@@ -510,14 +555,14 @@ to `fit_peaks()`."""
         ax.set_xlabel(self.time_col)
         if self._bg_corrected:
             self._viz_ylabel_subtraction_indication = True
-            ylabel = f"{self.int_col.split('_corrected')[0]} (baseline corrected)"
+            ylabel = f"{self.amp_col.split('_corrected')[0]} (baseline corrected)"
         else:
             self._viz_ylabel_subtraction_indication = False
-            ylabel = self.int_col
+            ylabel = self.amp_col
         ax.set_ylabel(ylabel)
 
         # Plot the raw chromatogram
-        ax.plot(self._internal_df[self.time_col], self._internal_df[self.int_col], 'k-',
+        ax.plot(self._internal_df[self.time_col], self._internal_df[self.amp_col], 'k-',
                 label='raw chromatogram')
         
         # Compute the skewnorm mix
@@ -590,7 +635,7 @@ to `fit_peaks()`."""
             ax.set_xlim(time_range)
             # Determine the max min and max value of the chromatogram within range.
             _y = self._internal_df[(self._internal_df[self.time_col] >= time_range[0]) & (
-                self._internal_df[self.time_col] <= time_range[1])][self.int_col].values
+                self._internal_df[self.time_col] <= time_range[1])][self.amp_col].values
             ax.set_ylim([ax.get_ylim()[0], 1.1 * _y.max()])
         
         

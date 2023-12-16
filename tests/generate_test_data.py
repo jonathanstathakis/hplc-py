@@ -184,7 +184,7 @@ df.to_csv('./test_data/test_assessment_chrom.csv', index=False)
 peak_df.to_csv('./test_data/test_assessment_peaks.csv', index=False)
 
 # Generate the scoring table
-score_df = pd.DataFrame(np.array([1, 2, 3, 1, 2]).T, columns=['window_id'])
+score_df = pd.DataFrame(np.array([1, 2, 3, 1, 2]).T, columns=['window_idx'])
 score_df['window_type'] = ['interpeak',
                            'interpeak', 'interpeak', 'peak', 'peak']
 score_df['status'] = ['needs review', 'invalid', 'valid', 'invalid', 'valid']
