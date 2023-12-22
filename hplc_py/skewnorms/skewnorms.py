@@ -56,7 +56,6 @@ class SkewNorms:
         
         dist = amp * 2 * norm * cdf
         
-        print('computed')
         return dist
 
     def _fit_skewnorms(self,

@@ -1,3 +1,5 @@
+from typing import Annotated
+
 import matplotlib.pyplot as plt
 
 from collections import namedtuple
@@ -59,12 +61,15 @@ class DataPrepper(skewnorms.SkewNorms):
 
         return t_range
 
+    @pa.check_types
     def p0_factory(
         self,
         signal_df: pt.DataFrame[OutSignalDF_Base],
         peak_df: pt.DataFrame[OutPeakDF_Base],
         window_df: pt.DataFrame[OutWindowDF_Base],
-    ):
+        timestep: np.float64,
+        int_col: str,
+    ) -> pt.DataFrame[OutInitialGuessBase]:
         """
         Build a table of initial guesses for each peak in each window following the format:
 
@@ -75,34 +80,76 @@ class DataPrepper(skewnorms.SkewNorms):
         """
         # join the tables with two left joins on peak_df.
 
-        OutSignalDF_Base(signal_df)
-        OutPeakDF_Base(peak_df)
-        OutWindowDF_Base(window_df)
+        p0 = peak_df.copy(deep=True)
+        
+        p0 = p0.reindex(['peak_idx','time_idx','whh'],axis=1)
+        
+        # get the time values based on their idx
+        
+        # test for unexpected NA
+        if (p0.isna()).any().any():
+                error_str = "NA detected:"
+                na_rows = p0.isna().index
+                nas = p0.loc[na_rows,:]
+                raise ValueError(error_str+"\n\n"+str(nas))
+        
+        # get the time, amplitudes, window idxs from signal_df and window_df
+        p0 = (
+        p0
+        .set_index("time_idx")
+        .join(
+            [
+                signal_df.set_index('time_idx').loc[:, ['time',int_col]],
+                window_df.set_index("time_idx").loc[:, "window_idx"],
+            ],
+            how="left",
+            validate="1:1",
+        )
+        .reset_index()
+        )
+        
+        # enforce rational ordering of columns
+        p0 = p0.reindex(['window_idx','peak_idx','time','amp_corrected','whh'], axis=1)
+        
+        # test for unexpected NA
+        if (p0.isna()).any().any():
+            error_str = "NA detected:"
+            na_rows = p0.isna().index
+            nas = p0.loc[na_rows,:]
+            raise ValueError(error_str+"\n\n"+str(nas))
 
-        p0_df = (
-            peak_df.copy(deep=True)
-            .rename({"time_idx": "loc"}, axis=1)
-            .loc[:, ["peak_idx", "loc", "whh"]]
-            .set_index("loc")
-            .join(
-                [
-                    signal_df.loc[:, ["amp"]],
-                    window_df.loc[:, ["time_idx", "window_idx"]].set_index("time_idx"),
-                ],
-                how="left",
-                validate="1:1",
-            )
-            .assign(skew=0)
-            .assign(whh=lambda df: df['whh']/2)
-            .reset_index()
-            .set_index(["window_idx", "peak_idx"])
+        # rename cols to match my definitions
+        
+        p0 = p0.rename({"time": "loc",
+                        int_col:"amp"}, axis=1, errors="raise")
+        
+        # assign skew as zero as per definition
+        p0['skew']=0
+        
+        # assign whh as half peak whh as per definition, in time units
+        p0['whh']=p0['whh']/2*timestep
+        
+        # melt frame to get p0 values as 1 column with param label column for each row
+        p0 = (
+            p0
             .melt(
-                ignore_index=False,
+                id_vars=['window_idx','peak_idx'],
+                value_vars=['loc','amp','whh','skew'],
                 value_name="p0",
                 var_name="param",
             )
-            .reset_index()
-            .astype(
+        )
+
+        # test for unexpected NA
+        if (p0.isna()).any().any():
+            error_str = "NA detected:"
+            na_rows = p0.isna().index
+            nas = p0.loc[na_rows,:]
+            raise ValueError(error_str+"\n\n"+str(nas))
+        
+        # set param label column as ordered categorical
+        p0 = (
+            p0.astype(
                 {
                     "param": pd.CategoricalDtype(
                         ["amp", "loc", "whh", "skew"], ordered=True
@@ -115,11 +162,19 @@ class DataPrepper(skewnorms.SkewNorms):
             .reset_index(drop=True)
         )
 
-        return pt.DataFrame[OutInitialGuessBase](p0_df)
+        if (p0.isna()).any().any():
+            error_str = "NA detected:"
+            na_rows = p0.isna().index
+            nas = p0.loc[na_rows,:]
+            raise ValueError(error_str+"\n\n"+str(nas))
+                
+        return p0
 
+    @pa.check_types
     def default_bounds_factory(
         self,
         p0_df: pt.DataFrame[OutInitialGuessBase],
+        signal_df: pt.DataFrame[OutSignalDF_Base],
         window_df: pt.DataFrame[OutWindowDF_Base],
         peak_df: pt.DataFrame[OutPeakDF_Base],
         timestep: np.float64,
@@ -156,6 +211,11 @@ class DataPrepper(skewnorms.SkewNorms):
         pt.DataFrame[OutWindowDF_Base](window_df)
         pt.DataFrame[OutPeakDF_Base](peak_df)
 
+        # input validation
+        pt.DataFrame[OutInitialGuessBase](p0_df)
+        pt.DataFrame[OutWindowDF_Base](window_df)
+        pt.DataFrame[OutPeakDF_Base](peak_df)
+
         timestep = np.float64(timestep)
 
         # construct a container df for the bounds. needs to have the window_idx, peak_id, then bounds as [ub, lb]
@@ -172,17 +232,17 @@ class DataPrepper(skewnorms.SkewNorms):
         """
 
         amp = (
-            p0_df.query("param=='amp'")
+            p0_df.query(f"param=='amp'")
             .copy(deep=True)
             .loc[:, ["window_idx", "peak_idx", "param", "p0"]]
             .assign(lb=lambda df: df["p0"] * 0.1)
             .assign(ub=lambda df: df["p0"] * 10)
             .drop(["p0"], axis=1)
         )
-
         # location
 
         loc = self.get_loc_bounds(
+            signal_df,
             peak_df,
             window_df,
         )
@@ -191,14 +251,14 @@ class DataPrepper(skewnorms.SkewNorms):
 
         # lb is the timestep, just assign directly. ub is half the window width.
         # window width is (window_max-window_min)/2, can get that from the loc bounds
-        
+
         whh = (
             loc.copy(deep=True)
             .assign(param="whh")
-            .assign(whh_lb=1)
+            .assign(whh_lb=timestep)
             .assign(whh_ub=lambda df: (df["ub"] - df["lb"]) / 2)
             .drop(["lb", "ub"], axis=1)
-            .rename({"whh_ub": "ub", "whh_lb": "lb"}, axis=1)
+            .rename({"whh_ub": "ub", "whh_lb": "lb"}, axis=1, errors="raise")
         )
 
         # skew bounds are defined as anywhere between negative and positive infinity
@@ -219,6 +279,7 @@ class DataPrepper(skewnorms.SkewNorms):
         bounds = (
             pd.concat([amp, loc, whh, skew])
             .sort_values(["window_idx", "peak_idx", "param"])
+            # define param as a categorical for ordering
             .astype(
                 {
                     "param": pd.CategoricalDtype(
@@ -229,12 +290,11 @@ class DataPrepper(skewnorms.SkewNorms):
             .reset_index(drop=True)
         )
 
-        # define param as a categorical for ordering
-
         return bounds
 
     def get_loc_bounds(
         self,
+        signal_df: pt.DataFrame[OutSignalDF_Base],
         peak_df: pt.DataFrame[OutPeakDF_Base],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ):
@@ -242,40 +302,55 @@ class DataPrepper(skewnorms.SkewNorms):
         Define the upper and lower bounds of the time domain of each peak as the extremes of the window each peak is assigned to. This is achieved by as series of joins and pivots to first label each peak then summarise the range of each window and combine the two. Returns two dataframes containing the labelled upper and lower bound series
         'window_max' and'window_min', respectively.
         """
+        
+        # get the window each peak belongs to
         peak_df_window_df = (
-            peak_df.loc[:, ["time_idx", "peak_idx"]]
-            .set_index(["time_idx"])
-            .join(window_df.loc[:, ["time_idx", "window_idx"]].set_index(["time_idx"]))
+            peak_df
+            .set_index("time_idx")
+            .loc[:, ["peak_idx"]] 
+            .join([
+                window_df
+                  .set_index("time_idx")
+                  .loc[:,"window_idx"],
+                #   signal_df
+                #   .set_index("time_idx")
+                #   .loc[:,"time"]
+                  ])
             .reset_index()
         )
+        
+        # get time index bounds of each window
 
-        # construct a table who has the window id as the index and the min and max time values of each window as columns
+        pivot_window_df = window_df.pivot_table(columns="window_idx", values="time_idx", aggfunc=["min", "max"])
+        pivot_window_df = pivot_window_df.set_axis(pivot_window_df.columns.set_names("agg", level=0), axis=1).reorder_levels(['window_idx','agg'], axis=1).sort_index(axis=1)
 
-        pivot_window_df = (
-            window_df.pivot_table(
-                columns="window_idx", values="time_idx", aggfunc=["min", "max"]
-            )
-            .pipe(lambda df: df.set_axis(df.columns.set_names("agg", level=0), axis=1))
-            .melt(value_name="time_idx")
-            .pivot_table(values="time_idx", columns="agg", index="window_idx")
-            .loc[:, ["min", "max"]]
-            .rename({"min": "lb", "max": "ub"}, axis=1)
-        )
+        melt_window_df = pivot_window_df.melt(value_name="time_idx")
+        
+        # join with signal_df to get time values
+        join_df = melt_window_df.set_index('time_idx').join(signal_df.set_index('time_idx').loc[:,'time'], how='left').reset_index()
+        
+        # join with peak_df_window_df to assign the bound to each peak
+        
+        interm_tbl = join_df.set_index('window_idx').join(peak_df_window_df.set_index('window_idx').loc[:,['peak_idx']], how='left').reset_index().sort_values(['window_idx','peak_idx'])
+    
+        # pivot such that columns become 'lb','ub'
+        loc_bounds = interm_tbl.pivot_table(values="time", columns="agg", index=["window_idx","peak_idx"]).reset_index().rename({"min": "lb", "max": "ub"}, axis=1, errors="raise")
 
-        # left join the tables on window_idx
-
-        loc_bounds = (
-            peak_df_window_df.loc[:, ["window_idx", "peak_idx"]]
-            .set_index("window_idx")
-            .join(
-                pivot_window_df,
-                how="left",
-            )
-            .reset_index()
-        )
-
-        loc_bounds.insert(2, "param", "loc")
-
+        # add 'param' label col
+        loc_bounds['param']='loc'
+        
+        # reorder the columns to hint at the index cols
+        loc_bounds=loc_bounds.reindex(["window_idx","peak_idx","param","lb", "ub"],axis=1)
+        
+        # set dtypes
+        loc_bounds = loc_bounds.astype({
+            "window_idx":pd.Int64Dtype(),
+            "peak_idx": pd.Int64Dtype(),
+            "param": pd.StringDtype(),
+            "lb": pd.Float64Dtype(),
+            "ub": pd.Float64Dtype(),
+        })
+        
         return loc_bounds
 
     def _window_signal_df(
@@ -288,7 +363,7 @@ class DataPrepper(skewnorms.SkewNorms):
         """
         windowed_signal_df = (
             signal_df.join(
-                window_df.loc[:, ["time_idx", "window_idx"]].set_index(["time_idx"]),
+                window_df.set_index('time_idx').loc[:,'window_idx'],
                 how="left",
             )
             .dropna()
@@ -296,6 +371,7 @@ class DataPrepper(skewnorms.SkewNorms):
         )
         return windowed_signal_df
 
+    @pa.check_types
     def _param_df_factory(
         self,
         p0: pt.DataFrame[OutInitialGuessBase],
@@ -308,17 +384,22 @@ class DataPrepper(skewnorms.SkewNorms):
         """
 
         # input validation
-
-        OutInitialGuessBase(p0)
-        OutDefaultBoundsBase(default_bounds)
-
         param_df = (
             p0.set_index(["window_idx", "peak_idx", "param"])
             .join(
-                default_bounds.set_index(["window_idx", "peak_idx", "param"]), how="left"
+                default_bounds.set_index(["window_idx", "peak_idx", "param"]),
+                how="left",
             )
             .reset_index()
         )
+
+        # test whether NA present
+
+        if param_df.isna().sum().sum() > 0:
+            # na_param_df = param_df.loc[param_df.isna()]
+            raise ValueError(
+                f"NA present in `param_df`:\n{param_df[param_df.isna().any(axis=1)]}"
+            )
 
         # add a test for oob
 
@@ -330,8 +411,9 @@ class DataPrepper(skewnorms.SkewNorms):
         )
 
         if not param_df["inbounds"].all():
+            
             raise ValueError(
-                "oob guess detected" f"{param_df.query('inbounds==False')}"
+                "oob guess detected" f"\n{param_df.query('inbounds==False')}"
             )
         return param_df.pipe(pt.DataFrame[OutParamsBase])  # type: ignore
 
@@ -373,6 +455,8 @@ class PPeakDeconvolver(SkewNorms):
             signal_df,
             peak_df,
             window_df,
+            timestep,
+            "y_corrected",
         )
 
         default_bounds = self.dataprepper.default_bounds_factory(
@@ -387,7 +471,7 @@ class PPeakDeconvolver(SkewNorms):
         )
 
         self._param_df = param_df
-        
+
         popt_df = self._popt_factory(windowed_signal_df, param_df)
 
         reconstructed_signals = self._reconstruct_peak_signal(
@@ -412,7 +496,9 @@ class PPeakDeconvolver(SkewNorms):
         unmixed_mst = (
             unmixed_df.groupby("peak_idx")["unmixed_amp"]
             .agg(["sum", "max"])
-            .rename({"sum": "unmixed_area", "max": "unmixed_maxima"}, axis=1)
+            .rename(
+                {"sum": "unmixed_area", "max": "unmixed_maxima"}, axis=1, errors="raise"
+            )
         )
 
         peak_report_df = (
@@ -422,10 +508,13 @@ class PPeakDeconvolver(SkewNorms):
             .reset_index()
             .assign(tbl_name="peak_report")
             # express loc as retention time
-            .assign(retention_time=lambda df: df['loc']*timestep)
-            .astype({"tbl_name": pd.StringDtype(),
-                     "retention_time": pd.Float64Dtype(),
-                     })
+            .assign(retention_time=lambda df: df["loc"] * timestep)
+            .astype(
+                {
+                    "tbl_name": pd.StringDtype(),
+                    "retention_time": pd.Float64Dtype(),
+                }
+            )
             .loc[
                 :,
                 [
@@ -442,20 +531,26 @@ class PPeakDeconvolver(SkewNorms):
                 ],
             ]
         )
-    
-        
+
         return peak_report_df.pipe(pt.DataFrame[OutPeakReportBase])
 
     def _prep_for_curve_fit(
         self,
         window: int,
         windowed_signal_df: pt.DataFrame[OutWindowedSignalBase],
+        amp_col: str,
         param_df: pt.DataFrame[OutParamsBase],
-    ):
+    ) -> tuple[
+        Annotated[pt.Series[float], "x"],
+        Annotated[pt.Series[float], "y"],
+        Annotated[pt.Series[float], "p0"],
+        Annotated[pt.Series[float], "lb"],
+        Annotated[pt.Series[float], "ub"],
+    ]:
         """ """
-        x = windowed_signal_df.query("window_idx==@window").loc[:, "time_idx"]
+        x = windowed_signal_df.query("window_idx==@window").loc[:, "time"]
 
-        y = windowed_signal_df.query("window_idx==@window").loc[:, "amp"]
+        y = windowed_signal_df.query("window_idx==@window").loc[:, amp_col]
 
         p0 = (
             param_df.query("window_idx==@window")
@@ -510,11 +605,11 @@ class PPeakDeconvolver(SkewNorms):
         param_df: pt.DataFrame[OutParamsBase],
         verbose=True,
         optimizer_kwargs={},
-    )->pt.DataFrame[OutPoptBase]:
+    ) -> pt.DataFrame[OutPoptBase]:
         popt_list = []
 
         windows = windowed_signal_df["window_idx"].unique()
-        
+
         if verbose:
             windows_itr = tqdm.tqdm(windows, desc="deconvolving windows")
 
@@ -523,10 +618,16 @@ class PPeakDeconvolver(SkewNorms):
 
         for window in windows_itr:
             x, y, p0, lb, ub = self._prep_for_curve_fit(
-                window, windowed_signal_df, param_df
+                window, windowed_signal_df, "amp_corrected", param_df
             )
 
-            popt, _, infodict, mesg, ier, = optimize.curve_fit(
+            (
+                popt,
+                _,
+                infodict,
+                mesg,
+                ier,
+            ) = optimize.curve_fit(
                 self._fit_skewnorms,
                 xdata=x.to_numpy(np.float64),
                 ydata=y.to_numpy(np.float64),
@@ -539,8 +640,9 @@ class PPeakDeconvolver(SkewNorms):
 
             print(mesg)
             print(infodict)
+
             # the output of `curve_fit` appears to not match the input ordering. Could
-            
+
             popt_series = pd.Series(
                 popt, index=p0.index, dtype=pd.Float64Dtype(), name="popt"
             )
@@ -575,11 +677,13 @@ class PPeakDeconvolver(SkewNorms):
             xdata,
         ):
             params = popt_df.loc[:, ["amp", "loc", "whh", "skew"]].values.flatten()
-            
+
             try:
                 unmixed_signal = self._compute_skewnorm(xdata.values, *params)
 
-                unmixed_signal_df = pd.merge(popt_df.loc[:, ["peak_idx"]], xdata, how="cross")
+                unmixed_signal_df = pd.merge(
+                    popt_df.loc[:, ["peak_idx"]], xdata, how="cross"
+                )
 
                 unmixed_signal_df = unmixed_signal_df.assign(unmixed_amp=unmixed_signal)
 
@@ -589,7 +693,7 @@ class PPeakDeconvolver(SkewNorms):
                 raise RuntimeError(f"{e}\n" f"{params}\n" f"{popt_df.index}\n")
 
         # remove window_idx from identifier to avoid multiindexed column
-         
+
         unmixed_df = popt_df.groupby(
             by=["peak_idx"],
             group_keys=False,

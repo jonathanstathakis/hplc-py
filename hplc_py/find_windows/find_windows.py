@@ -26,7 +26,10 @@ import pandera.typing as pt
 import pandera.typing as pt
 import numpy.typing as npt
 from hplc_py.hplc_py_typing.hplc_py_typing import isArrayLike
-# import matplotlib.pyplot as plt
+
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib.patches import Rectangle
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
                     OutSignalDF_Base,
@@ -46,12 +49,10 @@ class WindowFinder:
     def profile_peaks_assign_windows(self,
                         time: npt.NDArray[np.float64],
                         amp: npt.NDArray[np.float64],
-                        timestep: float,
                         prominence:float=0.01,
                         rel_height:float=1,
                         buffer:int=0,
                         peak_kwargs:dict=dict())->tuple[
-                            pt.DataFrame[OutSignalDF_Base],
                             pt.DataFrame[OutPeakDF_Base],
                             pt.DataFrame[OutWindowDF_Base],
                             ]:
@@ -74,21 +75,19 @@ class WindowFinder:
         if time.ndim!=1:
             raise ValueError("input time must be 1D.")
         
-        signal_df = self.signal_df_factory(
-                                           amp
-                                           )
-        
         peak_df = self.peak_df_factory(
                                         time,
-                                        signal_df['norm_amp'].to_numpy(np.float64),
+                                        amp,
                                         prominence,
                                         rel_height,
                                         peak_kwargs
                                         )
 
         window_df = self.window_df_factory(
-                                            signal_df,
-                                            peak_df,
+                                            time,
+                                            amp,
+                                            peak_df['rl_left'].to_numpy(np.float64),
+                                            peak_df['rl_right'].to_numpy(np.float64),
                                             buffer,
                                             )
 
@@ -113,7 +112,31 @@ class WindowFinder:
          - peak id
          - time idx
         """
-        return signal_df, peak_df, window_df
+        return peak_df, window_df
+    
+    def normalize_series(self, x: npt.NDArray[np.float64])->npt.NDArray[np.float64]:
+        """
+        Calculate and return the min-max normalized intensity, accounting for a negative baseline by extracting direction prior to normalization then reapplying before returning.
+        """
+        
+        amp_norm = (x - x.min()) / \
+            (x.max() - x.min())
+    
+        return amp_norm
+    
+    def norm_inverse(
+        self,
+        x: npt.NDArray[np.float64],
+        x_norm: npt.NDArray[np.float64]
+    ):
+        """
+        Invert the normalization to express the measure heights in base scale
+        """
+        
+        x_inv = x_norm * (x.max()-x.min())+x.min()
+        
+        return x_inv
+        
     
     def peak_df_factory(self,
                          time: npt.NDArray[np.float64],
@@ -122,6 +145,7 @@ class WindowFinder:
                          rel_height: float=1,
                          peak_kwargs:dict=dict(),
                          )->pt.DataFrame:
+        
         # Preform automated peak detection and set window ranges
         
         time = np.asarray(time, dtype=np.float64)
@@ -140,10 +164,13 @@ class WindowFinder:
             raise ValueError('time has too many dimensions, ensure is 1D array')
         if amp.ndim!=1:
             raise ValueError('input amplitude has too many dimensions, ensure is 1D array')
-
+        
+        # normalize amplitude
+        
+        amp_norm = self.normalize_series(amp)
         
         time_idx, _ = signal.find_peaks(
-                            amp,
+                            amp_norm,
                             prominence =prominence,
                             **peak_kwargs)
         
@@ -152,7 +179,7 @@ class WindowFinder:
         if len(time_idx)<1:
             raise ValueError("length of 'time_idx' is less than 1")
         
-        peak_prom, _, _ = signal.peak_prominences(amp,
+        peak_prom, _, _ = signal.peak_prominences(amp_norm,
                                             time_idx,)
         
         peak_prom = np.asarray(peak_prom, np.float64)
@@ -170,7 +197,7 @@ class WindowFinder:
         # for the signal peak reconstruction
         
         whh, whhh, whh_left, whh_right = signal.peak_widths(
-            amp,
+            amp_norm,
             time_idx,
             rel_height=0.5
         )
@@ -183,26 +210,29 @@ class WindowFinder:
         # this measurement defines the windows
         
         rl_width, rl_wh, rl_left, rl_right = signal.peak_widths(
-                                                            amp,
+                                                            amp_norm,
                                                             time_idx,
                                                             rel_height=rel_height)
         
+        # convert wh measurements to base scale
         
+        whhh_inv = self.norm_inverse(amp, whhh)
+        rl_wh_inv = self.norm_inverse(amp, rl_wh)
         
-        whh = np.asarray(whh, np.int64)
-        whhh = np.asarray(whhh, np.int64)
-        whh_left = np.asarray(whh_left, np.int64)
-        whh_right = np.asarray(whh_right, np.int64)
+        whh = np.asarray(whh, np.float64)
+        whhh_inv = np.asarray(whhh_inv, np.float64)
+        whh_left = np.asarray(whh_left, np.float64)
+        whh_right = np.asarray(whh_right, np.float64)
         
-        rl_width = np.asarray(rl_width, np.int64)
-        rl_wh = np.asarray(rl_wh, np.int64)
-        rl_left = np.asarray(rl_left, np.int64)
-        rl_right = np.asarray(rl_right, np.int64)
+        rl_width = np.asarray(rl_width, np.float64)
+        rl_wh_inv = np.asarray(rl_wh_inv, np.float64)
+        rl_left = np.asarray(rl_left, np.float64)
+        rl_right = np.asarray(rl_right, np.float64)
         
         
         if len(whh)<1:
             raise ValueError("length of 'whh' is less than 1")
-        if len(whhh)<1:
+        if len(whhh_inv)<1:
             raise ValueError("length of 'whhh' is less than 1")
         if len(whh_left)<1:
             raise ValueError("length of 'whh_left' is less than 1")
@@ -211,27 +241,27 @@ class WindowFinder:
         
         if len(rl_width)<1:
             raise ValueError("length of 'width' is less than 1")
-        if len(rl_wh)<1:
+        if len(rl_wh_inv)<1:
             raise ValueError("length of 'width_height' is less than 1")
         if len(rl_left)<1:
             raise ValueError("length of 'left' is less than 1")
         if len(rl_right)<1:
             raise ValueError("length of 'right' is less than 1")
-        
+    
     
         peak_df = (pd.DataFrame(
         {
         'time_idx': pd.Series(time_idx, dtype=pd.Int64Dtype()),
         'peak_prom': pd.Series(peak_prom, dtype=pd.Float64Dtype()),
-        'whh': pd.Series(whh, dtype=pd.Int64Dtype()),
-        'whhh': pd.Series(whhh, dtype=pd.Int64Dtype()),
-        'whh_left': pd.Series(whh_left, dtype=pd.Int64Dtype()),
-        'whh_right': pd.Series(whh_right, dtype=pd.Int64Dtype()),
-        'rl_width': pd.Series(rl_width, dtype=pd.Int64Dtype()),
-        'rel_height': pd.Series(rel_height, dtype=pd.Int64Dtype()),
-        'rl_wh': pd.Series(rl_wh, dtype=pd.Int64Dtype()),
-        'rl_left': pd.Series(rl_left, dtype=pd.Int64Dtype()),
-        'rl_right': pd.Series(rl_right, dtype=pd.Int64Dtype()),
+        'whh': pd.Series(whh, dtype=pd.Float64Dtype()),
+        'whhh': pd.Series(whhh_inv, dtype=pd.Float64Dtype()),
+        'whh_left': pd.Series(whh_left, dtype=pd.Float64Dtype()),
+        'whh_right': pd.Series(whh_right, dtype=pd.Float64Dtype()),
+        'rel_height': pd.Series([rel_height]*len(time_idx), dtype=pd.Float64Dtype()),
+        'rl_width': pd.Series(rl_width, dtype=pd.Float64Dtype()),
+        'rl_wh': pd.Series(rl_wh_inv, dtype=pd.Float64Dtype()),
+        'rl_left': pd.Series(rl_left, dtype=pd.Float64Dtype()),
+        'rl_right': pd.Series(rl_right, dtype=pd.Float64Dtype()),
         },
         )
         .rename_axis('peak_idx')
@@ -304,19 +334,6 @@ class WindowFinder:
             ranges.append(peak_range)
             
         return ranges
-    
-    def normalize_intensity(self, amp: npt.NDArray[np.float64])->npt.NDArray[np.float64]:
-        """
-        Calculate and return the min-max normalized intensity, accounting for a negative baseline by extracting direction prior to normalization then reapplying before returning.
-        """
-        
-        if not isArrayLike(amp):
-            raise TypeError(f"intensity must be ArrayLike, got {amp}")
-        
-        norm_int = (amp - amp.min()) / \
-            (amp.max() - amp.min())
-        
-        return norm_int
 
     def get_amps_inds(self, intensity: pt.Series, time_idx: pt.Series)-> tuple:
         # Get the amplitudes and the indices of each peak
@@ -379,29 +396,29 @@ class WindowFinder:
         
     
     def window_df_factory(self,
-                signal_df: pt.DataFrame,
-                peak_df: pt.DataFrame,
+                time: npt.NDArray[np.float64],
+                amp: npt.NDArray[np.float64],
+                left_indices: npt.NDArray[np.float64],
+                right_indices: npt.NDArray[np.float64],
                 buffer:int=0,
                 )->pt.DataFrame[OutWindowDF_Base]:
         
-        amp = signal_df['amp'].to_numpy(np.float64)
-        norm_amp = signal_df['norm_amp'].to_numpy(np.float64)
-        left = peak_df['rl_left'].to_numpy(np.float64)
-        right= peak_df['rl_right'].to_numpy(np.float64)
+        time = np.asarray(time, np.float64)
+        amp = np.asarray(amp, np.float64)
+        left_indices = np.asarray(left_indices, np.float64)
+        right_indices = np.asarray(right_indices, np.float64)
         
         if len(amp)==0:
             raise ValueError("amplitude array has length 0")
-        if len(norm_amp)==0:
-            raise ValueError("norm_amp array has length 0")
-        if len(left)==0:
+        if len(left_indices)==0:
             raise ValueError("left index array has length 0")
-        if len(right)==0:
+        if len(right_indices)==0:
             raise ValueError("right index array has length 0")
         
         peak_windows = self.compute_peak_time_ranges(
-            norm_amp,
-            left,
-            right,
+            amp,
+            left_indices,
+            right_indices,
             buffer
         )
         
@@ -424,39 +441,15 @@ class WindowFinder:
         mask = (window_df['window_idx']==0)
         window_df['window_type']=np.where(mask,'interpeak', 'peak')
         
-        
-        # we expect range_idx to be a subset of the time idx, throw an error if not
-        window_time_idx_in_time_idx =window_df['time_idx'].isin(signal_df.time_idx)
-        
-        if not window_time_idx_in_time_idx.any():
-            raise ValueError("all values of window_df 'time_idx' are expected to be in 'time_idx'\n"
-                             "not in:"
-                             f"{window_time_idx_in_time_idx}"
-                             )
-        
         return typing.cast(pt.DataFrame[OutWindowDF_Base],window_df)
     
-    def signal_df_factory(self,
-                          amp: npt.NDArray[np.float64],
-                          )->pt.DataFrame:
-
-        norm_amp = self.normalize_intensity(amp)
-        
-        if ((np.max(norm_amp)!=1) | (np.min(norm_amp)!=0)):
-            raise ValueError("'norm_amp' does not range between 0 and 1")
-
-        # ditch time axis, recreate from the timestep if necesssary
-        signal_df = pd.DataFrame(
-                {
-            "time_idx":pd.Series(np.arange(len(amp)), dtype=pd.Int64Dtype()),
-            "amp":pd.Series(amp, dtype=pd.Float64Dtype()),
-            "norm_amp": pd.Series(norm_amp, dtype=pd.Float64Dtype()),
-                }
-                )
-        
-        return typing.cast(pt.DataFrame[OutSignalDF_Base], signal_df)
-    
-    def window_df_pivot(self, window_df: pt.DataFrame[OutWindowDF_Base])-> pd.DataFrame:
+    @pa.check_types
+    def window_df_pivot(self,
+                        window_df: pt.DataFrame[OutWindowDF_Base],
+                        time_col: str='time_idx',
+                        window_idx_col: str='window_idx',
+                        aggfuncs:list=['min','max'],
+                        )-> pd.DataFrame:
         """
         pivot the window df to neatly provide a description of each window
         
@@ -465,12 +458,96 @@ class WindowFinder:
         - [ ] establish schema of the pivot table
         """
         
+        
         pivot_window_df = (
             window_df.pivot_table(
-                values="time_idx", columns="window_idx", aggfunc=["min", "max"]
+                values=time_col, columns=window_idx_col, aggfunc=aggfuncs,
             )
             .stack(1)
             .reset_index()
         )
         
         return pivot_window_df
+    
+    @pa.check_types
+    def display_windows(
+        self,
+        peak_df: pt.DataFrame[OutPeakDF_Base],
+        signal_df: pt.DataFrame[OutSignalDF_Base],
+        window_df: pt.DataFrame[OutWindowDF_Base],
+        time_col: str='time_idx',
+        y_col: str='amp_corrected',
+        ax=None,
+        
+    ):
+        if not ax:
+            fig, _ax = plt.subplots(1)
+        else:
+            _ax=ax
+
+        peak_signal_join = (
+            peak_df.set_index(time_col)
+            .join(signal_df.set_index(time_col), how="left", validate="1:1")
+            .reset_index()
+        )
+
+        # the signal
+
+        _ax.plot(signal_df[time_col], signal_df[y_col], label="signal")
+
+        pwtable = self.window_df_pivot(window_df)
+
+        def signal_window_overlay(
+            ax,
+            signal_df: pt.DataFrame[OutSignalDF_Base],
+            pwtable: pd.DataFrame,
+            window_idx_col: str='window_idx',
+            y_col: str='amp_corrected',
+            
+        ) -> None:
+            """
+            Create an overlay of the signal and the windows.
+            """
+
+            set2 = mpl.colormaps["Set2"].resampled(
+                pwtable.groupby(window_idx_col).ngroups
+            )
+
+            for id, window in pwtable.groupby(window_idx_col):
+                anchor_x = window["min"].values[0]
+                anchor_y = 0
+                width = window["max"].values[0] - window["min"].values[0]
+                max_height = signal_df[y_col].max()
+
+                rt = Rectangle(
+                    xy=(anchor_x, anchor_y),
+                    width=width,
+                    height=max_height,
+                    color=set2.colors[int(id) - 1],  # type: ignore
+                )
+
+                ax.add_patch(rt)
+
+            return ax
+
+        signal_window_overlay(_ax,
+                            signal_df,
+                            pwtable
+                            )
+
+        # the peaks
+
+        _ax.scatter(
+            peak_signal_join[time_col],
+            peak_signal_join[y_col],
+            label="peaks",
+            color="red",
+        )
+
+        # now draw the interpolations determining the peak width
+        if not ax:
+            fig.show() #type: ignore
+            plt.show()
+        else:
+            return _ax
+            

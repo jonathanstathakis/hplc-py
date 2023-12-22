@@ -28,8 +28,8 @@ class Show:
         ax,
     ):
         print(signal_df.head())
-        x = signal_df['time_idx']
-        y = signal_df['amp']
+        x = signal_df['time']
+        y = signal_df['amp_raw']
         
         ax.plot(
          x,y, label='bc chromatogram'   
@@ -45,12 +45,12 @@ class Show:
         Plot the reconstructed signal as the sum of the deconvolved peak series
         '''
         unmixed_amp = (unmixed_df
-              .pivot_table(columns='peak_idx', values='unmixed_amp',index='time_idx')
+              .pivot_table(columns='peak_idx', values='unmixed_amp',index='time')
               .sum(axis=1)
               .reset_index()
               .rename({0:"unmixed_amp"},axis=1)
               )
-        x = unmixed_amp['time_idx']
+        x = unmixed_amp['time']
         y = unmixed_amp['unmixed_amp']
         
         ax.plot(x,y, label='reconstructed signal')
@@ -68,7 +68,7 @@ class Show:
         def plot_peak(df, ax):
             peak_idx = df.loc[0,'peak_idx']
             
-            x = df['time_idx']
+            x = df['time']
             y = df['unmixed_amp']
             
             x = np.asarray(x, dtype=np.float64)

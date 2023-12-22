@@ -91,7 +91,7 @@ def test_windowing(filepath: str):
     
     bcorr_outpath = os.path.join(os.getcwd(), "tests/jonathan_tests/bcorr_df.parquet")
     
-    df = pd.read_csv(filepath).rename({'x':'time','y':'amp'},axis=1)
+    df = pd.read_csv(filepath).rename({'x':'time','y':'amp'},axis=1, errors='raise')
     df = chm.load_data(df) #type: ignore
     
     # amp_corrected, background = chm.baseline.correct_baseline(

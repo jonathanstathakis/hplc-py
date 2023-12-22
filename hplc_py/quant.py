@@ -13,6 +13,7 @@ that concept worked for baseline corrector, which operates on a 1 dimensional ar
 for the peak deconvolution etc operating on an indexed array is better for development purposes, if not the most computationally efficient method.
 
 """
+import typing
 
 import pandas as pd
 import pandera as pa
@@ -34,7 +35,10 @@ from hplc_py.baseline_correct import correct_baseline
 from hplc_py.find_windows import find_windows
 from hplc_py.deconvolve_peaks import mydeconvolution
 from hplc_py import show 
-from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFIn
+from hplc_py.hplc_py_typing.hplc_py_typing import (
+    SignalDFInBase,
+    OutSignalDF_Base,
+)
 
 
 class Chromatogram(
@@ -68,6 +72,7 @@ class Chromatogram(
     """
 
     def __init__(self,
+                 correct_bline:bool=True,
                  viz:bool=True
                  ):
         """
@@ -91,19 +96,35 @@ class Chromatogram(
             of the chromatogram. Default is 
             `{'time':'time', 'signal':'signal'}`. 
        """
-       # initialize
-        self._baseline=correct_baseline.BaselineCorrector()
+        # initialize
+        self.__correct_bline = correct_bline
+        self.__viz = viz
+       
+        # member class objects
         self._findwindows=find_windows.WindowFinder(viz=viz)
         self._deconvolve=mydeconvolution.PPeakDeconvolver()
-        self.show=show.Show()
-        self._internal_df = pt.DataFrame[SignalDFIn]
+        
+        if self.__correct_bline:
+            self._baseline=correct_baseline.BaselineCorrector()
+        
+        if self.__viz:
+            self.show=show.Show()
+        
+        # internal signal table
+        self._signal_df = pt.DataFrame[SignalDFInBase]
+        
+        # keys for the time and amp columns
         self.time_col = ""
         self.amp_col = ""
+        
+        # timestep
         self.dt = 0
         self._crop_offset = 0
         self.window_props = ""
         self.scores = ""
         self._peak_indices = ""
+        
+        # currently unused methods, layovers from main
         self.peaks = None
         self._guesses = None
         self._bg_corrected = False
@@ -114,7 +135,7 @@ class Chromatogram(
         self.windowstates:list = []
     
     def load_data(self,
-                signal_df: pt.DataFrame[SignalDFIn],
+                signal_df: pt.DataFrame[SignalDFInBase],
                 time_window: list[float]=[],
                 ):
         
@@ -124,7 +145,7 @@ class Chromatogram(
         
         # input validation
         
-        SignalDFIn(signal_df)
+        SignalDFInBase(signal_df)
         
         # Assign column labels
         self.time_col = 'time'
@@ -132,24 +153,26 @@ class Chromatogram(
 
         # store the chromatogram df and (re)name the column and index
         
-        self._internal_df = signal_df.copy(deep=True)
-        
-        self._internal_df = self._internal_df.rename_axis("index",axis=0)
-        self._internal_df = self._internal_df.rename_axis("dimensions",axis=1)
+        self._signal_df = signal_df.copy(deep=True)
+        self._signal_df = self._signal_df.rename_axis(index="index",columns="dimensions", errors='raise')
 
-        self._timestep = self.compute_timestep(self._internal_df['time'].to_numpy(np.float64))
+        # calculate the average timestep
+        self._timestep = self.compute_timestep(self._signal_df['time'].to_numpy(np.float64))
         
         # Prune to time window
         if len(time_window)>0:
             
-            self._internal_df = self.crop(self._internal_df, time_window)
+            self._signal_df = self.crop(self._signal_df, time_window)
             
             self._crop_offset = self.get_crop_offset(time_window[0], self._timestep)
         
-        return self._internal_df
+        return self._signal_df
     
     def fit_peaks(
         self,
+        amp_colname: str,
+        time_colanme: str,
+        correct_baseline: bool=True,
         bline_kwargs: dict={},
         fwindows_kwargs: dict={},
         deconvolve_kwargs: dict={},
@@ -160,26 +183,28 @@ class Chromatogram(
         
         # baseline correction
         
-        amp = self._internal_df.loc[:,self.amp_col].to_numpy(np.float64)
         timestep = self._timestep
         
-        bcorr_amp, background = self._baseline.correct_baseline(
-            amp,
+        time = self._signal_df.loc[:,self.time_col].to_numpy(np.float64)
+        amp_raw = self._signal_df.loc[:,self.amp_col].to_numpy(np.float64)
+        # preprocessing
+        
+        self.signal_df = self.preprocess_signal_df_factory(
+            time,
             timestep,
-            **bline_kwargs,
+            amp_raw,
+            time_colname,
+            amp_colname,
+            bline_kwargs
         )
         
         # peak profiling and windowing
         
-        
-        s_df, p_df, w_df = self._findwindows.profile_peaks_assign_windows(
-            self._internal_df[self.time_col],
-            bcorr_amp,
-            timestep,
+        p_df, w_df = self._findwindows.profile_peaks_assign_windows(
+            self.signal_df,
             **fwindows_kwargs,
         )
         
-        self.signal_df = s_df
         self.peak_df = p_df
         self.window_df = w_df
         
@@ -192,8 +217,8 @@ class Chromatogram(
             timestep
         )
         
-        return self.popt_df, self.unmixed_df
-        
+        return self.popt_df, self.unmixed_df            
+
     
     def compute_timestep(self, time_array: npt.NDArray[np.float64])->np.float64:
         # Define the average timestep in the chromatogram. This computes a mean
@@ -204,7 +229,7 @@ class Chromatogram(
         return mean_dt.astype(np.float64)
 
     def __repr__(self):
-        trange = f'(t: {self._internal_df[self.time_col].values[0]} - {self._internal_df[self.time_col].values[-1]})'
+        trange = f'(t: {self._signal_df[self.time_col].values[0]} - {self._signal_df[self.time_col].values[-1]})'
         rep = f"""Chromatogram:"""
         if self._crop_offset > 0:
             rep += f'\n\t\u2713 Cropped {trange}'
@@ -219,9 +244,9 @@ class Chromatogram(
         return rep
 
     def crop(self,
-             df: pt.DataFrame[SignalDFIn],
+             df: pt.DataFrame[SignalDFInBase],
              time_window:list=[],
-             )->pt.DataFrame[SignalDFIn]:
+             )->pt.DataFrame[SignalDFInBase]:
         R"""
         Restricts the time dimension of the DataFrame in place.
 
@@ -244,9 +269,9 @@ class Chromatogram(
         You are trying to crop a chromatogram after it has been fit. Make sure that you 
         do this before calling `fit_peaks()` or provide the argument `time_window` to the `fit_peaks()`.""")
         
-        df = df.query("(time>=@time_window[0])&(time<=@time_window[1])").pipe(pt.DataFrame[SignalDFIn])
+        df = df.query("(time>=@time_window[0])&(time<=@time_window[1])").pipe(pt.DataFrame[SignalDFInBase])
         
-        return df.pipe(pt.DataFrame[SignalDFIn])
+        return df.pipe(pt.DataFrame[SignalDFInBase])
     
     def get_crop_offset(self, time_start: int|float, dt: int|float)->float:
         return int(time_start/dt)
@@ -562,14 +587,14 @@ to `fit_peaks()`."""
         ax.set_ylabel(ylabel)
 
         # Plot the raw chromatogram
-        ax.plot(self._internal_df[self.time_col], self._internal_df[self.amp_col], 'k-',
+        ax.plot(self._signal_df[self.time_col], self._signal_df[self.amp_col], 'k-',
                 label='raw chromatogram')
         
         # Compute the skewnorm mix
         self._viz_min_one_concentration = None
         if self.peaks is not None:
             self._viz_peak_reconstruction = True
-            time = self._internal_df[self.time_col].values
+            time = self._signal_df[self.time_col].values
             
             # Plot the mix
             convolved = np.sum(self.unmixed_chromatograms, axis=1)
@@ -610,9 +635,9 @@ to `fit_peaks()`."""
                 ax.set_ylim(bottom=-d.maxima.max()*0.2, top=d.maxima.max()*1.1)
         else:
             self._viz_peak_reconstruction = False
-        if 'estimated_background' in self._internal_df.keys():
+        if 'estimated_background' in self._signal_df.keys():
             self._viz_subtracted_baseline = True
-            ax.plot(self._internal_df[self.time_col], self._internal_df['estimated_background'],
+            ax.plot(self._signal_df[self.time_col], self._signal_df['estimated_background'],
                     color='dodgerblue', label='estimated background', zorder=1)
         else:
             self._viz_subtracted_baseline = False
@@ -634,8 +659,8 @@ to `fit_peaks()`."""
             self._viz_adjusted_xlim = True
             ax.set_xlim(time_range)
             # Determine the max min and max value of the chromatogram within range.
-            _y = self._internal_df[(self._internal_df[self.time_col] >= time_range[0]) & (
-                self._internal_df[self.time_col] <= time_range[1])][self.amp_col].values
+            _y = self._signal_df[(self._signal_df[self.time_col] >= time_range[0]) & (
+                self._signal_df[self.time_col] <= time_range[1])][self.amp_col].values
             ax.set_ylim([ax.get_ylim()[0], 1.1 * _y.max()])
         
         

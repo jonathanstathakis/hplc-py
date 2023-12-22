@@ -9,33 +9,33 @@ import numpy.typing as npt
 import numpy as np
 from typing import Optional
 
-@extensions.register_check_method(statistics=["col","stats"]) #type: ignore
-def check_stats(df, *, col: str, stats:dict):
-    '''
+
+@extensions.register_check_method(statistics=["col", "stats"])  # type: ignore
+def check_stats(df, *, col: str, stats: dict):
+    """
     Test basic statistics of a dataframe. Ideal for validating data in large frames.
-    
+
     Provide stats as a dict of {'statistic_name' : expected_val}.
     Currently tested for: count, mean, std, min, max
-    '''
+    """
     # statistics that I have checked to behave as expected
-    valid_stats = ['count','mean','std','min','max']
-    
+    valid_stats = ["count", "mean", "std", "min", "max"]
+
     # validate keys
     for key in stats.keys():
         if not key in valid_stats:
             raise ValueError(f"{key} is not a valid statistic, please re-enter")
-    
+
     # want to lazy validate so user gets the full picture, hence calculate all then check later
     checks = {}
     col_stats = {}
     for stat, val in stats.items():
-        
         col_stat = df[col].agg(stat)
-        
+
         checks[stat] = col_stat == val
-        
-        col_stats[stat]=col_stat
-    
+
+        col_stats[stat] = col_stat
+
     # check all results, generating a report string for failures only then raising a Value Error
     error_strs = []
     if not all(checks.values()):
@@ -43,148 +43,170 @@ def check_stats(df, *, col: str, stats:dict):
             if not test:
                 error_str = f"{col} has failed {stat} check. Expected {stat} is {stats[stat]}, but {col} {stat} is {col_stats[stat]}"
                 error_strs.append(error_str)
-        raise ValueError("\n"+"\n".join(error_strs))
+        raise ValueError("\n" + "\n".join(error_strs))
     else:
         # if all checks pass, move on
         return True
 
-def interpret_model(df,
-                    schema_name=None,
-                    inherit_from: str="",
-                    check_dict:dict={},
-                    ):
-    '''
+
+def interpret_model(
+    df,
+    schema_name=None,
+    inherit_from: str = "",
+    check_dict: dict = {},
+):
+    """
     Output a string representation of a dataframe schema DataFrameModel with datatypes and checks.
     Outputs both a base model and a specific model.
-    
+
     check_dict: check type for each column. specify column name as key, check type: 'eq', 'isin', 'basic_stats'
-    
-    '''
+
+    """
     custom_indent_mag = 1
-    indent_str = ' '
+    indent_str = " "
     base_indent_mag = 4
-    base_indent = "".join([indent_str]*base_indent_mag)
-    indents = "".join(base_indent*custom_indent_mag)
-    
+    base_indent = "".join([indent_str] * base_indent_mag)
+    indents = "".join(base_indent * custom_indent_mag)
+
     df_columns = df.columns
-    
+
     def eq_checkstr(series):
-        return f"eq={series.tolist()}"
-    
+        return f"eq={series.tolist()}".replace("inf", "np.inf")
+
     def isin_checkstr(series):
-        return f"isin={series.unique().tolist()}"
-    
+        return f"isin={series.unique().tolist()}".replace("inf", "np.inf")
+
     if not check_dict:
         raise ValueError(f"Please provide a check_dict of columns:{df_columns}")
-    
+
     # generate the check strings
-    
+
     check_strs = {}
-    if 'basic_stats' in check_dict.values():
-        basic_stats = ['count','min','max','mean','std']
+
+    gen_basic_stats = "basic_stats" in check_dict.values()
+    if gen_basic_stats:
+        basic_stats = ["count", "min", "max", "mean", "std"]
         basic_stats_dicts = {}
-    
+
     # prepare the checks
-    
+
     for col, check_str in check_dict.items():
         series = df[col]
-        if check_str=='eq':
-            check_strs[col]=eq_checkstr(series)
-        elif check_str=='isin':
-            check_strs[col]=isin_checkstr(series)
-        elif check_str=='basic_stats':
+        if check_str == "eq":
+            check_strs[col] = eq_checkstr(series)
+        elif check_str == "isin":
+            check_strs[col] = isin_checkstr(series)
+        elif check_str == "basic_stats":
             # must be a numerical column
             if not pd.api.types.is_numeric_dtype(series):
                 raise ValueError(f"{col} must be numeric to use 'basic_stats' option")
             else:
-                basic_stats_dicts[col]=dict(zip(basic_stats, series.describe()[basic_stats].to_list()))
+                basic_stats_dicts[col] = dict(
+                    zip(basic_stats, series.describe()[basic_stats].to_list())
+                )
 
-    
-    
     # define datatypes with appending/preppending if necessary for imports
-    dtype={}
+    dtypes = {}
     for col in df_columns:
-        
-        dt=str(df[col].dtype)
+        dt = str(df[col].dtype)
 
-        amended_dtype=None
-        
+        amended_dtype = None
+
         if any(str.isupper(c) for c in dt):
-            amended_dtype='pd.'+ dt +"Dtype()"
+            amended_dtype = "pd." + dt + "Dtype"
         elif any(str.isnumeric(c) for c in dt):
-            amended_dtype="np." +dt
-        elif dt=='object':
-            amended_dtype="np.object_"
-        
+            amended_dtype = "np." + dt
+        elif dt == "object":
+            amended_dtype = "np.object_"
+        elif dt == "category":
+            amended_dtype = "pd.CategoricalDtype"
         if amended_dtype:
-            dtype[col]=amended_dtype
+            dtypes[col] = amended_dtype
         else:
-            dtype[col]=dtype
-    
-    
+            dtypes[col] = dt
+
     # define the col
     col_dec_strs = {}
-    
+
     for col in df_columns:
-        if (check_dict[col]=='eq') or (check_dict[col]=='isin'):
-            col_dec_strs[col]=indents+f"{col}: {dtype[col]} = pa.Field({check_strs[col]})"
+        if (check_dict[col] == "eq") or (check_dict[col] == "isin"):
+            col_dec_strs[col] = (
+                indents + f"{col}: {dtypes[col]} = pa.Field({check_strs[col]})"
+            )
         else:
-            col_dec_strs[col]=indents+f"{col}: {dtype[col]} = pa.Field()"
+            col_dec_strs[col] = indents + f"{col}: {dtypes[col]} = pa.Field()"
 
     # define the config class
-    
+
     # if 'basic_stats' is present then need to declare it here
-    config_class_indent = indents*2
-    config_class_dec_str = indents+"class Config:"
-    config_name_str = config_class_indent+f"name=\"{schema_name}\""
-    
-    basic_stat_cols = basic_stats_dicts.keys()
-    
-    basic_stats_dict_varnames = {col: f"_{col}_basic_stats" for col in df_columns if col in basic_stat_cols}
-    basic_stats_str_init = []
-    for col in basic_stat_cols:
-        
-        col_item = f"\"col\":\"{col}\""
-        stat_item = f"\"stats\":{basic_stats_dicts[col]}"
-        
-        basic_stats_str_init.append(config_class_indent+f"{basic_stats_dict_varnames[col]}={{{col_item},{stat_item}}}")
-        
-    basic_stats_str_init_block = "\n".join(basic_stats_str_init)
-    
-    check_stats_assign_str = [config_class_indent+f"check_stats = {basic_stats_dict_varnames[col]}" for col in basic_stat_cols]
-    check_stats_assign_str_block = "\n".join(check_stats_assign_str)
-    
-    # define full string    
+    config_class_indent = indents * 2
+    config_class_dec_str = indents + "class Config:"
+    config_name_str = config_class_indent + f'name="{schema_name}"'
+    config_strict_init = config_class_indent + f"strict=True"
+
+    if gen_basic_stats:
+        basic_stat_cols = basic_stats_dicts.keys()
+
+        basic_stats_dict_varnames = {
+            col: f"_{col}_basic_stats" for col in df_columns if col in basic_stat_cols
+        }
+        basic_stats_str_init = []
+        for col in basic_stat_cols:
+            col_item = f'"col":"{col}"'
+            stat_item = f'"stats":{basic_stats_dicts[col]}'
+
+            basic_stats_str_init.append(
+                config_class_indent
+                + f"{basic_stats_dict_varnames[col]}={{{col_item},{stat_item}}}"
+            )
+
+        basic_stats_str_init_block = "\n".join(basic_stats_str_init)
+
+        check_stats_assign_str = [
+            config_class_indent + f"check_stats = {basic_stats_dict_varnames[col]}"
+            for col in basic_stat_cols
+        ]
+        check_stats_assign_str_block = "\n".join(check_stats_assign_str)
+
+    # define full string
     if not inherit_from:
         inherit_str = "pa.DataFrameModel"
     else:
         inherit_str = inherit_from
-    header_str = f"class {schema_name}({inherit_from}):"
-    comment_str =f"{base_indent}\"\"\"\n{base_indent}An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.\n{base_indent}\"\"\""
-    
-    col_str_block = "\n".join(col_dec_strs.values())
-    
-    definition_str = "\n".join([
-        header_str,
-        comment_str,
-        "",
-        col_str_block,
-        "",
-        config_class_dec_str,
-        "",
-        config_name_str,
-        "",
-        basic_stats_str_init_block,
-        "",
-        check_stats_assign_str_block,
-        
-    ])
-    print("")
-    print(definition_str)
-    return None
-    
+    header_str = f"class {schema_name}({inherit_str}):"
+    comment_str = f'{base_indent}"""\n{base_indent}An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.\n{base_indent}"""'
 
-class SignalDFIn(pa.DataFrameModel):
+    col_str_block = "\n".join(col_dec_strs.values())
+
+    definition_str = "\n".join(
+        [
+            header_str,
+            comment_str,
+            "",
+            col_str_block,
+            "",
+            config_class_dec_str,
+            "",
+            config_name_str,
+            config_strict_init,
+            "",
+        ]
+    )
+
+    if gen_basic_stats:
+        definition_str = "\n".join(
+            [
+                definition_str,
+                basic_stats_str_init_block,
+                "",
+                check_stats_assign_str_block,
+            ]
+        )
+
+    return definition_str
+
+
+class SignalDFInBase(pa.DataFrameModel):
     """
     The base signal, with time and amplitude directions
     """
@@ -192,25 +214,44 @@ class SignalDFIn(pa.DataFrameModel):
     tbl_name: Optional[str] = pa.Field(eq="testsignal")
     time: np.float64
     amp_raw: np.float64
-    
-class SignalDFInAssChrom(SignalDFIn):
+
+
+class SignalDFInAssChrom(SignalDFInBase):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    tbl_name: np.object_ = pa.Field(isin=['testsignal'])
+    tbl_name: np.object_ = pa.Field(isin=["testsignal"])
     time: np.float64 = pa.Field()
     amp_raw: np.float64 = pa.Field()
 
     class Config:
+        name = "SignalDFInAssChrom"
 
-        name="SignalDFInAssChrom"
-
-        _time_basic_stats={"col":"time","stats":{'count': 15000.0, 'min': 0.0, 'max': 149.99, 'mean': 74.995, 'std': 43.30271354083945}}
-        _amp_raw_basic_stats={"col":"amp_raw","stats":{'count': 15000.0, 'min': -0.0298383947260937, 'max': 42.69012166052291, 'mean': 2.1332819642622307, 'std': 6.893591961394714}}
+        _time_basic_stats = {
+            "col": "time",
+            "stats": {
+                "count": 15000.0,
+                "min": 0.0,
+                "max": 149.99,
+                "mean": 74.995,
+                "std": 43.30271354083945,
+            },
+        }
+        _amp_raw_basic_stats = {
+            "col": "amp_raw",
+            "stats": {
+                "count": 15000.0,
+                "min": -0.0298383947260937,
+                "max": 42.69012166052291,
+                "mean": 2.1332819642622307,
+                "std": 6.893591961394714,
+            },
+        }
 
         check_stats = _time_basic_stats
         check_stats = _amp_raw_basic_stats
+
 
 class OutPeakDF_Base(pa.DataFrameModel):
     """
@@ -354,13 +395,15 @@ class OutSignalDF_AssChrom(OutSignalDF_Base):
         coerce=False, in_range={"min_value": 0, "max_value": 149.99}
     )
     amp_raw: np.float64 = pa.Field(
-        coerce=False, in_range={'min_value':-0.0298383947260937, 'max_value':42.69012166052291}
+        coerce=False,
+        in_range={"min_value": -0.0298383947260937, "max_value": 42.69012166052291},
     )
     amp_corrected: Optional[np.float64] = pa.Field(
-        coerce=False, in_range= {'min_value':0.007597293, 'max_value':42.703030473}
+        coerce=False, in_range={"min_value": 0.007597293, "max_value": 42.703030473}
     )
     amp_bg: Optional[np.float64] = pa.Field(
-        coerce=False, in_range={'min_value':-0.0075972928921949, 'max_value':0.0002465850460692323}
+        coerce=False,
+        in_range={"min_value": -0.0075972928921949, "max_value": 0.0002465850460692323},
     )
     amp_corrected_norm: Optional[np.float64] = pa.Field(
         coerce=False, in_range={"min_value": 0, "max_value": 1}
@@ -381,11 +424,10 @@ class OutWindowDF_Base(pa.DataFrameModel):
     time_idx: pd.Int64Dtype = pa.Field(coerce=False)
     window_idx: pd.Int64Dtype = pa.Field(coerce=False)
     window_type: str  # either 'peak' or 'np.int64erpeak'
-    
-    class Config:
-        name='BaseWindowDFSchema'
-        strict=True
 
+    class Config:
+        name = "BaseWindowDFSchema"
+        strict = True
 
 
 class OutWindowDF_ManyPeaks(OutWindowDF_Base):
@@ -393,14 +435,15 @@ class OutWindowDF_ManyPeaks(OutWindowDF_Base):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1])
 
     class Config:
-        name='OutWindowDFManyPeaks'
+        name = "OutWindowDFManyPeaks"
+
 
 class OutWindowDF_AssChrom(OutWindowDF_Base):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1, 2])
     time_idx: pd.Int64Dtype = pa.Field(ge=687, le=11705)
-    
+
     class Config:
-        name='OutWindowDFAssChrom'
+        name = "OutWindowDFAssChrom"
 
 
 class OutInitialGuessBase(pa.DataFrameModel):
@@ -575,7 +618,7 @@ class OutInitialGuessManyPeaks(OutInitialGuessBase):
             110.41766297678032,
             0.0,
             39.89452538404621,
-            3500.0,
+            # 3500.0,
             110.40327814820625,
             0.0,
             39.89452538404621,
@@ -600,32 +643,58 @@ class OutInitialGuessManyPeaks(OutInitialGuessBase):
 
 class OutInitialGuessAssChrom(OutInitialGuessBase):
     """
-    The DF containing the initial guesses of each peak by window, created by `PeakDeconvolver.p0_factory`
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1, 2])
-    peak_idx: pd.Int64Dtype = pa.Field(isin=[0, 1, 2, 3])
-    param: pd.CategoricalDtype = pa.Field(isin=["amp", "loc", "whh", "skew"])
+    window_idx: pd.Int64Dtype = pa.Field(
+        eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2]
+    )
+    peak_idx: pd.Int64Dtype = pa.Field(
+        eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+    )
+    param: pd.CategoricalDtype = pa.Field(
+        eq=[
+            "amp",
+            "loc",
+            "whh",
+            "skew",
+            "amp",
+            "loc",
+            "whh",
+            "skew",
+            "amp",
+            "loc",
+            "whh",
+            "skew",
+            "amp",
+            "loc",
+            "whh",
+            "skew",
+        ]
+    )
     p0: pd.Float64Dtype = pa.Field(
         eq=[
-            42.69012166052291,
+            42.68783588672989,
             1507.0,
-            135.25637011123035,
+            135.2563701131644,
             0.0,
-            19.96079318035132,
+            19.957724534443003,
             1899.0,
-            86.26565883912212,
+            86.26565883964088,
             0.0,
-            2.659615202676218,
+            2.6518058154648143,
             8000.0,
-            353.1976828679399,
+            353.1976828454367,
             0.0,
-            39.89422804014327,
+            39.8866307472038,
             11000.0,
-            117.74131434127048,
+            117.74131434073843,
             0.0,
         ]
     )
+
+    class Config:
+        name = "OutInitialGuessAssChrom"
 
 
 class OutDefaultBoundsBase(pa.DataFrameModel):
@@ -654,7 +723,11 @@ class OutDefaultBoundsManyPeaks(OutDefaultBoundsBase):
     )
 
 
-class OutDefaultBoundsAssChrom(OutDefaultBoundsBase):
+class OutInitialGuessAssChrom(OutInitialGuessBase):
+    """
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
+    """
+
     window_idx: pd.Int64Dtype = pa.Field(
         eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2]
     )
@@ -665,64 +738,63 @@ class OutDefaultBoundsAssChrom(OutDefaultBoundsBase):
         eq=[
             "amp",
             "loc",
-            "skew",
             "whh",
+            "skew",
             "amp",
             "loc",
-            "skew",
             "whh",
+            "skew",
             "amp",
             "loc",
-            "skew",
             "whh",
+            "skew",
             "amp",
             "loc",
-            "skew",
             "whh",
+            "skew",
         ]
     )
-    lb: pd.Float64Dtype = pa.Field(
+    p0: pd.Float64Dtype = pa.Field(
         eq=[
-            4.269012166052291,
-            687.0,
-            -np.inf,
-            1.0,
-            1.9960793180351322,
-            687.0,
-            -np.inf,
-            1.0,
-            0.2659615202676218,
-            687.0,
-            -np.inf,
-            1.0,
-            3.989422804014327,
-            10297.0,
-            -np.inf,
-            1.0,
-        ]
-    )
-    ub: pd.Float64Dtype = pa.Field(
-        eq=[
-            426.90121660522914,
-            9407.0,
-            np.inf,
-            4360.0,
-            199.6079318035132,
-            9407.0,
-            np.inf,
-            4360.0,
-            26.59615202676218,
-            9407.0,
-            np.inf,
-            4360.0,
-            398.9422804014327,
-            11705.0,
-            np.inf,
-            704.0,
+            42.68783588672989,
+            15.07,
+            135.2563701131644,
+            0.0,
+            19.957724534443003,
+            18.99,
+            86.26565883964088,
+            0.0,
+            2.6518058154648143,
+            80.00,
+            353.1976828454367,
+            0.0,
+            39.8866307472038,
+            110.00,
+            117.74131434073843,
+            0.0,
         ]
     )
 
+    class Config:
+        name = "OutInitialGuessAssChrom"
+        strict=True
 
+
+class OutDefaultBoundsAssChrom(OutDefaultBoundsBase):
+    """
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
+    """
+
+    window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
+    peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3])
+    param: pd.CategoricalDtype = pa.Field(eq=['amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh'])
+    lb: pd.Float64Dtype = pa.Field(eq=[4.2687835886729895, 6.87, -np.inf, 0.01, 1.9957724534443004, 6.87, -np.inf, 0.01, 0.26518058154648144, 6.87, -np.inf, 0.01, 3.9886630747203804, 99.32, -np.inf, 0.01])
+    ub: pd.Float64Dtype = pa.Field(eq=[426.8783588672989, 99.31, np.inf, 46.22, 199.57724534443003, 99.31, np.inf, 46.22, 26.518058154648145, 99.31, np.inf, 46.22, 398.86630747203805, 118.07, np.inf, 9.375])
+
+    class Config:
+
+        name="OutDefaultBoundsAssChrom"
+        strict=True
 class OutWindowedSignalBase(OutSignalDF_Base):
     """
     The signal DF with the addition of a window ID column
@@ -735,8 +807,89 @@ class OutWindowedSignalManyPeaks(OutSignalDF_ManyPeaks):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1])
 
 
-class OutWindowedSignalAssChrom(OutSignalDF_AssChrom):
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1, 2])
+class OutWindowedSignalAssChrom(OutWindowedSignalBase):
+    """
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
+    """
+
+    time_idx: np.int64 = pa.Field()
+    time: np.float64 = pa.Field()
+    amp_raw: np.float64 = pa.Field()
+    amp_corrected: np.float64 = pa.Field()
+    amp_bg: np.float64 = pa.Field()
+    window_idx: pd.Int64Dtype = pa.Field()
+
+    class Config:
+        name = "OutWindowedSignalAssChrom"
+        strict = True
+
+        _time_idx_basic_stats = {
+            "col": "time_idx",
+            "stats": {
+                "count": 11121.0,
+                "min": 687.0,
+                "max": 11807.0,
+                "mean": 6247.0,
+                "std": 3210.50050615165,
+            },
+        }
+        _time_basic_stats = {
+            "col": "time",
+            "stats": {
+                "count": 11121.0,
+                "min": 6.87,
+                "max": 118.07,
+                "mean": 62.46999999999999,
+                "std": 32.1050050615165,
+            },
+        }
+        _amp_raw_basic_stats = {
+            "col": "amp_raw",
+            "stats": {
+                "count": 11121.0,
+                "min": -0.0138380221313465,
+                "max": 42.69012166052291,
+                "mean": 2.8774412228164503,
+                "std": 7.871276358953504,
+            },
+        }
+        _amp_corrected_basic_stats = {
+            "col": "amp_corrected",
+            "stats": {
+                "count": 11121.0,
+                "min": -0.0138380221313465,
+                "max": 42.68783588672989,
+                "mean": 2.871086160845697,
+                "std": 7.871945500463037,
+            },
+        }
+        _amp_bg_basic_stats = {
+            "col": "amp_bg",
+            "stats": {
+                "count": 11121.0,
+                "min": 0.0,
+                "max": 0.007843877938264132,
+                "mean": 0.0063550619707533436,
+                "std": 0.0019851337215562185,
+            },
+        }
+        _window_idx_basic_stats = {
+            "col": "window_idx",
+            "stats": {
+                "count": 11121.0,
+                "min": 1.0,
+                "max": 2.0,
+                "mean": 1.1686898660192429,
+                "std": 0.37449460083753666,
+            },
+        }
+
+        check_stats = _time_idx_basic_stats
+        check_stats = _time_basic_stats
+        check_stats = _amp_raw_basic_stats
+        check_stats = _amp_corrected_basic_stats
+        check_stats = _amp_bg_basic_stats
+        check_stats = _window_idx_basic_stats
 
 
 class OutParamsBase(pa.DataFrameModel):
@@ -749,7 +902,8 @@ class OutParamsBase(pa.DataFrameModel):
     inbounds: bool
 
     class Config:
-        strict=True
+        strict = True
+
 
 class OutParamManyPeaks(OutParamsBase):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1])
@@ -783,74 +937,25 @@ class OutParamManyPeaks(OutParamsBase):
     )
     inbounds: bool = pa.Field(isin=[True])
 
-
 class OutParamAssChrom(OutParamsBase):
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1, 2])
-    peak_idx: pd.Int64Dtype = pa.Field(isin=[0, 1, 2, 3])
-    param: pd.CategoricalDtype = pa.Field(isin=["amp", "loc", "whh", "skew"])
-    p0: pd.Float64Dtype = pa.Field(
-        eq=[
-            42.69012166052291,
-            1507.0,
-            135.25637011123035,
-            0.0,
-            19.96079318035132,
-            1899.0,
-            86.26565883912212,
-            0.0,
-            2.659615202676218,
-            8000.0,
-            353.1976828679399,
-            0.0,
-            39.89422804014327,
-            11000.0,
-            117.74131434127048,
-            0.0,
-        ]
-    )
-    lb: pd.Float64Dtype = pa.Field(
-        eq=[
-            4.269012166052291,
-            687.0,
-            1.0,
-            -np.inf,
-            1.9960793180351322,
-            687.0,
-            1.0,
-            -np.inf,
-            0.2659615202676218,
-            687.0,
-            1.0,
-            -np.inf,
-            3.989422804014327,
-            10297.0,
-            1.0,
-            -np.inf,
-        ]
-    )
-    ub: pd.Float64Dtype = pa.Field(
-        eq=[
-            426.90121660522914,
-            9407.0,
-            4360.0,
-            np.inf,
-            199.6079318035132,
-            9407.0,
-            4360.0,
-            np.inf,
-            26.59615202676218,
-            9407.0,
-            4360.0,
-            np.inf,
-            398.9422804014327,
-            11705.0,
-            704.0,
-            np.inf,
-        ]
-    )
-    inbounds: bool = pa.Field(isin=[True])
+    """
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
+    """
 
+    window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
+    peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3])
+    param: pd.CategoricalDtype = pa.Field(eq=['amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew'])
+    p0: pd.Float64Dtype = pa.Field(eq=[42.68783588672989, 15.07, 1.352563701131644, 0.0, 19.957724534443003, 18.99, 0.8626565883964088, 0.0, 2.6518058154648143, 80.0, 3.531976828454367, 0.0, 39.8866307472038, 110.0, 1.1774131434073842, 0.0])
+    lb: pd.Float64Dtype = pa.Field(eq=[4.2687835886729895, 6.87, 0.01, -np.inf, 1.9957724534443004, 6.87, 0.01, -np.inf, 0.26518058154648144, 6.87, 0.01, -np.inf, 3.9886630747203804, 99.32, 0.01, -np.inf])
+    ub: pd.Float64Dtype = pa.Field(eq=[426.8783588672989, 99.31, 46.22, np.inf, 199.57724534443003, 99.31, 46.22, np.inf, 26.518058154648145, 99.31, 46.22, np.inf, 398.86630747203805, 118.07, 9.375, np.inf])
+    inbounds: bool = pa.Field(eq=[True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True])
 
+    class Config:
+
+        name="OutParamAssChrom"
+        strict=True
+        
+        
 class OutPoptBase(pa.DataFrameModel):
     pass
 
