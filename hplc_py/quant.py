@@ -38,6 +38,8 @@ from hplc_py import show
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
     OutSignalDF_Base,
+    OutReconDFBase,
+    OutPeakReportBase,
 )
 
 
@@ -149,12 +151,12 @@ class Chromatogram(
         
         # Assign column labels
         self.time_col = 'time'
-        self.amp_col = 'amp'
+        self.amp_col = 'amp_raw'
 
         # store the chromatogram df and (re)name the column and index
         
         self._signal_df = signal_df.copy(deep=True)
-        self._signal_df = self._signal_df.rename_axis(index="index",columns="dimensions", errors='raise')
+        self._signal_df = self._signal_df.rename_axis(index="index",columns="dimensions")
 
         # calculate the average timestep
         self._timestep = self.compute_timestep(self._signal_df['time'].to_numpy(np.float64))
@@ -168,15 +170,17 @@ class Chromatogram(
         
         return self._signal_df
     
+    @pa.check_types
     def fit_peaks(
         self,
         amp_colname: str,
-        time_colanme: str,
+        time_colname: str,
         correct_baseline: bool=True,
-        bline_kwargs: dict={},
+        bcorr_kwargs: dict={},
         fwindows_kwargs: dict={},
         deconvolve_kwargs: dict={},
-    ):
+        verbose: bool=True,
+    )->tuple[pt.DataFrame[OutPeakReportBase], pt.DataFrame[OutReconDFBase]]:
         '''
         Process master method
         '''
@@ -185,23 +189,31 @@ class Chromatogram(
         
         timestep = self._timestep
         
+        # test if supplied column names are in the df
+        for k, v in {'amp_colname':amp_colname, 'time_colname':time_colname}.items():
+            if v not in self._signal_df.columns.tolist():
+                raise ValueError(f"{k} value: {v} not in signal_df. Possible values are: {self._signal_df.columns}")
+            
         time = self._signal_df.loc[:,self.time_col].to_numpy(np.float64)
         amp_raw = self._signal_df.loc[:,self.amp_col].to_numpy(np.float64)
-        # preprocessing
         
-        self.signal_df = self.preprocess_signal_df_factory(
-            time,
-            timestep,
+        # baseline correction
+        
+        bcorr, background = self._baseline.correct_baseline(
             amp_raw,
-            time_colname,
-            amp_colname,
-            bline_kwargs
+            timestep,
+            **bcorr_kwargs,
+            verbose=verbose,
         )
+        
+        self._signal_df["amp_corrected"] = bcorr
+        self._signal_df["background"] = background
         
         # peak profiling and windowing
         
         p_df, w_df = self._findwindows.profile_peaks_assign_windows(
-            self.signal_df,
+            time,
+            bcorr,
             **fwindows_kwargs,
         )
         
@@ -210,14 +222,23 @@ class Chromatogram(
         
         # peak deconvolution
         
+        self._signal_df = (self._signal_df
+                        #    .reset_index(names="time_idx")
+                           .pipe(pt.DataFrame[OutSignalDF_Base]))
+        
         self.popt_df, self.unmixed_df = self._deconvolve.deconvolve_peaks(
-            self.signal_df,
+            pt.DataFrame[OutSignalDF_Base](self._signal_df),
             self.peak_df,
             self.window_df,
             timestep
         )
         
-        return self.popt_df, self.unmixed_df            
+        self.peak_report = self._deconvolve.compile_peak_report(
+            self.popt_df,
+            self.unmixed_df,
+            timestep,
+        )
+        return self.peak_report, self.unmixed_df            
 
     
     def compute_timestep(self, time_array: npt.NDArray[np.float64])->np.float64:

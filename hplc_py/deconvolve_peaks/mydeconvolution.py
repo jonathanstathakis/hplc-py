@@ -27,7 +27,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutDefaultBoundsBase,
     OutWindowedSignalBase,
     OutParamsBase,
-    OutPoptBase,
+    OutPoptDF_Base,
     OutReconDFBase,
     OutPeakReportBase,
 )
@@ -205,16 +205,6 @@ class DataPrepper(skewnorms.SkewNorms):
                 - width: the timestep, half the width of the window
                 - skew: between negative and positive infinity
         """
-
-        # input validation
-        pt.DataFrame[OutInitialGuessBase](p0_df)
-        pt.DataFrame[OutWindowDF_Base](window_df)
-        pt.DataFrame[OutPeakDF_Base](peak_df)
-
-        # input validation
-        pt.DataFrame[OutInitialGuessBase](p0_df)
-        pt.DataFrame[OutWindowDF_Base](window_df)
-        pt.DataFrame[OutPeakDF_Base](peak_df)
 
         timestep = np.float64(timestep)
 
@@ -442,13 +432,14 @@ class PPeakDeconvolver(SkewNorms):
     def __init__(self):
         self.dataprepper = DataPrepper()
 
+    @pa.check_types
     def deconvolve_peaks(
         self,
         signal_df: pt.DataFrame[OutSignalDF_Base],
         peak_df: pt.DataFrame[OutPeakDF_Base],
         window_df: pt.DataFrame[OutWindowDF_Base],
         timestep: np.float64,
-    ) -> tuple[OutPoptBase, OutReconDFBase]:
+    ) -> tuple[pt.DataFrame[OutPoptDF_Base], pt.DataFrame[OutReconDFBase]]:
         windowed_signal_df = self.dataprepper._window_signal_df(signal_df, window_df)
 
         p0_df = self.dataprepper.p0_factory(
@@ -456,11 +447,12 @@ class PPeakDeconvolver(SkewNorms):
             peak_df,
             window_df,
             timestep,
-            "y_corrected",
+            "amp_corrected",
         )
 
         default_bounds = self.dataprepper.default_bounds_factory(
             p0_df,
+            signal_df,
             window_df,
             peak_df,
             timestep,
@@ -475,14 +467,14 @@ class PPeakDeconvolver(SkewNorms):
         popt_df = self._popt_factory(windowed_signal_df, param_df)
 
         reconstructed_signals = self._reconstruct_peak_signal(
-            windowed_signal_df["time_idx"], popt_df
+            windowed_signal_df["time"], popt_df
         )
 
-        return popt_df.pipe(pt.DataFrame[OutPoptBase]), reconstructed_signals.pipe(pt.DataFrame[OutReconDFBase])  # type: ignore
+        return popt_df.pipe(pt.DataFrame[OutPoptDF_Base]), reconstructed_signals.pipe(pt.DataFrame[OutReconDFBase])  # type: ignore
 
     def compile_peak_report(
         self,
-        popt_df: pt.DataFrame[OutPoptBase],
+        popt_df: pt.DataFrame[OutPoptDF_Base],
         unmixed_df: pt.DataFrame[OutReconDFBase],
         timestep: np.float64,
     ):
@@ -531,7 +523,8 @@ class PPeakDeconvolver(SkewNorms):
                 ],
             ]
         )
-
+        # assert False, "\n"+"\n".join(peak_report_df.columns)
+        
         return peak_report_df.pipe(pt.DataFrame[OutPeakReportBase])
 
     def _prep_for_curve_fit(
@@ -605,7 +598,7 @@ class PPeakDeconvolver(SkewNorms):
         param_df: pt.DataFrame[OutParamsBase],
         verbose=True,
         optimizer_kwargs={},
-    ) -> pt.DataFrame[OutPoptBase]:
+    ) -> pt.DataFrame[OutPoptDF_Base]:
         popt_list = []
 
         windows = windowed_signal_df["window_idx"].unique()
@@ -665,43 +658,48 @@ class PPeakDeconvolver(SkewNorms):
             .rename_axis(index="idx", columns="cols")
         )
 
-        return popt_df
+        return popt_df.pipe(pt.DataFrame[OutPoptDF_Base])
 
+    @pa.check_types
     def _reconstruct_peak_signal(
         self,
-        xdata,
-        popt_df: pd.DataFrame,
-    ):
+        time: npt.NDArray[np.float64],
+        popt_df: pt.DataFrame[OutPoptDF_Base],
+    )->pt.DataFrame[OutReconDFBase]:
+        
         def reconstruct_peak_signal(
-            popt_df,
-            xdata,
+            popt_df: pt.DataFrame[OutPoptDF_Base],
+            time: pt.Series,
         ):
             params = popt_df.loc[:, ["amp", "loc", "whh", "skew"]].values.flatten()
 
             try:
-                unmixed_signal = self._compute_skewnorm(xdata.values, *params)
+                unmixed_signal = self._compute_skewnorm(time.values, *params)
 
                 unmixed_signal_df = pd.merge(
-                    popt_df.loc[:, ["peak_idx"]], xdata, how="cross"
+                    popt_df.loc[:, ["peak_idx"]], time, how="cross"
                 )
 
                 unmixed_signal_df = unmixed_signal_df.assign(unmixed_amp=unmixed_signal)
 
-                return unmixed_signal_df
-
             except Exception as e:
                 raise RuntimeError(f"{e}\n" f"{params}\n" f"{popt_df.index}\n")
-
+            
+            return unmixed_signal_df
+                
+                
         # remove window_idx from identifier to avoid multiindexed column
 
         unmixed_df = popt_df.groupby(
             by=["peak_idx"],
             group_keys=False,
         ).apply(
-            reconstruct_peak_signal, xdata
+            reconstruct_peak_signal, time
         )  # type: ignore
-
-        return unmixed_df
+        
+        
+        
+        return unmixed_df.pipe(pt.DataFrame[OutReconDFBase])
 
     def optimize_p(
         self,

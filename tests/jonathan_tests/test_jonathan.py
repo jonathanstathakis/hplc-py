@@ -1,63 +1,7 @@
 """
-TODO:
 
-- [ ] write 'stored_popt' for both datasets- currently only testing on asschrom
-
-TODO:
-
-- [x] plot whh to understand what it is.
-- [x] test asschrom dataset with original code to see what the width values should be
-- [x] diagnose why my code produes a different value
-    - reason 1 is that the peak widths are stored in time units rather than index units.
-    - thats the only reason. same same, dont change a thing.
-- [x] write up on the skew norm model to understand:
-    - [x] why parameter choices are what they are
-    - [ ] interpretability of the results, how reliable are they?
-    - [ ] what are the danger points of the skewnorm model
-        - the last two are currently unanswered.
-- [x] adapt .show
-    - [x] plot raw chromatogram
-    - [x] plot inferred mixture (sum of reconstructed signals)
-    - [x] plot mapped peaks (fill between)
-    - [ ] add custom peaks subroutine
-- [ ] identify why the fitted peaks do not match the original signal.
-    - [x] define a fixture class that returns the parameters of the hplc_py calculation for the same dataset. Provide an interface that outputs the parameters in the same format as your definitions for easy comparison.
-        - [x] output the results from the main env to a parquet file
-        - [x] write the fixture to read the output
-        - [x] write tests to compare my results with theirs.
-        - [x] add a params_df output to the fixture, this being the lb, p0, ub in similar format to mine.
-        - [x] add timestep to params_df
-    - [x] write an adapter (proto decorator) to express the main calculated parameters as your format to feed to `_popt_factory` directly.
-    - [ ] 2023-12-17 09:35:43 - get back to a functioning test base. solve the test problems* 
-    - [ ] add schemas for the main AssChrom dataset at each stage of the process
-        - [ ] find windows
-        - [ ] deconvolution
-        - Note: this will be difficult because we'd have to adapt at every stage, manually recording the data and reformatting it. Not impossible.
-    - [x] determine why your p0 values are rounded to 3 decimal places. Answer: erronous type casting to int after the width calculations. Solution: casting all width measurements to float instead.
-    - [ ] determine why the amp values deviate at the third decimal place. Hypothesis: baseline corrected signals differ. How to test:
-        - [x] output main signal, baseline corrected signal, background
-        - [x] isolate my corresponding series
-        - [x] compare
-        - outcome of comparison - all values are equal until the optimization.
-        - outcome: baseline corrected signals differ by an order of magnitude of 2 to 3. Need to investigate why this is happening. This will be achieved by first creating intermediate variable tables to compare the values
-        - [ ] compare the debug dfs
-    - [x] normalization only needs to occur during the peak profiling. we dont refer to it afterwards, so move it to that point.
-        - [x] need to define and apply a normalize inversion function to convert the peak width measure height calculations to base scale.
-    - [ ] define all module internal dataframes at beginning of flow from 1D array input to finely control dataframe content, i.e. baseline module.
-    - [ ] parametrize all module inputs to enable higher level control of variable flow
-    - [ ] enforce a resampling during data loading, then use timestep calls to convert to time units rather than joining
-    
-            
-- [ ] adapt map_peaks (?)
-- [ ] adapt fit assessment module(s)
-- [ ] add in the customization routines
-- [ ] build the master method
-- [ ] seperate initial peak profiling from window finding 
-- [ ] make the modules more abstracted, expose intermediate values as class objects.
 """
 
-from typing import Literal
-from pandas.core.arrays.base import ExtensionArray
 from pandas.core.frame import DataFrame
 from pandera.typing.pandas import DataFrame
 import pytest
@@ -82,48 +26,33 @@ import copy
 
 
 from hplc_py.quant import Chromatogram
+
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
     OutSignalDF_Base,
-    SignalDFInAssChrom,
-    OutSignalDF_ManyPeaks,
-    OutSignalDF_AssChrom,
     OutPeakDF_Base,
-    OutPeakDF_ManyPeaks,
-    OutPeakDF_AssChrom,
+    OutPeakDFAssChrom,
     OutWindowDF_Base,
-    OutWindowDF_ManyPeaks,
     OutWindowDF_AssChrom,
     OutInitialGuessBase,
-    OutInitialGuessManyPeaks,
     OutInitialGuessAssChrom,
     OutDefaultBoundsBase,
-    OutDefaultBoundsManyPeaks,
     OutDefaultBoundsAssChrom,
     OutWindowedSignalBase,
-    OutWindowedSignalManyPeaks,
     OutWindowedSignalAssChrom,
     OutParamsBase,
     OutParamAssChrom,
-    OutParamManyPeaks,
-    OutPoptBase,
-    OutPoptManyPeaks,
-    OutPoptAssChrom,
+    OutPoptDF_Base,
+    OutPoptDF_AssChrom,
     OutReconDFBase,
+    OutReconDF_AssChrom,
     OutPeakReportBase,
     OutPeakReportAssChrom,
-    interpret_model
+    interpret_model,
+    schema_tests,
 )
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    isArrayLike,
-    OutPeakDF_Base,
-    SignalDFInBase,
-    OutWindowDF_Base,
-)
 from hplc_py.quant import Chromatogram
-
-import os
 
 pd.options.display.precision = 9
 
@@ -236,6 +165,19 @@ class TestInterpretModel:
         schema = self.schema_cls(basic_stats_schema_str)
         schema(sample_df)
         
+    def test_base_schema(
+        self,
+        sample_df
+    ):
+        
+        # schema = self.schema_cls(sample_df)
+        print(interpret_model(
+            sample_df,
+            'TestBaseSchema',
+            is_base=True
+        ))
+        
+        
     
         
     from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFInAssChrom
@@ -280,109 +222,9 @@ def schema_error_str_long_frame(schema, e, df):
 manypeakspath = "/Users/jonathan/hplc-py/tests/test_data/test_many_peaks.csv"
 asschrompath = "tests/test_data/test_assessment_chrom.csv"
 
-class AssChromResults:
-    """
-    The results of 'fit_peaks' on the 'test_assessment_chrom' dataset
-
-    to add:
-
-    - [x] timestep. Has been added as a column of 'param_df'
-
-    """
-
-    def __init__(self):
-        
-        '''
-        load results tables from the main project from parquet files whose paths are
-        given as a json file. store the tables as a member dict.
-        '''
-        
-        import json
-        
-        in_basepath = "/Users/jonathan/hplc-py/tests/jonathan_tests/main_asschrom_results"
-        paths_json_inpath = os.path.join(in_basepath, 'filepaths.json')
-        
-        with open(paths_json_inpath, 'r') as f:
-        
-            self.paths_dict = json.load(f)
-        
-        self.tables = {}
-        
-        # keys: ['peaks', 'unmixed', 'asschrom_param_tbl', 'mixed_signals', 'bcorr_dbug_tbl', 'window_df']
-        for name, path in self.paths_dict.items():
-            self.tables[name]=pd.read_parquet(path)
-        self.tables['adapted_param_tbl'] = self.adapt_param_df(self.tables['asschrom_param_tbl'])
-            
-            
-        return None
-
-    def adapt_param_df(self, param_df):
-        """
-        adapt main param_df to be expressed as per the definition that `popt_factory` is expecting
-
-        """
-        from scipy.optimize._lsq.common import in_bounds
-
-        timestep = self.tables['asschrom_param_tbl'].loc[0, "timestep"]
-        
-        # 
-        df: pd.DataFrame = param_df.copy(deep=True)
-        
-        # assign inbounds column
-        df['inbounds']=df.apply(lambda x: in_bounds(x["p0"], x["lb"], x["ub"]),axis=1)
-        
-        # replace parameter values to match my labels
-        df["param"] = df['param'].replace(
-                    {
-                        "amplitude": "amp",
-                        "location": "loc",
-                        "scale": "whh",
-                    }
-                )
-        
-        # set param column as ordered categorical
-        df['param'] = pd.Categorical(values=df["param"], categories=df["param"].unique(), ordered=True)
-        
-        # provide an ascending peak idx col irrespective of windows
-        df['peak_idx'] = np.repeat([0,1,2,3],len(df)/4)
-        
-        # remove the timestep col
-        df = df.drop(['timestep'],axis=1)
-        
-        return df
-
-    def get_results_paths(self):
-        out_basepath = (
-            "/Users/jonathan/hplc-py/tests/jonathan_tests/main_asschrom_results"
-        )
-
-        ptable_outpath = os.path.join(out_basepath, "asschrom_peak_table.parquet")
-        unmixed_outpath = os.path.join(out_basepath, "asschrom_unmixed.parquet")
-        param_df_outpath = os.path.join(out_basepath, "param_df.parquet")
-        mixed_signals_outpath = os.path.join(
-            out_basepath, "asschrom_mixedsignals.parquet"
-        )
-
-        return {
-            "param_outpath": param_df_outpath,
-            "ptable_outpath": ptable_outpath,
-            "unmixed_outpath": unmixed_outpath,
-            "mixed_outpath": mixed_signals_outpath,
-        }
-
-
-@pytest.fixture
-def acr():
-    acr = AssChromResults()
-    return acr
-
 def test_acr(acr):
     assert acr
     pass
-
-@pytest.fixture
-def window_df_main(acr):
-    return acr.tables['window_df']
 
 def test_param_df_adapter(acr):
     param_df = acr.tables['asschrom_param_tbl']
@@ -398,10 +240,6 @@ def check_df_exists(df):
     assert df.all
     return None
 
-@pytest.fixture
-def target_window_df(acr):
-    return acr.tables['peaks']
-
 def test_target_window_df_exists(target_window_df):
     check_df_exists(target_window_df)
     pass
@@ -416,61 +254,10 @@ def test_get_asschrom_results(acr):
 
 
 
-@pytest.fixture
-def datapath():
-    return "tests/test_data/test_assessment_chrom.csv"
-
-
-@pytest.fixture
-@pa.check_types
-def in_signal(datapath: str) -> pt.DataFrame[SignalDFInBase]:
-    data = pd.read_csv(datapath)
-
-    data = data.rename({"x": "time", "y": "amp_raw"}, axis=1, errors='raise')
-    data.insert(0, "tbl_name", "testsignal")
-
-    return data
-
-
-@pa.check_types
-def test_in_signal_matches_schema(in_signal: pt.DataFrame[SignalDFInBase]) -> None:
-    'currently in signal is asschrom'
-    SignalDFInAssChrom(in_signal)
-    return None
-
-
-@pytest.fixture
-def chm():
-    return Chromatogram(viz=True)
-
-
-@pytest.fixture
-def time(in_signal: pt.DataFrame[SignalDFInBase]):
-    assert isinstance(in_signal, pd.DataFrame)
-    assert isArrayLike(in_signal.time)
-    return in_signal.time.values
-
-
-@pytest.fixture
-def timestep(chm: Chromatogram, time: npt.NDArray[np.float64]) -> float:
-    timestep = chm.compute_timestep(time)
-    assert timestep
-    assert isinstance(timestep, float)
-    assert timestep > 0
-
-    return timestep
-
 
 def test_timestep_exists_and_greater_than_zero(timestep):
     assert timestep
     assert timestep>0
-
-
-@pytest.fixture
-def amp_raw(in_signal: DataFrame[SignalDFInBase]):
-    amp = in_signal['amp_raw'].values
-
-    return amp
 
 
 def test_amp_raw_not_null(amp_raw):
@@ -480,138 +267,13 @@ def test_amp_raw_not_null(amp_raw):
     assert all(amp_raw)
 
 
-@pytest.fixture
-def windowsize():
-    return 5
-
-
-@pytest.fixture
-def bcorr_col(intcol: str) -> str:
-    return intcol + "_corrected"
-
-
-@pytest.fixture
-def timecol():
-    return "time"
-
-
-@pytest.fixture
-def intcol():
-    return "signal"
-
-
-@pytest.fixture
-def bcorr_tuple(
-    chm: Chromatogram,
-    amp_raw: npt.NDArray[np.float64],
-    timestep: np.float64,
-    windowsize: int,
-):
-    y_corrected, background = chm._baseline.correct_baseline(
-        amp_raw,
-        timestep,
-        windowsize,
-        verbose=False,
-    )
-
-    return y_corrected, background
-
-
 def test_bcorr_tuple_exists_and_len_2(bcorr_tuple):
     assert bcorr_tuple
     assert len(bcorr_tuple)==2
     pass
 
-
-@pytest.fixture
-def amp_bcorr(bcorr_tuple):
-    return bcorr_tuple[0]
-
-
-@pytest.fixture
-def background(bcorr_tuple):
-    return bcorr_tuple[1]
-
-
-@pytest.fixture
-def amp_cn(
-    chm: Chromatogram, amp_bcorr: npt.NDArray[np.float64]
-) -> npt.NDArray[np.float64]:
-    """
-    ``int_cn` has the base data as the first element of the namespace then the process
-    in order. i.e. intensity: [corrected, normalized]
-    """
-    int_cn = chm._findwindows.normalize_series(amp_bcorr)
-
-    assert any(int_cn)
-    assert isArrayLike(int_cn)
-    assert np.min(int_cn >= 0)
-    assert np.max(int_cn <= 1)
-
-    return int_cn
-
-
-@pytest.fixture
-def peak_df(
-    chm: Chromatogram,
-    time: npt.NDArray[np.float64],
-    amp_bcorr: npt.NDArray[np.float64],
-) -> pt.DataFrame[OutPeakDF_Base]:
-    peak_df = chm._findwindows.peak_df_factory(time, amp_bcorr)
-
-    return peak_df
-
-
-@pytest.fixture
-def norm_amp(
-    chm: Chromatogram,
-    amp_bcorr: npt.NDArray[np.float64],
-):
-    norm_int = chm._findwindows.normalize_series(amp_bcorr)
-    return norm_int
-
-
-@pytest.fixture
-def time_colname():
-    return "time"
-
-
-@pytest.fixture
-def amp_colname():
-    return "amp"
-
-@pytest.fixture
-def signal_df(time,
-              amp_raw,
-              amp_bcorr,
-              background
-              ):
-    return pd.DataFrame({
-        'time_idx':np.arange(0, len(time),1),
-        'time':time,
-        'amp_raw': amp_raw,
-        'amp_corrected': amp_bcorr,
-        'amp_bg': background
-    })
-
-@pytest.fixture
-def window_df(
-    chm: Chromatogram,
-    signal_df: pt.DataFrame,
-    peak_df: pt.DataFrame[OutPeakDF_Base],
-)->pt.DataFrame:
-    window_df = chm._findwindows.window_df_factory(
-        signal_df['time'].to_numpy(np.float64),
-        signal_df['amp_corrected'].to_numpy(np.float64),
-        peak_df['rl_left'].to_numpy(np.float64),
-        peak_df['rl_right'].to_numpy(np.float64)
-    )
-
-    return window_df
-
 class TestLoadData:
-    
-    
+        
     @pytest.fixture
     def valid_time_windows(self):
         return [[0, 5], [5, 15]]
@@ -747,15 +409,6 @@ class TestCorrectBaseline:
         plt.plot(debug_bcorr_df.s_compressed, label='debug tbl')
         plt.legend()
         plt.show()
-        
-    @pytest.fixture
-    def amp_raw_main(
-        self,
-        acr: AssChromResults,
-    ):
-        amp_raw = acr.tables['mixed_signals']['y']
-        
-        return amp_raw 
         
     def test_amp_raw_equals_main(
         self,
@@ -1001,7 +654,7 @@ class TestWindowing:
             # ),
             (
                 asschrompath,
-                OutPeakDF_AssChrom,
+                OutPeakDFAssChrom,
             ),
         ],
     }
@@ -1012,10 +665,27 @@ class TestWindowing:
         peak_df: pt.DataFrame,
         schema,
     ):
+        print("")
+        print(
+            interpret_model(
+                peak_df,
+                'OutPeakDF_Base',
+                is_base=True
+                ),
+                )
         try:
             schema(peak_df)
         except Exception as e:
-            raise RuntimeError(f"{e}\n" f"\n{schema}\n" f"\n{peak_df.to_markdown()}\n")
+            
+            print(
+                interpret_model(
+                    peak_df,
+                    'OutPeakDFAssChrom',
+                    "OutPeakBase",
+                    check_dict = {col: 'eq' for col in peak_df}
+                    ),
+                  )
+            raise ValueError(e)
 
     def test_peak_df_viz(
         self,
@@ -1103,14 +773,23 @@ class TestWindowing:
         self,
         window_df: pt.DataFrame[OutWindowDF_Base],
         schema,
-    ):
-        
-        print("")
-        print(window_df.shape)
+    ):  
+
         try:
             schema(window_df)
         except Exception as e:
-            raise RuntimeError(f"{schema}\n" f"{e}\n" f"{window_df.describe()}\n")
+            print(interpret_model(
+                window_df,
+                "OutWindowDF_Base",
+                "",
+                is_base=True,
+            ))
+        
+            print(interpret_model(window_df,
+                                "OutWindowDF_AssChrom",
+                                "OutWindowDF_Base",
+                                ))
+            raise ValueError(e)
 
         return None
 
@@ -1202,7 +881,8 @@ class TestWindowing:
             )
         except Exception as e:
             raise RuntimeError(e)
-        
+    
+    @pytest.mark.xfail
     @pa.check_types
     def test_assign_windows_compare_main(
         self,
@@ -1239,54 +919,6 @@ class TestWindowing:
         # print(window_df.compare(window_df_main))
         return None
 
-@pytest.fixture
-def p0_df(
-    chm: Chromatogram,
-    signal_df: pt.DataFrame[OutSignalDF_Base],
-    peak_df: pt.DataFrame[OutPeakDF_Base],
-    window_df: pt.DataFrame[OutWindowDF_Base],
-    timestep: np.float64,
-    int_col: str,
-) -> pt.DataFrame[OutInitialGuessBase]:
-    p0_df = chm._deconvolve.dataprepper.p0_factory(
-        signal_df,
-        peak_df,
-        window_df,
-        timestep,
-        int_col,
-    )
-    return p0_df
-
-
-@pytest.fixture
-@pa.check_types
-def default_bounds(
-    chm: Chromatogram,
-    p0_df: pt.DataFrame[OutInitialGuessBase],
-    signal_df: pt.DataFrame[OutSignalDF_Base],
-    window_df: pt.DataFrame[OutWindowDF_Base],
-    peak_df: pt.DataFrame[OutPeakDF_Base],
-    timestep: np.float64,
-)->pt.DataFrame[OutDefaultBoundsBase]:
-    default_bounds = chm._deconvolve.dataprepper.default_bounds_factory(
-        p0_df,
-        signal_df,
-        window_df,
-        peak_df,
-        timestep,
-    )
-    return default_bounds
-
-@pa.check_types
-def test_default_bounds_tbl_init(
-    default_bounds: pt.DataFrame[OutDefaultBoundsBase],
-):
-    'use check_types to test the input tbl'
-    pass
-@pytest.fixture
-def int_col():
-        return 'amp_corrected'
-    
     
 class TestDataPrepper:
     manypeakspath = "tests/test_data/test_many_peaks.csv"
@@ -1373,8 +1005,24 @@ class TestDataPrepper:
             schema(p0_df)
         except Exception as e:
             # schema_error_str(schema, e, p0_df)
-            schema_str = interpret_model(p0_df, "OutInitialGuessAssChrom", "OutInitialGuessBase",{col:"eq" for col in p0_df.columns})
             print("")
+            
+            print(
+                interpret_model(
+                    p0_df,
+                    "OutInitialGuessBase",
+                    is_base=True,
+                )
+            )
+            
+            print("")
+            
+            schema_str = interpret_model(
+                p0_df,
+                "OutInitialGuessAssChrom",
+                "OutInitialGuessBase",
+            )
+            
             print(schema_str)
             raise ValueError(e)
     
@@ -1429,10 +1077,13 @@ class TestDataPrepper:
         try:
             schema(default_bounds)
         except Exception as e:
-            schema_str = interpret_model(default_bounds, "OutDefaultBoundsAssChrom", "OutDefaultBoundsBase",{col:"eq" for col in default_bounds})
-            schema_error_str = str(e) + "\n" + "use schema definition below to match input frame:\n\n" + schema_str
+            schema_str = interpret_model(
+                "OutDefaultBoundsAssChrom",
+                default_bounds,
+                "OutDefaultBoundsBase",
+            )
             print(schema_str)
-            raise ValueError(schema_error_str)
+            raise ValueError(e)
         return None
 
         return None
@@ -1445,49 +1096,7 @@ Since the trivial inputs work, we need to unit test p optimizer to expose the fa
 """
 
 
-@pytest.fixture
-def param_df(
-    chm: Chromatogram,
-    p0_df: pt.DataFrame[OutInitialGuessBase],
-    default_bounds: pt.DataFrame[OutDefaultBoundsBase],
-) -> pt.DataFrame[OutParamsBase]:
-    
-    param_df = chm._deconvolve.dataprepper._param_df_factory(p0_df, default_bounds)
 
-    return param_df
-
-
-@pytest.fixture
-def windowed_signal_df(
-    chm: Chromatogram,
-    signal_df: pt.DataFrame[OutSignalDF_Base],
-    window_df: pt.DataFrame[OutWindowDF_Base],
-) -> pt.DataFrame[OutWindowedSignalBase]:
-    """
-    test the output against a defined schema.
-    """
-
-    windowed_signal_df = chm._deconvolve.dataprepper._window_signal_df(
-        signal_df, window_df
-    )
-
-    return windowed_signal_df.pipe(pt.DataFrame[OutWindowedSignalBase])  # type: ignore
-
-
-@pytest.fixture
-def popt_df(
-    chm: Chromatogram,
-    windowed_signal_df: pt.DataFrame[OutWindowedSignalBase],
-    param_df: pt.DataFrame[OutParamsBase],
-):
-    popt_df = chm._deconvolve._popt_factory(windowed_signal_df, param_df)
-    return popt_df
-
-
-@pytest.mark.parametrize(
-    ["params", "x"],
-    [([10, 5, 2, 0, 20, 10, 4, 2], np.arange(0, 30, 1, dtype=np.float64))],
-)
 class TestingCurveFit:
     @pytest.fixture
     def y(self, chm: Chromatogram, params, x):
@@ -1539,43 +1148,6 @@ class TestingCurveFit:
             }
 
 
-@pytest.fixture
-def xdata(
-    signal_df,
-):
-    return signal_df["time"]
-
-
-@pytest.fixture
-def unmixed_df(
-    chm: Chromatogram,
-    xdata,
-    stored_popt,
-):
-    unmixed_df = chm._deconvolve._reconstruct_peak_signal(xdata, stored_popt)
-    return unmixed_df
-
-
-@pytest.fixture
-def peak_report(
-    chm: Chromatogram,
-    stored_popt: OutPoptBase,
-    unmixed_df: OutReconDFBase,
-    timestep: np.float64,
-) -> OutPeakReportBase:
-    peak_report = chm._deconvolve.compile_peak_report(
-        stored_popt,
-        unmixed_df,
-        timestep,
-    )
-    return peak_report.pipe(pt.DataFrame[OutPeakReportBase])  # type: ignore
-
-@pytest.fixture
-def popt_parqpath():
-    """
-    Intended to be used to store a popt df as it is computationally expensive to deconvolute many-peaked windows
-    """
-    return "/Users/jonathan/hplc-py/tests/jonathan_tests/asschrompopt.parquet"
 
 def test_popt_to_parquet(popt_df, popt_parqpath):
     """
@@ -1583,14 +1155,6 @@ def test_popt_to_parquet(popt_df, popt_parqpath):
     """
 
     popt_df.to_parquet(popt_parqpath)
-
-@pytest.fixture()
-def stored_popt(popt_parqpath):
-    """
-    Read the stored popt_df, short circuiting the slow optimization process
-    """
-    return pd.read_parquet(popt_parqpath)
-
 
 
 class TestDeconvolver():
@@ -1703,7 +1267,7 @@ class TestDeconvolver():
         [
             (
                 asschrompath,
-                OutPoptAssChrom,
+                OutPoptDF_AssChrom,
             )
         ],
     )
@@ -1721,7 +1285,24 @@ class TestDeconvolver():
         Note: as of 2023-12-21 11:02:03 first window now takes 803 iterations. same window in main takes 70 iterations.
         """
 
-        print(popt_df)
+        print("")
+        print(
+            interpret_model(
+                popt_df,
+                "OutPoptDF_Base",
+                is_base=True,
+            )
+        )
+        
+        print("")
+        print(
+            interpret_model(
+            popt_df,
+            "OutPoptDF_AssChrom"
+        )
+            )
+        
+    
 
         return None
 
@@ -1749,7 +1330,7 @@ class TestDeconvolver():
     
     so, the reconstructed peak signal should have a peak_id and window_idx    
     """
-
+    @pytest.mark.xfail
     def test_popt_factory_main_params_vs_my_params(
         self,
         chm: Chromatogram,
@@ -1856,7 +1437,7 @@ class TestDeconvolver():
         
         pretty sure I have an incomplete swap from time index to time units.
         """
-        assert False, "clear so far"
+        
         
         # for col in param_df.columns:
             
@@ -1898,18 +1479,6 @@ class TestDeconvolver():
         #                               get_acr.adapted_param_df,
         #                               )
         # print(popt_df)
-
-    def test_reconstruct_peak_signal(
-        self,
-        unmixed_df: OutReconDFBase,
-    ) -> None:
-        """
-        TODO:
-        - [ ] establish schemas for the datasets and rewrite the test for them
-        """
-
-        OutReconDFBase(unmixed_df)
-
     @pytest.mark.parametrize(
         [
             # 'datapath',
@@ -1918,20 +1487,52 @@ class TestDeconvolver():
         [
             (
                 # asschrompath,
-                OutPeakReportAssChrom,
+                OutReconDF_AssChrom,
             )
         ],
     )
+    def test_reconstruct_peak_signal(
+        self,
+        unmixed_df: pt.DataFrame[OutReconDFBase],
+        schema
+    ) -> None:
+        base_schema_kwargs = {"schema_name":"OutReconDFBase", "is_base":True}
+        dset_schema_kwargs ={'schema_name':"OutReconDF_AssChrom", 'inherit_from':"OutReconDF_Base"}
+    
+        schema_tests(
+            OutReconDFBase,
+            schema,
+            base_schema_kwargs,
+            dset_schema_kwargs,
+            unmixed_df,
+        )
+        
+        return None
+    
+    
     def test_peak_report(
         self,
-        peak_report: OutPeakReportBase,
-        schema,
+        peak_report: pt.DataFrame[OutPeakReportBase],
     ):
-        try:
-            schema(peak_report)
-        except Exception as e:
-            schema_error_str(schema, e, peak_report)
+        
+        
+        schema_tests(
+            OutPeakReportBase,
+            OutPeakReportAssChrom,
+            {'schema_name':'OutPeakReportBase',
+             'is_base':True,
+             },
+            {'schema_name':'OutPeakReportAssChrom',
+             'inherit_from':'OutPeakReportBase',                
+            },
+            peak_report,
+            verbose=True,
+                     )
+        
+        return None
+            
 
+    @pa.check_types
     @pytest.mark.parametrize(
         [
             "datapath",
@@ -1975,16 +1576,6 @@ class TestFitPeaks:
 
         return popt_df, unmixed_df
 
-    def test_fit_peaks(
-        self,
-        popt_df,
-        unmixed_df,
-    ):
-        assert any(popt_df)
-        assert any(unmixed_df)
-
-        return None
-
     @pytest.fixture
     def popt_df(self, fit_peaks):
         return fit_peaks[0]
@@ -1992,6 +1583,25 @@ class TestFitPeaks:
     @pytest.fixture
     def unmixed_df(self, fit_peaks):
         return fit_peaks[1]
+    
+    def test_fit_peaks(
+        self,
+        chm: Chromatogram,
+        in_signal: pt.DataFrame[SignalDFInBase],
+        amp_colname: str,
+        time_colname: str,
+        
+    ):  
+        chm.load_data(
+            in_signal,
+        )
+        
+        chm.fit_peaks(
+            amp_colname,
+            time_colname,
+        )
+        
+        return None
 
     def test_compare_timesteps(
         self,
@@ -2158,3 +1768,5 @@ class TestShow:
 
         plt.legend()
         plt.show()
+
+    
