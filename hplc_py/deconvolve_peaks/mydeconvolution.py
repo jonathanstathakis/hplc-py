@@ -631,9 +631,6 @@ class PPeakDeconvolver(SkewNorms):
                 **optimizer_kwargs,
             )
 
-            print(mesg)
-            print(infodict)
-
             # the output of `curve_fit` appears to not match the input ordering. Could
 
             popt_series = pd.Series(

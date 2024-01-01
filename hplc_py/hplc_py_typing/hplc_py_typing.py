@@ -414,6 +414,9 @@ class OutSignalDF_Base(pa.DataFrameModel):
     amp_bg: Optional[np.float64] = pa.Field(coerce=False)
     amp_corrected_norm: Optional[np.float64] = pa.Field(coerce=False)
     amp_norm: Optional[np.float64] = pa.Field(coerce=False)
+    
+    class Config:
+        strict=True
 
 
 class OutSignalDF_ManyPeaks(OutSignalDF_Base):
@@ -450,47 +453,41 @@ class OutSignalDF_AssChrom(OutSignalDF_Base):
 
 class OutWindowDF_Base(pa.DataFrameModel):
     """
-    Contains a recording of each window in the Chromatogram labeled with an ID and type
-    with a time index corresponding to the time values in the time array.
-
-    Spans the length of the chromatogram signal
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    time_idx: pd.Int64Dtype = pa.Field(coerce=False)
-    window_idx: pd.Int64Dtype = pa.Field(coerce=False)
-    window_type: str  # either 'peak' or 'np.int64erpeak'
+    time_idx: pd.Int64Dtype = pa.Field()
+    window_idx: pd.Int64Dtype = pa.Field()
+    window_type: pd.StringDtype = pa.Field()
+    super_window_idx: pd.Int64Dtype = pa.Field()
 
     class Config:
-        name = "BaseWindowDFSchema"
-        strict = True
 
-
-class OutWindowDF_ManyPeaks(OutWindowDF_Base):
-    time_idx: pd.Int64Dtype = pa.Field(ge=636, le=5868)
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1])
-
-    class Config:
-        name = "OutWindowDFManyPeaks"
+        name="OutWindowDF_Base"
+        strict=True
 
 class OutWindowDF_AssChrom(OutWindowDF_Base):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    window_idx: np.int64 = pa.Field()
     time_idx: pd.Int64Dtype = pa.Field()
-    window_type: np.object_ = pa.Field(isin=['peak'])
+    window_idx: pd.Int64Dtype = pa.Field()
+    window_type: pd.StringDtype = pa.Field(isin=['peak', 'interpeak'])
+    super_window_idx: pd.Int64Dtype = pa.Field()
 
     class Config:
 
         name="OutWindowDF_AssChrom"
         strict=True
 
-        _window_idx_basic_stats={"col":"window_idx","stats":{'count': 11121.0, 'min': 1.0, 'max': 2.0, 'mean': 1.1686898660192429, 'std': 0.37449460083753666}}
-        _time_idx_basic_stats={"col":"time_idx","stats":{'count': 11121.0, 'min': 687.0, 'max': 11807.0, 'mean': 6247.0, 'std': 3210.50050615165}}
+        _time_idx_basic_stats={"col":"time_idx","stats":{'count': 15000.0, 'min': 0.0, 'max': 14999.0, 'mean': 7499.5, 'std': 4330.271354083945}}
+        _window_idx_basic_stats={"col":"window_idx","stats":{'count': 15000.0, 'min': 1.0, 'max': 2.0, 'mean': 1.3378666666666668, 'std': 0.47299862304455925}}
+        _super_window_idx_basic_stats={"col":"super_window_idx","stats":{'count': 15000.0, 'min': 0.0, 'max': 3.0, 'mean': 0.8550666666666666, 'std': 1.2216493594178515}}
 
-        check_stats = _window_idx_basic_stats
         check_stats = _time_idx_basic_stats
+        check_stats = _window_idx_basic_stats
+        check_stats = _super_window_idx_basic_stats
         
         
 class OutInitialGuessBase(pa.DataFrameModel):

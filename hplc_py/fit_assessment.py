@@ -23,13 +23,33 @@ import pandera as pa
 import pandera.typing as pt
 
 from hplc_py.hplc_py_typing.hplc_py_typing import OutPeakReportBase
-class FitAsessment:    
+
+from dataclasses import dataclass
+
+@dataclass
+class FitAssessment:    
+
+    def access_fit(
+        self,
+        mixed_signal_df,
+        unmixed_signal_df,
+        peak_report_df,
+        window_df,
+    ):
+        pass
+    
+        score_df = self._score_df_factory(
+        mixed_signal_df,
+        unmixed_signal_df,
+        peak_report_df   
+        )
     
     def _score_df_factory(
         self,
         mixed_signal_df,
         unmixed_signal_df,
         peak_report_df,
+        
     ):
     
         
@@ -38,16 +58,49 @@ class FitAsessment:
         - [x] signal_var: variance of window signal
         - [x] signal_mean: mean of window signal
         - [x] signal fano = signal_var / signal_mean and store it as a var.
+        
         - [x] window area: abs of sum of amp in window + 1
+        
+        
         - [x] window peaks: peak indexes
         - [x] window_peak_area: area of recon signal of each peak
         - [x] score: divide window_peak_area by window_area
-        - [ ] 
-        """
         
+        There is a latent fano df and area df.
+        Fano df consists of variance, mean and fano calculations.
         
+        """    
         
+        signal_var = self.compute_signal_var(signal)
     
+    def compute_fano_df(
+        self,
+        window_df,
+        signal_df,
+    ):
+        def compute_fano(
+            signal: pd.Series):
+            
+            signal_var = self.compute_signal_var(
+                signal
+            )
+            signal_mean = self.compute_signal_mean(
+                signal
+            )
+            signal_fano = self.compute_fano(signal_var,signal_mean)
+                
+            out_series = pd.Series({
+                "var":signal_var,
+                "mean": signal_mean,
+                "fano": signal_fano,
+            })
+                
+            return out_series
+        
+        fano_df = windowed_signal_df.groupby('window_idx')['amp_corrected'].apply(compute_fano())
+
+        assert False, f"\n{fano_df}"
+        
     def compute_signal_var(
         self,
         signal: npt.NDArray[np.float64],

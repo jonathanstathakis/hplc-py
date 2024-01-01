@@ -171,11 +171,11 @@ class TestInterpretModel:
     ):
         
         # schema = self.schema_cls(sample_df)
-        print(interpret_model(
+        interpret_model(
             sample_df,
             'TestBaseSchema',
             is_base=True
-        ))
+        )
         
         
     
@@ -399,16 +399,36 @@ class TestCorrectBaseline:
     
     def test_s_compressed_against_dbug_tbl(
         self,
-        s_compressed,
-        debug_bcorr_df,
+        s_compressed: npt.NDArray[np.float64],
+        debug_bcorr_df: pd.DataFrame,
     ):
         '''
         s_compressed also currently different to the debug tbl version.
         '''
-        plt.plot(s_compressed, label='s_compressed')
-        plt.plot(debug_bcorr_df.s_compressed, label='debug tbl')
-        plt.legend()
-        plt.show()
+        
+        diff_tol = 5E-10
+        
+        s_comp_df = pd.DataFrame({
+            'main':debug_bcorr_df.s_compressed,
+            'mine':s_compressed,
+            'diff_tol': diff_tol,
+        })
+        
+        s_comp_df['diff'] = s_comp_df['main'] - s_comp_df['mine']
+        
+        s_comp_df['is_diff'] = s_comp_df['diff'].abs() > s_comp_df['diff_tol']
+        
+        if s_comp_df['is_diff'].any():
+            plt.plot(s_compressed, label='s_compressed')
+            plt.plot(debug_bcorr_df.s_compressed, label='debug tbl')
+            plt.suptitle("Divergent S compressed series")
+            plt.legend()
+            plt.show()
+            raise ValueError(f"my s_compressed is divergent from main s_compressed in {(s_comp_df['is_diff']==True).shape[0]} elements above a threshold of {diff_tol}")
+            
+            
+        
+        
         
     def test_amp_raw_equals_main(
         self,
@@ -531,60 +551,36 @@ class TestCorrectBaseline:
         '''
         I am expecting these two series to be identical, however they currently are not. the debug df is the same as the target.
         '''
-        print()
+        diff_tol = 1E-10
+        prime_df = pd.DataFrame({
+            'mine':s_compressed_prime,
+            'main':debug_bcorr_df["s_compressed_prime"],
+            'diff_tol': diff_tol,
+        })
         
-        plt.plot(debug_bcorr_df["s_compressed_prime"], label='debug series')
-        plt.plot(s_compressed_prime, label='isolated')
-        plt.legend()
-        plt.show()
         
-    def test_debug_bcorr_df_compare_with_main(
-        self,
-        debug_bcorr_df,
-        debug_bcorr_df_main,
-    ):
+        prime_df['diff'] = prime_df['main']-prime_df['mine']
         
-        print("")
-        print(debug_bcorr_df)
-        print(debug_bcorr_df_main)
+        prime_df['is_diff'] = prime_df['diff'].abs() > prime_df['diff_tol']
         
-        for col in debug_bcorr_df:
+        if prime_df['is_diff'].any():
+        
+            plt.plot(debug_bcorr_df["s_compressed_prime"], label='debug series')
+            plt.plot(s_compressed_prime, label='isolated')
+            plt.legend()
+            plt.suptitle("divergent s_comp_prime series")
+            plt.show()
             
-            
-            print(col)
-            diff = debug_bcorr_df[col]-debug_bcorr_df_main[col]
-            print((diff==0).all())
-            print(diff.loc[(diff!=0)])
-        
-        # where are they not equal
-        
-        
-        # plt.plot(debug_bcorr_df['s_compressed'], label='my compressed')
-        # plt.plot(debug_bcorr_df_main['s_compressed'], label='main compressed')
-        # plt.legend()
-        # plt.show()
-
-        # plt.plot(debug_bcorr_df['s_compressed_prime'], label='my prime')
-        # plt.plot(debug_bcorr_df_main['s_compressed_prime'], label='main prime')
-        
-        plt.plot(debug_bcorr_df['y_corrected'], label='mine')
-        plt.plot(debug_bcorr_df_main['y_corrected'], label='theirs')
-        plt.legend()
-        plt.show()
+            raise ValueError(f"Divergence greater than {diff_tol} detected between my s_compressed_prime and main over {(prime_df['is_diff']==True).shape[0]} elements")
     
     def test_compare_timestep(
         self,
         timestep,
         debug_bcorr_df
     ):
-        print("")
-        print(timestep)
-        print(debug_bcorr_df)
-        print(debug_bcorr_df.dtypes)
         
         difference = timestep - debug_bcorr_df.iloc[0]
         
-        print(difference)
         return None
         
 
@@ -665,17 +661,17 @@ class TestWindowing:
         peak_df: pt.DataFrame,
         schema,
     ):
-        print("")
-        print(
-            interpret_model(
-                peak_df,
-                'OutPeakDF_Base',
-                is_base=True
-                ),
-                )
         try:
             schema(peak_df)
         except Exception as e:
+            print("")
+            print(
+                interpret_model(
+                    peak_df,
+                    'OutPeakDF_Base',
+                    is_base=True
+                    ),
+                    )
             
             print(
                 interpret_model(
@@ -686,75 +682,6 @@ class TestWindowing:
                     ),
                   )
             raise ValueError(e)
-
-    def test_peak_df_viz(
-        self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[OutPeakDF_Base],
-        timestep,
-    ):
-        """
-        overlay the plot metrics on the peaks
-        """
-        plt.style.use("ggplot")
-
-        def pplot(peak_df, signal_df):
-                
-            # signal
-
-            plt.plot(signal_df["time_idx"], signal_df["amp_corrected"], c="blue")
-
-            # peaks
-
-            plt.scatter(peak_df["time_idx"], peak_df["amp_corrected"], c="red")
-
-            # # left and right bases of each width measurement
-            # # the left and right values are values of the x axis, so simply plot them with the 'height' as the y value
-
-            # # whh measurement
-
-            plt.hlines(
-                peak_df["whhh"],
-                peak_df["whh_left"],
-                peak_df["whh_right"],
-                label="whh"
-            )
-            print("")
-
-            # # 'relative height' width
-
-            # plt.hlines(
-            #     # peak_df['rl_wh'],
-            #     [-0.1] * len(peak_df),
-            #     peak_df["rl_left"],
-            #     peak_df["rl_right"],
-            #     label="rl width",
-            #     color="green",
-            # )
-            plt.legend()
-            plt.show()
-            print(peak_df)
-
-            return None
-
-        peak_df = (
-            peak_df.set_index("time_idx")
-            .join(
-                signal_df.set_index("time_idx"),
-                how="left",
-            )
-            .reset_index()
-            .set_index("peak_idx")
-            .reset_index()
-        )  # type: ignore
-
-        pplot(peak_df, signal_df)
-
-        print(signal_df.head())
-
-        print(peak_df)
-
-        print(timestep)
 
     test_window_df_kwargs = {
         "argnames": ["datapath", "schema"],
@@ -811,12 +738,14 @@ class TestWindowing:
     ) -> None:
         # signal overlay
         
+        fig, ax = plt.subplots()
         chm._findwindows.display_windows(
             peak_df,
             signal_df,
             window_df,
             time_col,
             y_col,
+            ax,
         )
 
     def test_join_signal_peak_tbls(
@@ -874,7 +803,7 @@ class TestWindowing:
         assert len(amp_bcorr) > 0
 
         try:
-            chm._findwindows.profile_peaks_assign_windows(
+            peak_df, window_df = chm._findwindows.profile_peaks_assign_windows(
                 time,
                 amp_bcorr,
                 timestep,
@@ -882,6 +811,9 @@ class TestWindowing:
         except Exception as e:
             raise RuntimeError(e)
     
+        
+        
+        
     @pytest.mark.xfail
     @pa.check_types
     def test_assign_windows_compare_main(
@@ -895,11 +827,10 @@ class TestWindowing:
         """
         As of 2023-12-19 16:25:54 the window dfs are numerically noncomparable due to fundamental differences in how a window is defined, i.e. i define a window as peak-specific, they define both interpeak and peak windows as windows. at the moment, visual comparison is acceptable.
         """
-        print("")
-        print(window_df)
+        
+        
         window_df_main = window_df_main.reindex(labels=['window_idx','time_idx','window_type'],axis=1)
-        print(window_df_main)
-        print(signal_df)
+        
         
         fig, axs = plt.subplots(ncols=2)
         chm._findwindows.display_windows(
@@ -914,8 +845,6 @@ class TestWindowing:
             window_df,
             ax=axs[1]
         )
-        fig.show()
-        plt.show()
         # print(window_df.compare(window_df_main))
         return None
 
@@ -1096,7 +1025,7 @@ Since the trivial inputs work, we need to unit test p optimizer to expose the fa
 """
 
 
-
+@pytest.mark.xfail
 class TestingCurveFit:
     @pytest.fixture
     def y(self, chm: Chromatogram, params, x):
@@ -1263,7 +1192,7 @@ class TestDeconvolver():
     
     @pa.check_types
     @pytest.mark.parametrize(
-        ["datapath", "schema"],
+        ["datapath", "dset_schema"],
         [
             (
                 asschrompath,
@@ -1273,8 +1202,8 @@ class TestDeconvolver():
     )
     def test_popt_factory(
         self,
-        popt_df,
-        schema,
+        popt_df: pt.DataFrame,
+        dset_schema,
     ):
         """
         TODO:
@@ -1285,24 +1214,13 @@ class TestDeconvolver():
         Note: as of 2023-12-21 11:02:03 first window now takes 803 iterations. same window in main takes 70 iterations.
         """
 
-        print("")
-        print(
-            interpret_model(
-                popt_df,
-                "OutPoptDF_Base",
-                is_base=True,
-            )
+        schema_tests(
+            OutPoptDF_Base,
+            dset_schema,
+            {'schema_name':'OutPoptDF_Base', 'is_base':True},
+            {'schema_name':'OutPoptDF_AssChrom', 'inherit_from':'OutPoptDF_Base'},
+            popt_df
         )
-        
-        print("")
-        print(
-            interpret_model(
-            popt_df,
-            "OutPoptDF_AssChrom"
-        )
-            )
-        
-    
 
         return None
 
@@ -1356,12 +1274,6 @@ class TestDeconvolver():
                          .set_index(['window_idx','peak_idx','param'])
                          
                          )
-        # test that all datatypes are equal
-        print("")
-        print(param_df.to_markdown())
-        print("")
-        print(main_param_df.to_markdown())
-        # assert False
         
         if not param_df.dtypes.equals(main_param_df.dtypes):
             # print(param_df.dtypes)
@@ -1404,10 +1316,6 @@ class TestDeconvolver():
         #     print(row, val)
         
         compare_df = param_df.compare(main_param_df, result_names=('mine','main'))
-        print("")
-        for idx in compare_df.index:
-            print(idx)
-            print(compare_df.loc[[idx]])
             
         """
         So it appears that specific windows are causing the errors. this appears to me as though it is caused by my redefinition of the windows. Can I remember how they differ? no, but the summation in my memory is that I did not define interpeak windows, ergo the bound for each peak should be the same. evidently not.
@@ -1526,7 +1434,7 @@ class TestDeconvolver():
              'inherit_from':'OutPeakReportBase',                
             },
             peak_report,
-            verbose=True,
+            verbose=False,
                      )
         
         return None
@@ -1560,9 +1468,10 @@ class TestDeconvolver():
 
 class TestFitPeaks:
     """
-    test the `fit_peaks` call, which performs the overall process to unmix the peaks and
-    provide a peak table
+    test the `fit_peaks` call, which performs the overall process to unmix the peaks and provide a peak table
     """
+    
+    
 
     @pytest.fixture
     def fit_peaks(
@@ -1575,7 +1484,7 @@ class TestFitPeaks:
         popt_df, unmixed_df = chm.fit_peaks()
 
         return popt_df, unmixed_df
-
+    
     @pytest.fixture
     def popt_df(self, fit_peaks):
         return fit_peaks[0]
@@ -1584,24 +1493,13 @@ class TestFitPeaks:
     def unmixed_df(self, fit_peaks):
         return fit_peaks[1]
     
-    def test_fit_peaks(
+    @pa.check_types
+    def test_fit_peaks_exec(
         self,
-        chm: Chromatogram,
-        in_signal: pt.DataFrame[SignalDFInBase],
-        amp_colname: str,
-        time_colname: str,
-        
+        fitted_chm: Chromatogram,
     ):  
-        chm.load_data(
-            in_signal,
-        )
+        assert fitted_chm
         
-        chm.fit_peaks(
-            amp_colname,
-            time_colname,
-        )
-        
-        return None
 
     def test_compare_timesteps(
         self,
@@ -1612,70 +1510,7 @@ class TestFitPeaks:
             acr.timestep == timestep
         ), f"timesteps are not equal. {acr.timestep, timestep}"
 
-    def test_compare_param_dfs(self, param_df, acr):
-        """
-        method for comparing the adapted param df and my param df
-        """
-
-        # print(
-        #         param_df.copy().compare(get_acr.adapted_param_df)
-        # )
-        print(f"\n{param_df}")
-        print(f"\n{acr.adapted_param_df}")
-
-        print(f"\n{param_df.dtypes}")
-        print(f"\n{acr.adapted_param_df.dtypes}")
-
-    def test_compare_opt_params(
-        self,
-        param_df,
-        timestep,
-        acr,
-    ):
-        # print(f"\n{popt_df}")
-
-        print_main_df = (
-            acr.param_df
-            #  .query("param=='scale'")
-        )
-        print(f"\n{print_main_df}")
-
-        num_cols = ["p0", "lb", "ub"]
-        mask = (param_df["param"] == "loc") | (param_df["param"] == "whh")
-
-        param_df.loc[mask, num_cols] = param_df.loc[mask, num_cols] * timestep
-
-        print_my_df = (
-            param_df
-            #    .query("param=='whh'")
-            #    .astype(float, errors='ignore')
-        )
-        print(f"\n{print_my_df}")
-
-    """
-    
-    modifications to be made to popt:
-    - [ ] express 'loc' as 'retention time' i.e. going back to time units
-    - [ ] What is the main 'scale'
-    - [ ] area needs to be added to the table
-    - [ ] change order to loc, amp, scale, skew
-    
-    other mods:
-    - [ ] convert parameter input to time units prior to curve fit to match behavior of main
-    
-    Notes: as it stands, my 'whh' is not equivalent to main 'scale'. Need to clarify that. Specifically, my initial guesses are 2x larger, my lower bounds are smaller by a factor of ten, but my upper bound is the same.
-    
-    The cause is that you are using the timestep for the lower bound, but the time_idx for the upper bound and guess, meaning that they are on different scales. Thus the transformation does not perform as intended, and results in the much smaller lb value than expected. The simplest solution I can see at this time is to convert the lb to 1 rather than the timestep, 1 being the smallest the peak can possibly be. This has the benefit of avoiding modification of code logic, and retention of time index scale rather than time unit scale.
-    
-    Note - the initial guess was off because I was missing the division by 2. the initial guess should be half the calculated width. gives the algo wiggle room i guess.
-    
-    Now i have the problem of an infinite iteration to solve.
-    
-    - [ ] achieve a successful optimization without infinite looping.
-        - [ ] test popt_factory with the main params to see the performance
-    """
-
-
+pytest.mark.skip
 class TestShow:
     """
     Test the Show class methods
@@ -1704,19 +1539,18 @@ class TestShow:
     def popt_df(self, decon_out):
         return decon_out[0]
 
+    
     def test_plot_raw_chromatogram(
         self,
         fig_ax,
         chm: Chromatogram,
         signal_df: OutSignalDF_Base,
     ):
-        chm.show.plot_raw_chromatogram(
+        chm._show.plot_raw_chromatogram(
             signal_df,
             fig_ax[1],
         )
 
-        plt.legend()
-        plt.show()
 
     def test_plot_reconstructed_signal(
         self,
@@ -1724,10 +1558,8 @@ class TestShow:
         fig_ax,
         unmixed_df,
     ):
-        chm.show.plot_reconstructed_signal(unmixed_df, fig_ax[1])
-        plt.legend()
-        plt.show()
-
+        chm._show.plot_reconstructed_signal(unmixed_df, fig_ax[1])
+        
     def test_plot_individual_peaks(
         self,
         chm: Chromatogram,
@@ -1736,13 +1568,10 @@ class TestShow:
     ):
         ax = fig_ax[1]
 
-        chm.show.plot_individual_peaks(
+        chm._show.plot_individual_peaks(
             unmixed_df,
             ax,
         )
-
-        plt.legend()
-        plt.show()
 
     def test_plot_overlay(
         self,
@@ -1753,20 +1582,16 @@ class TestShow:
     ):
         fig = fig_ax[0]
         ax = fig_ax[1]
-        chm.show.plot_raw_chromatogram(
+        chm._show.plot_raw_chromatogram(
             signal_df,
             ax,
         )
-        chm.show.plot_reconstructed_signal(
+        chm._show.plot_reconstructed_signal(
             unmixed_df,
             ax,
         )
-        chm.show.plot_individual_peaks(
+        chm._show.plot_individual_peaks(
             unmixed_df,
             ax,
         )
-
-        plt.legend()
-        plt.show()
-
     

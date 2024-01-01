@@ -38,6 +38,8 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
                     )
 from hplc_py.find_windows.find_windows_plot import WindowFinderPlotter
 
+from scipy.ndimage import label
+
 class WindowFinder:
     
     def __init__(self, viz:bool=True):
@@ -394,7 +396,7 @@ class WindowFinder:
                 
         return validated_ranges
         
-    
+    @pa.check_types
     def window_df_factory(self,
                 time: npt.NDArray[np.float64],
                 amp: npt.NDArray[np.float64],
@@ -403,8 +405,13 @@ class WindowFinder:
                 buffer:int=0,
                 )->pt.DataFrame[OutWindowDF_Base]:
         
+        """
+        
+        """
+        
         time = np.asarray(time, np.float64)
         amp = np.asarray(amp, np.float64)
+        
         left_indices = np.asarray(left_indices, np.float64)
         right_indices = np.asarray(right_indices, np.float64)
         
@@ -415,31 +422,70 @@ class WindowFinder:
         if len(right_indices)==0:
             raise ValueError("right index array has length 0")
         
-        peak_windows = self.compute_peak_time_ranges(
+        peak_windows: list[npt.NDArray[np.int64]] = self.compute_peak_time_ranges(
             amp,
             left_indices,
             right_indices,
             buffer
         )
         
-        # now stack the frame so that the column labels become a second column and
-        # the values are arranged vertically. Add a value of 1 to the 'window_idx' to
-        # reserve 0 for background regions.
-        # Because the ranges are of uneven length, NAs are introduced when they are formed into a DataFrame. Melting them propagates the NAs througout the 'range_idx' column. Thus dropping NAs should be appropriate.
-        window_df = (pd.DataFrame(peak_windows, dtype=pd.Int64Dtype())
-                     .T
-                     .rename_axis(columns='window_idx')
-                     .rename_axis(index='i')
-                     .melt(value_name='time_idx')
-                     .dropna()
-                     .reset_index(drop=True)
-                     .assign(**{'window_idx':lambda df: df['window_idx']+1})
-                     )
+        window_df = self._label_windows(
+            time,
+            peak_windows,
+        )
         
-
-        # add a binary 'window_type' column reflecting whether the row is a peak or not
-        mask = (window_df['window_idx']==0)
-        window_df['window_type']=np.where(mask,'interpeak', 'peak')
+        return window_df
+    
+    @pa.check_types
+    def _label_windows(
+        self,
+        time: npt.NDArray[np.float64],
+        peak_windows: list[npt.NDArray[np.int64]]
+    )->pt.DataFrame[OutWindowDF_Base]:
+        
+        # generate a time idx array for indexing the window labels
+        time_idx=np.arange(0, len(time), 1)
+        
+        # create a frame of window_idx and time_idx for the peaks, with peak_type labeled
+        # frame is created from a list of arrays with jagged length, first as rows then 
+        # transposed, melted and NA's are dropped.
+        window_df = (pd.DataFrame(peak_windows, dtype=pd.Int64Dtype())    
+                    .T
+                    # pw_idx: peak_window_idx
+                    .melt(var_name='pw_idx', value_name='time_idx')
+                    .dropna()
+                    .assign(**{'pw_idx':lambda df: (df['pw_idx']+1)})
+                    # here we broadcast the peak windows to the whole time range
+                    .set_index('time_idx')
+                    .sort_index()
+                    .reindex(time_idx)
+                    .reset_index()
+                    .astype({"time_idx":pd.Int64Dtype(),
+                             "pw_idx": pd.Int64Dtype(),
+                    })
+                    
+        )
+        # create a labelled series for the discontinuous NA locations. In this context
+        # 0 represents peak windows, 
+        iw_idx, _ = label(window_df['pw_idx'].isna()) #type: ignore
+        
+        window_df = (
+            window_df
+            .assign(iw_idx=iw_idx)
+            # replace the peak window value 0 with the window_idx values already defined
+            .assign(window_idx=lambda df: df['iw_idx'].mask(df['iw_idx']==0, df['pw_idx']))
+            # label the peak and interpeak regions
+            .assign(window_type='interpeak')
+            .astype({
+                'window_type': pd.StringDtype()
+            })
+            .assign(window_type=lambda df: df['window_type'].where(df['iw_idx']==0, 'peak'))
+            # remove intermediate columns
+            .drop(['pw_idx','iw_idx'],axis=1)
+            # assign a window idx, superceding the categorical separation
+            .assign(super_window_idx=lambda df: df.groupby(['window_type','window_idx']).ngroup())
+            .astype({'super_window_idx':pd.Int64Dtype()})
+        )
         
         return typing.cast(pt.DataFrame[OutWindowDF_Base],window_df)
     
@@ -550,4 +596,3 @@ class WindowFinder:
             plt.show()
         else:
             return _ax
-            

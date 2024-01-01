@@ -27,7 +27,6 @@ class Show:
         signal_df,
         ax,
     ):
-        print(signal_df.head())
         x = signal_df['time']
         y = signal_df['amp_raw']
         

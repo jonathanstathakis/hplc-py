@@ -25,6 +25,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 
 from hplc_py.quant import Chromatogram
+import json
 
 class AssChromResults:
     """
@@ -43,7 +44,6 @@ class AssChromResults:
         given as a json file. store the tables as a member dict.
         '''
         
-        import json
         
         in_basepath = "/Users/jonathan/hplc-py/tests/jonathan_tests/main_asschrom_results"
         paths_json_inpath = os.path.join(in_basepath, 'filepaths.json')
@@ -70,7 +70,7 @@ class AssChromResults:
         """
         from scipy.optimize._lsq.common import in_bounds
 
-        timestep = self.tables['asschrom_param_tbl'].loc[0, "timestep"]
+        self.timestep = self.tables['asschrom_param_tbl'].loc[0, "timestep"]
         
         # 
         df: pd.DataFrame = param_df.copy(deep=True)
@@ -161,7 +161,7 @@ def test_in_signal_matches_schema(in_signal: pt.DataFrame[SignalDFInBase]) -> No
 
 @pytest.fixture
 def chm():
-    return Chromatogram(viz=True)
+    return Chromatogram()
 
 
 @pytest.fixture
@@ -441,3 +441,19 @@ def stored_popt(popt_parqpath):
     return pd.read_parquet(popt_parqpath)
 
 
+@pytest.fixture
+def fitted_chm(
+    chm: Chromatogram,
+    amp_colname: str,
+    time_colname: str,
+    signal_df: pt.DataFrame[SignalDFInBase],
+    
+):
+    chm.load_data(signal_df)
+
+    chm.fit_peaks(
+        amp_colname,
+        time_colname, 
+    )
+    
+    return chm

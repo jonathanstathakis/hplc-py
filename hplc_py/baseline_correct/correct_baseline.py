@@ -22,13 +22,13 @@ class BaselineCorrector:
         self._background_col = "background"
         self._bg_correction_progress_state = None
         self._debug_bcorr_df=pd.DataFrame()
-
+    
     def correct_baseline(
         self,
         amp_raw: npt.NDArray[np.float64],
         timestep: np.float64,
         windowsize: int = 5,
-        verbose: bool = True,
+        verbose: bool = False,
         precision=9,
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         R""" """

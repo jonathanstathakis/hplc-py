@@ -14,6 +14,7 @@ for the peak deconvolution etc operating on an indexed array is better for devel
 
 """
 import typing
+from dataclasses import dataclass, field
 
 import pandas as pd
 import pandera as pa
@@ -42,99 +43,48 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutPeakReportBase,
 )
 
-
+@dataclass
 class Chromatogram(
     map_peaks.PeakMapper,
                    ):
-    """
-    Base class for the processing and quantification of an HPLC chromatogram.
-
-    Attributes
-    ----------
-    df : `pandas.core.frame.DataFrame`    
-        A Pandas DataFrame containing the chromatogram, minimally with columns 
-        of time and signal intensity. 
-    window_props : `dict`
-       A dictionary of each peak window, labeled as increasing integers in 
-       linear order. Each key has its own dictionary with the following keys:
-    peaks : `pandas.core.frame.DataFrame` 
-        A Pandas DataFrame containing the inferred properties of each peak 
-        including the retention time, scale, skew, amplitude, and total
-        area under the peak across the entire chromatogram.
-    unmixed_chromatograms : `numpy.ndarray`
-        A matrix where each row corresponds to a time point and each column corresponds
-        to the value of the probability density for each individual peak. This 
-        is used primarily for plotting in the `show` method. 
-    quantified_peaks : `pandas.core.frame.DataFrame`
-        A Pandas DataFrame with peak areas converted to 
-    scores : `pandas.core.frame.DataFrame`
-        A Pandas DataFrame containing the reconstruction scores and Fano factor 
-        ratios for each peak and interpeak region. This is generated only afer 
-        `assess_fit()` is called.
-    """
-
-    def __init__(self,
-                 correct_bline:bool=True,
-                 viz:bool=True
-                 ):
-        """
-        Instantiates a chromatogram object on which peak detection and quantification
-        is performed.
-
-        Parameters
-        ----------
-        file: `str` or pandas.core.frame.DataFrame`
-            The path to the csv file of the chromatogram to analyze or 
-            the pandas DataFrame of the chromatogram. If None, a pandas DataFrame 
-            of the chromatogram must be passed.
-        dataframe : `pandas.core.frame.DataFrame`
-            a Pandas DataFrame of the chromatogram to analyze. If None, 
-            a path to the csv file must be passed
-        time_window: `list` [start, end], optional
-            The retention time window of the chromatogram to consider for analysis.
-            If None, the entire time range of the chromatogram will be considered.
-        cols: `dict`, keys of 'time', and 'signal', optional
-            A dictionary of the retention time and intensity measurements 
-            of the chromatogram. Default is 
-            `{'time':'time', 'signal':'signal'}`. 
-       """
-        # initialize
-        self.__correct_bline = correct_bline
-        self.__viz = viz
-       
-        # member class objects
-        self._findwindows=find_windows.WindowFinder(viz=viz)
-        self._deconvolve=mydeconvolution.PPeakDeconvolver()
-        
-        if self.__correct_bline:
-            self._baseline=correct_baseline.BaselineCorrector()
-        
-        if self.__viz:
-            self.show=show.Show()
-        
-        # internal signal table
-        self._signal_df = pt.DataFrame[SignalDFInBase]
-        
-        # keys for the time and amp columns
-        self.time_col = ""
-        self.amp_col = ""
-        
-        # timestep
-        self.dt = 0
-        self._crop_offset = 0
-        self.window_props = ""
-        self.scores = ""
-        self._peak_indices = ""
-        
-        # currently unused methods, layovers from main
-        self.peaks = None
-        self._guesses = None
-        self._bg_corrected = False
-        self._mapped_peaks = None
-        self._added_peaks = None
-        self.unmixed_chromatograms = None
-        # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
-        self.windowstates:list = []
+  
+    # initialize
+    _correct_bline:bool=True
+    _viz:bool=True
+    
+    # member class objects
+    _findwindows=find_windows.WindowFinder(viz=_viz)
+    _deconvolve=mydeconvolution.PPeakDeconvolver()
+    
+    if _correct_bline:
+        _baseline=correct_baseline.BaselineCorrector()
+    
+    if _viz:
+        _show=show.Show()
+    
+    # internal signal table
+    _signal_df = pt.DataFrame[SignalDFInBase]
+    
+    # keys for the time and amp columns
+    time_col = ""
+    amp_col = ""
+    
+    # timestep
+    dt = 0
+    _crop_offset = 0
+    window_props = ""
+    scores = ""
+    _peak_indices = ""
+    
+    # currently unused methods, layovers from main
+    peaks = None
+    _guesses = None
+    _bg_corrected = False
+    _mapped_peaks = None
+    _added_peaks = None
+    unmixed_chromatograms = None
+    # to store the list of WindowState classes prior to deconvolve peaks DEBUGGING
+    windowstates:list = field(default_factory=list)
     
     def load_data(self,
                 signal_df: pt.DataFrame[SignalDFInBase],
@@ -207,7 +157,7 @@ class Chromatogram(
         )
         
         self._signal_df["amp_corrected"] = bcorr
-        self._signal_df["background"] = background
+        self._signal_df["amp_bg"] = background
         
         # peak profiling and windowing
         
