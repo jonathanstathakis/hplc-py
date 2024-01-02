@@ -81,72 +81,69 @@ class DataPrepper(skewnorms.SkewNorms):
         # join the tables with two left joins on peak_df.
 
         p0 = peak_df.copy(deep=True)
-        
-        p0 = p0.reindex(['peak_idx','time_idx','whh'],axis=1)
-        
+
+        p0 = p0.reindex(["peak_idx", "time_idx", "whh"], axis=1)
+
         # get the time values based on their idx
-        
+
         # test for unexpected NA
         if (p0.isna()).any().any():
-                error_str = "NA detected:"
-                na_rows = p0.isna().index
-                nas = p0.loc[na_rows,:]
-                raise ValueError(error_str+"\n\n"+str(nas))
-        
+            error_str = "NA detected:"
+            na_rows = p0.isna().index
+            nas = p0.loc[na_rows, :]
+            raise ValueError(error_str + "\n\n" + str(nas))
+
         # get the time, amplitudes, window idxs from signal_df and window_df
         p0 = (
-        p0
-        .set_index("time_idx")
-        .join(
-            [
-                signal_df.set_index('time_idx').loc[:, ['time',int_col]],
-                window_df.set_index("time_idx").loc[:, "window_idx"],
-            ],
-            how="left",
-            validate="1:1",
+            p0.set_index("time_idx")
+            .join(
+                [
+                    signal_df.set_index("time_idx").loc[:, ["time", int_col]],
+                    window_df.set_index("time_idx").loc[:, "window_idx"],
+                ],
+                how="left",
+                validate="1:1",
+            )
+            .reset_index()
         )
-        .reset_index()
-        )
-        
+
         # enforce rational ordering of columns
-        p0 = p0.reindex(['window_idx','peak_idx','time','amp_corrected','whh'], axis=1)
-        
+        p0 = p0.reindex(
+            ["window_idx", "peak_idx", "time", "amp_corrected", "whh"], axis=1
+        )
+
         # test for unexpected NA
         if (p0.isna()).any().any():
             error_str = "NA detected:"
             na_rows = p0.isna().index
-            nas = p0.loc[na_rows,:]
-            raise ValueError(error_str+"\n\n"+str(nas))
+            nas = p0.loc[na_rows, :]
+            raise ValueError(error_str + "\n\n" + str(nas))
 
         # rename cols to match my definitions
-        
-        p0 = p0.rename({"time": "loc",
-                        int_col:"amp"}, axis=1, errors="raise")
-        
+
+        p0 = p0.rename({"time": "loc", int_col: "amp"}, axis=1, errors="raise")
+
         # assign skew as zero as per definition
-        p0['skew']=0
-        
+        p0["skew"] = 0
+
         # assign whh as half peak whh as per definition, in time units
-        p0['whh']=p0['whh']/2*timestep
-        
+        p0["whh"] = p0["whh"] / 2 * timestep
+
         # melt frame to get p0 values as 1 column with param label column for each row
-        p0 = (
-            p0
-            .melt(
-                id_vars=['window_idx','peak_idx'],
-                value_vars=['loc','amp','whh','skew'],
-                value_name="p0",
-                var_name="param",
-            )
+        p0 = p0.melt(
+            id_vars=["window_idx", "peak_idx"],
+            value_vars=["loc", "amp", "whh", "skew"],
+            value_name="p0",
+            var_name="param",
         )
 
         # test for unexpected NA
         if (p0.isna()).any().any():
             error_str = "NA detected:"
             na_rows = p0.isna().index
-            nas = p0.loc[na_rows,:]
-            raise ValueError(error_str+"\n\n"+str(nas))
-        
+            nas = p0.loc[na_rows, :]
+            raise ValueError(error_str + "\n\n" + str(nas))
+
         # set param label column as ordered categorical
         p0 = (
             p0.astype(
@@ -165,9 +162,9 @@ class DataPrepper(skewnorms.SkewNorms):
         if (p0.isna()).any().any():
             error_str = "NA detected:"
             na_rows = p0.isna().index
-            nas = p0.loc[na_rows,:]
-            raise ValueError(error_str+"\n\n"+str(nas))
-                
+            nas = p0.loc[na_rows, :]
+            raise ValueError(error_str + "\n\n" + str(nas))
+
         return p0
 
     @pa.check_types
@@ -292,55 +289,89 @@ class DataPrepper(skewnorms.SkewNorms):
         Define the upper and lower bounds of the time domain of each peak as the extremes of the window each peak is assigned to. This is achieved by as series of joins and pivots to first label each peak then summarise the range of each window and combine the two. Returns two dataframes containing the labelled upper and lower bound series
         'window_max' and'window_min', respectively.
         """
-        
+
         # get the window each peak belongs to
         peak_df_window_df = (
-            peak_df
-            .set_index("time_idx")
-            .loc[:, ["peak_idx"]] 
-            .join([
-                window_df
-                  .set_index("time_idx")
-                  .loc[:,"window_idx"],
-                #   signal_df
-                #   .set_index("time_idx")
-                #   .loc[:,"time"]
-                  ])
+            peak_df.set_index("time_idx")
+            .loc[:, ["peak_idx"]]
+            .join(
+                [
+                    window_df.query("window_type=='peak'")
+                    .set_index("time_idx")
+                    .loc[:, "window_idx"],
+                ]
+            )
             .reset_index()
         )
-        
+
+        # display the min and max of each window
+
+        # test if join worked
+
+        if peak_df_window_df.isna().any().any():
+            raise ValueError("Unexpected behavior - NA present after join")
         # get time index bounds of each window
 
-        pivot_window_df = window_df.pivot_table(columns="window_idx", values="time_idx", aggfunc=["min", "max"])
-        pivot_window_df = pivot_window_df.set_axis(pivot_window_df.columns.set_names("agg", level=0), axis=1).reorder_levels(['window_idx','agg'], axis=1).sort_index(axis=1)
+        pivot_window_df = window_df.query("window_type=='peak'").pivot_table(
+            index="window_idx", values="time_idx", aggfunc=["min", "max"]
+        )
 
-        melt_window_df = pivot_window_df.melt(value_name="time_idx")
-        
+        pivot_window_df = (
+            
+            pivot_window_df
+            .rename_axis(columns=['bound','time_unit'])
+            .sort_index(axis=1)
+        )
+
+        stack_window_df = pivot_window_df.stack("bound").reset_index()
+
         # join with signal_df to get time values
-        join_df = melt_window_df.set_index('time_idx').join(signal_df.set_index('time_idx').loc[:,'time'], how='left').reset_index()
-        
+        join_df = (
+            stack_window_df.set_index("time_idx")
+            .join(signal_df.set_index("time_idx").loc[:, "time"], how="left")
+            .reset_index()
+        )
         # join with peak_df_window_df to assign the bound to each peak
-        
-        interm_tbl = join_df.set_index('window_idx').join(peak_df_window_df.set_index('window_idx').loc[:,['peak_idx']], how='left').reset_index().sort_values(['window_idx','peak_idx'])
-    
+
+        interm_tbl = (
+            join_df.set_index("window_idx")
+            .join(
+                peak_df_window_df.set_index("window_idx").loc[:, ["peak_idx"]],
+                how="left",
+            )
+            .reset_index()
+            .sort_values(["window_idx", "peak_idx"])
+        )
+
         # pivot such that columns become 'lb','ub'
-        loc_bounds = interm_tbl.pivot_table(values="time", columns="agg", index=["window_idx","peak_idx"]).reset_index().rename({"min": "lb", "max": "ub"}, axis=1, errors="raise")
+        loc_bounds = (
+            interm_tbl.pivot_table(
+                values="time", columns="bound", index=["window_idx", "peak_idx"]
+            )
+            .reset_index()
+            .rename({"min": "lb", "max": "ub"}, axis=1, errors="raise")
+        )
 
         # add 'param' label col
-        loc_bounds['param']='loc'
-        
+        loc_bounds["param"] = "loc"
+
         # reorder the columns to hint at the index cols
-        loc_bounds=loc_bounds.reindex(["window_idx","peak_idx","param","lb", "ub"],axis=1)
-        
+        loc_bounds = loc_bounds.reindex(
+            ["window_idx", "peak_idx", "param", "lb", "ub"], axis=1
+        )
+
         # set dtypes
-        loc_bounds = loc_bounds.astype({
-            "window_idx":pd.Int64Dtype(),
-            "peak_idx": pd.Int64Dtype(),
-            "param": pd.StringDtype(),
-            "lb": pd.Float64Dtype(),
-            "ub": pd.Float64Dtype(),
-        })
+        loc_bounds = loc_bounds.astype(
+            {
+                "window_idx": pd.Int64Dtype(),
+                "peak_idx": pd.Int64Dtype(),
+                "param": pd.StringDtype(),
+                "lb": pd.Float64Dtype(),
+                "ub": pd.Float64Dtype(),
+            }
+        )
         
+
         return loc_bounds
 
     def _window_signal_df(
@@ -353,7 +384,7 @@ class DataPrepper(skewnorms.SkewNorms):
         """
         windowed_signal_df = (
             signal_df.join(
-                window_df.set_index('time_idx').loc[:,'window_idx'],
+                window_df.set_index("time_idx").loc[:, "window_idx"],
                 how="left",
             )
             .dropna()
@@ -401,7 +432,6 @@ class DataPrepper(skewnorms.SkewNorms):
         )
 
         if not param_df["inbounds"].all():
-            
             raise ValueError(
                 "oob guess detected" f"\n{param_df.query('inbounds==False')}"
             )
@@ -524,7 +554,7 @@ class PPeakDeconvolver(SkewNorms):
             ]
         )
         # assert False, "\n"+"\n".join(peak_report_df.columns)
-        
+
         return peak_report_df.pipe(pt.DataFrame[OutPeakReportBase])
 
     def _prep_for_curve_fit(
@@ -662,8 +692,7 @@ class PPeakDeconvolver(SkewNorms):
         self,
         time: npt.NDArray[np.float64],
         popt_df: pt.DataFrame[OutPoptDF_Base],
-    )->pt.DataFrame[OutReconDFBase]:
-        
+    ) -> pt.DataFrame[OutReconDFBase]:
         def reconstruct_peak_signal(
             popt_df: pt.DataFrame[OutPoptDF_Base],
             time: pt.Series,
@@ -681,10 +710,9 @@ class PPeakDeconvolver(SkewNorms):
 
             except Exception as e:
                 raise RuntimeError(f"{e}\n" f"{params}\n" f"{popt_df.index}\n")
-            
+
             return unmixed_signal_df
-                
-                
+
         # remove window_idx from identifier to avoid multiindexed column
 
         unmixed_df = popt_df.groupby(
@@ -693,9 +721,7 @@ class PPeakDeconvolver(SkewNorms):
         ).apply(
             reconstruct_peak_signal, time
         )  # type: ignore
-        
-        
-        
+
         return unmixed_df.pipe(pt.DataFrame[OutReconDFBase])
 
     def optimize_p(

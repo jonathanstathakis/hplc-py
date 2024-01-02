@@ -695,13 +695,13 @@ class TestWindowing:
     }
 
     @pytest.mark.parametrize(**test_window_df_kwargs)
-    @pa.check_types
+    
     def test_window_df(
         self,
         window_df: pt.DataFrame[OutWindowDF_Base],
         schema,
     ):  
-
+        
         try:
             schema(window_df)
         except Exception as e:
@@ -711,20 +711,21 @@ class TestWindowing:
                 "",
                 is_base=True,
             ))
-        
             print(interpret_model(window_df,
                                 "OutWindowDF_AssChrom",
                                 "OutWindowDF_Base",
                                 ))
             raise ValueError(e)
 
+     
         return None
+
+
 
     test_windows_plot_kwargs = {
         "argnames": ["datapath"],
         "argvalues": [(manypeakspath,), (asschrompath,)],
     }
-
     @pytest.mark.parametrize(**test_windows_plot_kwargs)
     @pa.check_types
     def test_windows_plot(
@@ -789,7 +790,7 @@ class TestWindowing:
         # expect no NAs as every index should match.
         assert window_signal_join.isna().sum().sum() == 0
 
-    def test_assign_windows(
+    def test_assign_windows_exec(
         self,
         chm: Chromatogram,
         time: npt.NDArray[np.float64],
@@ -1002,17 +1003,14 @@ class TestDataPrepper:
         """
         Define default bounds schemas
         """
-
-        try:
-            schema(default_bounds)
-        except Exception as e:
-            schema_str = interpret_model(
-                "OutDefaultBoundsAssChrom",
-                default_bounds,
-                "OutDefaultBoundsBase",
-            )
-            print(schema_str)
-            raise ValueError(e)
+        
+        schema_tests(
+            OutDefaultBoundsBase,
+            schema,
+            {"schema_name":"OutDefaultBoundsBase","is_base":True},
+            {"schema_name":"OutDefaultBoundsAssChrom"},
+            default_bounds
+        )
         return None
 
         return None

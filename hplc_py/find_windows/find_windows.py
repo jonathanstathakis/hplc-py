@@ -396,7 +396,7 @@ class WindowFinder:
                 
         return validated_ranges
         
-    @pa.check_types
+    # @pa.check_types
     def window_df_factory(self,
                 time: npt.NDArray[np.float64],
                 amp: npt.NDArray[np.float64],
@@ -436,7 +436,6 @@ class WindowFinder:
         
         return window_df
     
-    @pa.check_types
     def _label_windows(
         self,
         time: npt.NDArray[np.float64],
@@ -479,13 +478,39 @@ class WindowFinder:
             .astype({
                 'window_type': pd.StringDtype()
             })
-            .assign(window_type=lambda df: df['window_type'].where(df['iw_idx']==0, 'peak'))
+            .assign(window_type=lambda df: df['window_type'].mask(df['iw_idx']==0, 'peak'))
             # remove intermediate columns
             .drop(['pw_idx','iw_idx'],axis=1)
-            # assign a window idx, superceding the categorical separation
-            .assign(super_window_idx=lambda df: df.groupby(['window_type','window_idx']).ngroup())
-            .astype({'super_window_idx':pd.Int64Dtype()})
+
         )
+        # need to assign a super window idx which labels each window in time_idx order irrespective of window type
+        
+        # get the first time idx value of each window as an aggregate table then label with
+        # a cumulatively increasing idx column. 'sw_idx': 'super_window_idx'
+
+        sw_idx_df = (window_df
+                  .groupby(['window_type','window_idx'])['time_idx']
+                  .agg('first')
+                  .sort_values()
+                  .to_frame()
+                  .assign(**{'sw_idx':1})
+                  .assign(**{'sw_idx':lambda df: df['sw_idx'].cumsum().astype(pd.Int64Dtype())})
+                  .reset_index()
+                  .set_index('time_idx')
+                  .loc[:,['sw_idx']]
+        )
+        
+        # join the super_window_idx to window_df and foreward fill with the idx value
+        # to label each row
+        window_df = (window_df
+                     .set_index('time_idx')
+                     .join(
+                      sw_idx_df,
+                      how='left'
+                  )
+                  .assign(**{'sw_idx':lambda df: df['sw_idx'].ffill()})
+                  .reset_index()
+                  )
         
         return typing.cast(pt.DataFrame[OutWindowDF_Base],window_df)
     
