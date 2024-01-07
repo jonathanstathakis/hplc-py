@@ -384,7 +384,7 @@ class DataPrepper(skewnorms.SkewNorms):
         """
         windowed_signal_df = (
             signal_df.join(
-                window_df.set_index("time_idx").loc[:, "window_idx"],
+                window_df.set_index("time_idx").loc[:, ["sw_idx","window_type","window_idx"]],
                 how="left",
             )
             .dropna()
@@ -571,15 +571,16 @@ class PPeakDeconvolver(SkewNorms):
         Annotated[pt.Series[float], "ub"],
     ]:
         """ """
+        
+        
         x = windowed_signal_df.query("window_idx==@window").loc[:, "time"]
 
         y = windowed_signal_df.query("window_idx==@window").loc[:, amp_col]
 
-        p0 = (
-            param_df.query("window_idx==@window")
-            .set_index(["window_idx", "peak_idx", "param"])
-            .loc[:, "p0"]
-        )
+        p0 = param_df.query("(window_idx==@window)")
+        p0 = p0.set_index(["window_idx", "peak_idx", "param"])
+        p0 = p0.loc[:, "p0"]
+        
 
         lb = param_df.query("(window_idx==@window)").set_index("param")["lb"]
         ub = param_df.query("(window_idx==@window)").set_index("param")["ub"]
@@ -596,6 +597,7 @@ class PPeakDeconvolver(SkewNorms):
             raise ValueError("ndim lb should be 1")
         if not ub.ndim == 1:
             raise ValueError("ndim ub should be 1")
+        # assert False, f"\n{len(p0)}"
 
         if len(x) == 0:
             raise ValueError("len x must be greater than zero")
@@ -631,7 +633,7 @@ class PPeakDeconvolver(SkewNorms):
     ) -> pt.DataFrame[OutPoptDF_Base]:
         popt_list = []
 
-        windows = windowed_signal_df["window_idx"].unique()
+        windows = windowed_signal_df.loc[lambda df: df['window_type']=='peak']["window_idx"].unique()
 
         if verbose:
             windows_itr = tqdm.tqdm(windows, desc="deconvolving windows")
@@ -705,7 +707,7 @@ class PPeakDeconvolver(SkewNorms):
                 unmixed_signal_df = pd.merge(
                     popt_df.loc[:, ["peak_idx"]], time, how="cross"
                 )
-
+                
                 unmixed_signal_df = unmixed_signal_df.assign(unmixed_amp=unmixed_signal)
 
             except Exception as e:

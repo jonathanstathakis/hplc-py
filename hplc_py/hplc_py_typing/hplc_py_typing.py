@@ -51,11 +51,11 @@ def check_stats(df, *, col: str, stats: dict):
 
 def interpret_model(
     df,
-    schema_name=None,
+    schema_name: str = "",
     inherit_from: str = "",
     is_base: bool = False,
     check_dict: dict = {},
-    pandas_dtypes: bool=True,
+    pandas_dtypes: bool = True,
 ):
     """
     Output a string representation of a dataframe schema DataFrameModel with datatypes and checks.
@@ -63,7 +63,7 @@ def interpret_model(
 
     check_dict: check type for each column. specify column name as key, check type: 'eq', 'isin', 'basic_stats'. if no checkdict is passed and is_base is false, generate an opinionated check dict based on types and dataframe size. use 'eq' if frame is less than 10 rows long, else use 'basic_stats' and 'isin'. Problem with this compression approach is that you lose information on ordering.
 
-    
+
     """
     custom_indent_mag = 1
     indent_str = " "
@@ -87,16 +87,18 @@ def interpret_model(
         check_dict = {col: "" for col in df_columns}
 
     # generate opinionated default check_dict
-    
+
     if not check_dict and not is_base:
-        
-        if len(df)<=10:
+        if len(df) <= 10:
             check_dict = {col: "eq" for col in df}
         else:
-            check_dict = {col: "basic_stats" if pd.api.types.is_numeric_dtype(df[col]) else "isin" for col in df}
-            
+            check_dict = {
+                col: "basic_stats" if pd.api.types.is_numeric_dtype(df[col]) else "isin"
+                for col in df
+            }
+
     # generate the check strings
-    
+
     check_strs = {}
 
     gen_basic_stats = "basic_stats" in check_dict.values()
@@ -223,45 +225,51 @@ def interpret_model(
 
     return definition_str
 
+from typing_extensions import TypedDict
+
+class InterpModelKwargs(TypedDict, total=False):
+    schema_name: str
+    inherit_from:str
+    is_base: bool
+    check_dict: dict
+    pandas_dtypes: bool
+    
+
 def schema_tests(
     base_schema,
     dset_schema,
-    base_schema_kwargs,
-    dset_schema_kwargs,
+    base_schema_kwargs: InterpModelKwargs,
+    dset_schema_kwargs: InterpModelKwargs,
     df,
-    verbose: bool=False,
+    verbose: bool = False,
 ):
     base_schema_str = interpret_model(
-                df,
-                **base_schema_kwargs,
-            )
-    
+        df,
+        **base_schema_kwargs,
+    )
+
     dset_schema_str = interpret_model(
-                df,
-                **dset_schema_kwargs,
-            )
+        df,
+        **dset_schema_kwargs,
+    )
     try:
         base_schema(df)
     except Exception as e:
-            
         print("")
-        
-        print(
-        base_schema_str    
-        )
+
+        print(base_schema_str)
         raise ValueError("failed base schema test with error: " + str(e))
-        
+
     try:
         dset_schema(df)
     except Exception as e:
-    
         print("")
-        
-        print(
-            dset_schema_str
+
+        print(dset_schema_str)
+        raise ValueError(
+            f"failed dataset schema test with error: {e}\n Printing schema for the input df.."
         )
-        raise ValueError(f"failed dataset schema test with error: {e}\n Printing schema for the input df..")
-    
+
     if verbose:
         print("## Base Schema ##\n\n")
         print(base_schema_str)
@@ -270,6 +278,7 @@ def schema_tests(
         print(dset_schema_str)
         print("\n")
     return None
+
 
 class SignalDFInBase(pa.DataFrameModel):
     """
@@ -350,16 +359,16 @@ class OutPeakDFAssChrom(OutPeakDF_Base):
     time_idx: pd.Int64Dtype = pa.Field(eq=[1507, 1899, 8000, 11000])
     peak_prom: pd.Float64Dtype = pa.Field(
         eq=[
-            0.9994793466121925,
-            0.07597734623882058,
-            0.06225484797562456,
-            0.9339044952972624,
+            42.69543317962209,
+            3.2455755293993427,
+            2.6593823182642895,
+            39.894228040095996,
         ]
     )
     whh: pd.Float64Dtype = pa.Field(
         eq=[
             270.5127402263288,
-            172.53131767928176,
+            172.53131767928198,
             706.3953656908734,
             235.48262868147685,
         ]
@@ -367,9 +376,9 @@ class OutPeakDFAssChrom(OutPeakDF_Base):
     whhh: pd.Float64Dtype = pa.Field(
         eq=[
             21.340119296918846,
-            18.334936769743333,
-            1.3221146563326698,
-            19.9395167271558,
+            18.33493676974333,
+            1.3221146563326696,
+            19.939516727155805,
         ]
     )
     whh_left: pd.Float64Dtype = pa.Field(
@@ -383,26 +392,28 @@ class OutPeakDFAssChrom(OutPeakDF_Base):
     whh_right: pd.Float64Dtype = pa.Field(
         eq=[
             1655.609434560814,
-            1982.0320274053001,
+            1982.0320274053004,
             8353.199572149775,
             11117.741314340741,
         ]
     )
     rel_height: pd.Float64Dtype = pa.Field(eq=[1.0, 1.0, 1.0, 1.0])
     rl_width: pd.Float64Dtype = pa.Field(
-        eq=[9244.513493271112, 282.912258486617, 2921.8149969111128, 1876.0]
+        eq=[9244.513493271112, 282.912258486617, 2921.8149969110236, 1477.9876313272634]
     )
     rl_wh: pd.Float64Dtype = pa.Field(
         eq=[
-            -0.007597292892196739,
+            -0.007597292892199903,
             16.71214900504366,
-            -0.0075765027994752834,
-            -0.007597292892196739,
+            -0.007576502799475193,
+            -0.007597292892192797,
         ]
     )
-    rl_left: pd.Float64Dtype = pa.Field(eq=[687.4865067288889, 1736.0, 6455.0, 9932.0])
+    rl_left: pd.Float64Dtype = pa.Field(
+        eq=[687.4865067288886, 1736.0, 6455.0, 10278.000332225438]
+    )
     rl_right: pd.Float64Dtype = pa.Field(
-        eq=[9932.0, 2018.912258486617, 9376.814996911113, 11808.0]
+        eq=[9932.0, 2018.912258486617, 9376.814996911024, 11755.987963552701]
     )
 
     class Config:
@@ -418,9 +429,9 @@ class OutSignalDF_Base(pa.DataFrameModel):
     amp_bg: Optional[np.float64] = pa.Field(coerce=False)
     amp_corrected_norm: Optional[np.float64] = pa.Field(coerce=False)
     amp_norm: Optional[np.float64] = pa.Field(coerce=False)
-    
+
     class Config:
-        strict=True
+        strict = True
 
 
 class OutSignalDF_ManyPeaks(OutSignalDF_Base):
@@ -454,6 +465,7 @@ class OutSignalDF_AssChrom(OutSignalDF_Base):
         coerce=False, in_range={"min_value": 0, "max_value": 1}
     )
 
+
 class OutWindowDF_Base(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
@@ -465,9 +477,8 @@ class OutWindowDF_Base(pa.DataFrameModel):
     sw_idx: pd.Int64Dtype = pa.Field()
 
     class Config:
-
-        name="OutWindowDF_Base"
-        strict=True
+        name = "OutWindowDF_Base"
+        strict = True
 
 
 class OutWindowDF_AssChrom(OutWindowDF_Base):
@@ -477,21 +488,48 @@ class OutWindowDF_AssChrom(OutWindowDF_Base):
 
     time_idx: pd.Int64Dtype = pa.Field()
     window_idx: pd.Int64Dtype = pa.Field()
-    window_type: pd.StringDtype = pa.Field(isin=['interpeak', 'peak'])
+    window_type: pd.StringDtype = pa.Field(isin=["interpeak", "peak"])
     sw_idx: pd.Int64Dtype = pa.Field()
 
     class Config:
+        name = "OutWindowDF_AssChrom"
+        strict = True
 
-        name="OutWindowDF_AssChrom"
-        strict=True
-
-        _time_idx_basic_stats={"col":"time_idx","stats":{'count': 15000.0, 'min': 0.0, 'max': 14999.0, 'mean': 7499.5, 'std': 4330.271354083945}}
-        _window_idx_basic_stats={"col":"window_idx","stats":{'count': 15000.0, 'min': 1.0, 'max': 2.0, 'mean': 1.3378666666666668, 'std': 0.47299862304455925}}
-        _sw_idx_basic_stats={"col":"sw_idx","stats":{'count': 15000.0, 'min': 1.0, 'max': 4.0, 'mean': 2.5048666666666666, 'std': 0.8759152151054113}}
+        _time_idx_basic_stats = {
+            "col": "time_idx",
+            "stats": {
+                "count": 15000.0,
+                "min": 0.0,
+                "max": 14999.0,
+                "mean": 7499.5,
+                "std": 4330.271354083945,
+            },
+        }
+        _window_idx_basic_stats = {
+            "col": "window_idx",
+            "stats": {
+                "count": 15000.0,
+                "min": 1.0,
+                "max": 3.0,
+                "mean": 1.5542,
+                "std": 0.8244842903029327,
+            },
+        }
+        _sw_idx_basic_stats = {
+            "col": "sw_idx",
+            "stats": {
+                "count": 15000.0,
+                "min": 1.0,
+                "max": 5.0,
+                "mean": 2.8232,
+                "std": 1.3161271111503048,
+            },
+        }
 
         check_stats = _time_idx_basic_stats
         check_stats = _window_idx_basic_stats
         check_stats = _sw_idx_basic_stats
+
 
 class OutInitialGuessBase(pa.DataFrameModel):
     """
@@ -504,9 +542,9 @@ class OutInitialGuessBase(pa.DataFrameModel):
     p0: pd.Float64Dtype = pa.Field()
 
     class Config:
+        name = "OutInitialGuessBase"
+        strict = True
 
-        name="OutInitialGuessBase"
-        strict=True
 
 class OutInitialGuessAssChrom(OutInitialGuessBase):
     """
@@ -515,19 +553,48 @@ class OutInitialGuessAssChrom(OutInitialGuessBase):
 
     window_idx: pd.Int64Dtype = pa.Field()
     peak_idx: pd.Int64Dtype = pa.Field()
-    param: pd.CategoricalDtype = pa.Field(isin=['amp', 'loc', 'whh', 'skew'])
-    p0: pd.Float64Dtype = pa.Field(isin=[42.68783588672989, 15.07, 1.352563701131644, 0.0, 19.957724534443003, 18.99, 0.8626565883964088, 2.6518058154648143, 80.0, 3.531976828454367, 39.8866307472038, 110.0, 1.1774131434073842])
+    param: pd.CategoricalDtype = pa.Field(isin=["amp", "loc", "whh", "skew"])
+    p0: pd.Float64Dtype = pa.Field()
 
     class Config:
+        name = "OutInitialGuessAssChrom"
+        strict = True
 
-        name="OutInitialGuessAssChrom"
-        strict=True
-
-        _window_idx_basic_stats={"col":"window_idx","stats":{'count': 16.0, 'min': 1.0, 'max': 2.0, 'mean': 1.25, 'std': 0.4472135954999579}}
-        _peak_idx_basic_stats={"col":"peak_idx","stats":{'count': 16.0, 'min': 0.0, 'max': 3.0, 'mean': 1.5, 'std': 1.1547005383792515}}
+        _window_idx_basic_stats = {
+            "col": "window_idx",
+            "stats": {
+                "count": 16.0,
+                "min": 1.0,
+                "max": 2.0,
+                "mean": 1.25,
+                "std": 0.4472135954999579,
+            },
+        }
+        _peak_idx_basic_stats = {
+            "col": "peak_idx",
+            "stats": {
+                "count": 16.0,
+                "min": 0.0,
+                "max": 3.0,
+                "mean": 1.5,
+                "std": 1.1547005383792515,
+            },
+        }
+        _p0_basic_stats = {
+            "col": "p0",
+            "stats": {
+                "count": 16.0,
+                "min": 0.0,
+                "max": 110.0,
+                "mean": 21.010537952826958,
+                "std": 32.516266671353925,
+            },
+        }
 
         check_stats = _window_idx_basic_stats
         check_stats = _peak_idx_basic_stats
+        check_stats = _p0_basic_stats
+
 
 class OutDefaultBoundsBase(pa.DataFrameModel):
     window_idx: pd.Int64Dtype
@@ -554,91 +621,40 @@ class OutDefaultBoundsManyPeaks(OutDefaultBoundsBase):
         isin=[5868.0, np.inf, 2616.0, 398.9452538404621, 398.9437671209474]
     )
 
-
-class OutDefaultBoundsAssChrom(OutDefaultBoundsBase):
+class OutDefaultBoundsAssChrom(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    window_idx: pd.Int64Dtype = pa.Field(
-        eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2]
-    )
-    peak_idx: pd.Int64Dtype = pa.Field(
-        eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
-    )
-    param: pd.CategoricalDtype = pa.Field(
-        eq=[
-            "amp",
-            "loc",
-            "skew",
-            "whh",
-            "amp",
-            "loc",
-            "skew",
-            "whh",
-            "amp",
-            "loc",
-            "skew",
-            "whh",
-            "amp",
-            "loc",
-            "skew",
-            "whh",
-        ]
-    )
-    lb: pd.Float64Dtype = pa.Field(
-        eq=[
-            4.2687835886729895,
-            6.87,
-            -np.inf,
-            0.01,
-            1.9957724534443004,
-            6.87,
-            -np.inf,
-            0.01,
-            0.26518058154648144,
-            6.87,
-            -np.inf,
-            0.01,
-            3.9886630747203804,
-            99.32,
-            -np.inf,
-            0.01,
-        ]
-    )
-    ub: pd.Float64Dtype = pa.Field(
-        eq=[
-            426.8783588672989,
-            99.31,
-            np.inf,
-            46.22,
-            199.57724534443003,
-            99.31,
-            np.inf,
-            46.22,
-            26.518058154648145,
-            99.31,
-            np.inf,
-            46.22,
-            398.86630747203805,
-            118.07,
-            np.inf,
-            9.375,
-        ]
-    )
+    window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
+    peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3])
+    param: pd.CategoricalDtype = pa.Field(eq=['amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh', 'amp', 'loc', 'skew', 'whh'])
+    lb: pd.Float64Dtype = pa.Field(eq=[4.2687835886729895, 6.87, -np.inf, 0.01, 1.9957724534443004, 6.87, -np.inf, 0.01, 0.26518058154648144, 6.87, -np.inf, 0.01, 3.9886630747203804, 102.78, -np.inf, 0.01])
+    ub: pd.Float64Dtype = pa.Field(eq=[426.8783588672989, 99.31, np.inf, 46.22, 199.57724534443003, 99.31, np.inf, 46.22, 26.518058154648145, 99.31, np.inf, 46.22, 398.86630747203805, 117.54, np.inf, 7.380000000000003])
 
     class Config:
-        name = "OutDefaultBoundsAssChrom"
-        strict = True
 
+        name="OutDefaultBoundsAssChrom"
+        strict=True
 
-class OutWindowedSignalBase(OutSignalDF_Base):
+class OutWindowedSignalBase(pa.DataFrameModel):
     """
-    The signal DF with the addition of a window ID column
+    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    window_idx: pd.Int64Dtype
+    time_idx: np.int64 = pa.Field()
+    time: np.float64 = pa.Field()
+    amp_raw: np.float64 = pa.Field()
+    amp_corrected: np.float64 = pa.Field()
+    amp_bg: np.float64 = pa.Field()
+    sw_idx: pd.Int64Dtype = pa.Field()
+    window_type: pd.StringDtype = pa.Field()
+    window_idx: pd.Int64Dtype = pa.Field()
 
+    class Config:
+
+        name="OutWindowedSignalBase"
+        strict=True
 
 class OutWindowedSignalManyPeaks(OutSignalDF_ManyPeaks):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1])
@@ -654,80 +670,30 @@ class OutWindowedSignalAssChrom(OutWindowedSignalBase):
     amp_raw: np.float64 = pa.Field()
     amp_corrected: np.float64 = pa.Field()
     amp_bg: np.float64 = pa.Field()
+    sw_idx: pd.Int64Dtype = pa.Field()
+    window_type: pd.StringDtype = pa.Field(isin=['interpeak', 'peak'])
     window_idx: pd.Int64Dtype = pa.Field()
 
     class Config:
-        name = "OutWindowedSignalAssChrom"
-        strict = True
 
-        _time_idx_basic_stats = {
-            "col": "time_idx",
-            "stats": {
-                "count": 11121.0,
-                "min": 687.0,
-                "max": 11807.0,
-                "mean": 6247.0,
-                "std": 3210.50050615165,
-            },
-        }
-        _time_basic_stats = {
-            "col": "time",
-            "stats": {
-                "count": 11121.0,
-                "min": 6.87,
-                "max": 118.07,
-                "mean": 62.46999999999999,
-                "std": 32.1050050615165,
-            },
-        }
-        _amp_raw_basic_stats = {
-            "col": "amp_raw",
-            "stats": {
-                "count": 11121.0,
-                "min": -0.0138380221313465,
-                "max": 42.69012166052291,
-                "mean": 2.8774412228164503,
-                "std": 7.871276358953504,
-            },
-        }
-        _amp_corrected_basic_stats = {
-            "col": "amp_corrected",
-            "stats": {
-                "count": 11121.0,
-                "min": -0.0138380221313465,
-                "max": 42.68783588672989,
-                "mean": 2.871086160845697,
-                "std": 7.871945500463037,
-            },
-        }
-        _amp_bg_basic_stats = {
-            "col": "amp_bg",
-            "stats": {
-                "count": 11121.0,
-                "min": 0.0,
-                "max": 0.007843877938264132,
-                "mean": 0.0063550619707533436,
-                "std": 0.0019851337215562185,
-            },
-        }
-        _window_idx_basic_stats = {
-            "col": "window_idx",
-            "stats": {
-                "count": 11121.0,
-                "min": 1.0,
-                "max": 2.0,
-                "mean": 1.1686898660192429,
-                "std": 0.37449460083753666,
-            },
-        }
+        name="OutWindowedSignalAssChrom"
+        strict=True
+
+        _time_idx_basic_stats={"col":"time_idx","stats":{'count': 15000.0, 'min': 0.0, 'max': 14999.0, 'mean': 7499.5, 'std': 4330.271354083945}}
+        _time_basic_stats={"col":"time","stats":{'count': 15000.0, 'min': 0.0, 'max': 149.99, 'mean': 74.995, 'std': 43.30271354083945}}
+        _amp_raw_basic_stats={"col":"amp_raw","stats":{'count': 15000.0, 'min': -0.0298383947260937, 'max': 42.69012166052291, 'mean': 2.1332819642622307, 'std': 6.893591961394714}}
+        _amp_corrected_basic_stats={"col":"amp_corrected","stats":{'count': 15000.0, 'min': -0.0298383947260937, 'max': 42.68783588672989, 'mean': 2.126953612030828, 'std': 6.894150253857469}}
+        _amp_bg_basic_stats={"col":"amp_bg","stats":{'count': 15000.0, 'min': 0.0, 'max': 0.007843877938264132, 'mean': 0.006328352231402279, 'std': 0.0022581116429225144}}
+        _sw_idx_basic_stats={"col":"sw_idx","stats":{'count': 15000.0, 'min': 1.0, 'max': 5.0, 'mean': 2.8232, 'std': 1.3161271111503048}}
+        _window_idx_basic_stats={"col":"window_idx","stats":{'count': 15000.0, 'min': 1.0, 'max': 3.0, 'mean': 1.5542, 'std': 0.8244842903029327}}
 
         check_stats = _time_idx_basic_stats
         check_stats = _time_basic_stats
         check_stats = _amp_raw_basic_stats
         check_stats = _amp_corrected_basic_stats
         check_stats = _amp_bg_basic_stats
+        check_stats = _sw_idx_basic_stats
         check_stats = _window_idx_basic_stats
-
 
 class OutParamsBase(pa.DataFrameModel):
     window_idx: pd.Int64Dtype
@@ -775,121 +741,24 @@ class OutParamManyPeaks(OutParamsBase):
     inbounds: bool = pa.Field(isin=[True])
 
 
-class OutParamAssChrom(OutParamsBase):
+class OutParamsAssChrom(OutParamsBase):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    window_idx: pd.Int64Dtype = pa.Field(
-        eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2]
-    )
-    peak_idx: pd.Int64Dtype = pa.Field(
-        eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
-    )
-    param: pd.CategoricalDtype = pa.Field(
-        eq=[
-            "amp",
-            "loc",
-            "whh",
-            "skew",
-            "amp",
-            "loc",
-            "whh",
-            "skew",
-            "amp",
-            "loc",
-            "whh",
-            "skew",
-            "amp",
-            "loc",
-            "whh",
-            "skew",
-        ]
-    )
-    p0: pd.Float64Dtype = pa.Field(
-        eq=[
-            42.68783588672989,
-            15.07,
-            1.352563701131644,
-            0.0,
-            19.957724534443003,
-            18.99,
-            0.8626565883964088,
-            0.0,
-            2.6518058154648143,
-            80.0,
-            3.531976828454367,
-            0.0,
-            39.8866307472038,
-            110.0,
-            1.1774131434073842,
-            0.0,
-        ]
-    )
-    lb: pd.Float64Dtype = pa.Field(
-        eq=[
-            4.2687835886729895,
-            6.87,
-            0.01,
-            -np.inf,
-            1.9957724534443004,
-            6.87,
-            0.01,
-            -np.inf,
-            0.26518058154648144,
-            6.87,
-            0.01,
-            -np.inf,
-            3.9886630747203804,
-            99.32,
-            0.01,
-            -np.inf,
-        ]
-    )
-    ub: pd.Float64Dtype = pa.Field(
-        eq=[
-            426.8783588672989,
-            99.31,
-            46.22,
-            np.inf,
-            199.57724534443003,
-            99.31,
-            46.22,
-            np.inf,
-            26.518058154648145,
-            99.31,
-            46.22,
-            np.inf,
-            398.86630747203805,
-            118.07,
-            9.375,
-            np.inf,
-        ]
-    )
-    inbounds: bool = pa.Field(
-        eq=[
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-        ]
-    )
+    window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
+    peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3])
+    param: pd.CategoricalDtype = pa.Field(eq=['amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew', 'amp', 'loc', 'whh', 'skew'])
+    p0: pd.Float64Dtype = pa.Field(eq=[42.68783588672989, 15.07, 1.352563701131644, 0.0, 19.957724534443003, 18.99, 0.8626565883964099, 0.0, 2.6518058154648143, 80.0, 3.531976828454367, 0.0, 39.8866307472038, 110.0, 1.1774131434073842, 0.0])
+    lb: pd.Float64Dtype = pa.Field(eq=[4.2687835886729895, 6.87, 0.01, -np.inf, 1.9957724534443004, 6.87, 0.01, -np.inf, 0.26518058154648144, 6.87, 0.01, -np.inf, 3.9886630747203804, 102.78, 0.01, -np.inf])
+    ub: pd.Float64Dtype = pa.Field(eq=[426.8783588672989, 99.31, 46.22, np.inf, 199.57724534443003, 99.31, 46.22, np.inf, 26.518058154648145, 99.31, 46.22, np.inf, 398.86630747203805, 117.54, 7.380000000000003, np.inf])
+    inbounds: bool = pa.Field(eq=[True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True])
 
     class Config:
-        name = "OutParamAssChrom"
-        strict = True
+
+        name="OutParamsAssChrom"
+        strict=True
+
 
 class OutPoptDF_Base(pa.DataFrameModel):
     """
@@ -905,23 +774,21 @@ class OutPoptDF_Base(pa.DataFrameModel):
     skew: pd.Float64Dtype = pa.Field()
 
     class Config:
-
-        name="OutPoptDF_Base"
-        strict=True
-
+        name = "OutPoptDF_Base"
+        strict = True
 
 class OutPoptDF_AssChrom(OutPoptDF_Base):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    tbl_name: str = pa.Field(eq=['popt', 'popt', 'popt', 'popt'])
+    tbl_name: pd.StringDtype = pa.Field(eq=['popt', 'popt', 'popt', 'popt'])
     window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 2])
     peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 1, 2, 3])
-    amp: pd.Float64Dtype = pa.Field(eq=[100.01095135740375, 99.95293326468028, 19.87594297337542, 99.95961060763156])
-    loc: pd.Float64Dtype = pa.Field(eq=[14.907132788358753, 18.999766659570493, 79.95550740417632, 109.99285784728062])
-    whh: pd.Float64Dtype = pa.Field(eq=[1.0043771984554946, 1.9992972517683638, 2.987978241175155, 0.9997562123213283])
-    skew: pd.Float64Dtype = pa.Field(eq=[0.11692925684391392, 0.0002840710874125317, 0.018674831493996104, 0.00895394995031418])
+    amp: pd.Float64Dtype = pa.Field(eq=[100.01095135529069, 99.95293326727652, 19.87594297337034, 99.95961060435313])
+    loc: pd.Float64Dtype = pa.Field(eq=[14.907132797396796, 18.99976077649315, 79.95550926291489, 110.0051788176931])
+    whh: pd.Float64Dtype = pa.Field(eq=[1.0043771976008562, 1.9992972533746571, 2.9879782131837924, 0.9997441651276472])
+    skew: pd.Float64Dtype = pa.Field(eq=[0.11692924538584329, 0.00028775901715210814, 0.018674051548999857, -0.0064925018307393475])
 
     class Config:
 
@@ -948,9 +815,8 @@ class OutReconDFBase(pa.DataFrameModel):
     unmixed_amp: np.float64 = pa.Field()
 
     class Config:
-
-        name="OutReconDFBase"
-        strict=True
+        name = "OutReconDFBase"
+        strict = True
 
 
 class OutReconDF_AssChrom(OutReconDFBase):
@@ -969,14 +835,13 @@ class OutReconDF_AssChrom(OutReconDFBase):
 
         _peak_idx_basic_stats={"col":"peak_idx","stats":{'count': 60000.0, 'min': 0.0, 'max': 3.0, 'mean': 1.5, 'std': 1.1180433058162647}}
         _time_basic_stats={"col":"time","stats":{'count': 60000.0, 'min': 0.0, 'max': 149.99, 'mean': 74.995, 'std': 43.30163094142494}}
-        _unmixed_amp_basic_stats={"col":"unmixed_amp","stats":{'count': 60000.0, 'min': 0.0, 'max': 39.89647928958082, 'mean': 0.5329990636718185, 'std': 3.3954495766190744}}
+        _unmixed_amp_basic_stats={"col":"unmixed_amp","stats":{'count': 60000.0, 'min': 0.0, 'max': 39.89647928924097, 'mean': 0.5329990636671511, 'std': 3.395449541122017}}
 
         check_stats = _peak_idx_basic_stats
         check_stats = _time_basic_stats
         check_stats = _unmixed_amp_basic_stats
-
+        
 class OutPeakReportBase(OutPoptDF_Base):
-    
     tbl_name: pd.StringDtype = pa.Field(eq="peak_report")
     retention_time: pd.Float64Dtype
     unmixed_area: pd.Float64Dtype
@@ -988,18 +853,19 @@ class OutPeakReportAssChrom(OutPeakReportBase):
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    tbl_name: str = pa.Field(eq=['peak_report', 'peak_report', 'peak_report', 'peak_report'])
+    tbl_name: pd.StringDtype = pa.Field(eq=['peak_report', 'peak_report', 'peak_report', 'peak_report'])
     window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 2])
     peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 1, 2, 3])
-    retention_time: pd.Float64Dtype = pa.Field(eq=[0.14907132788358754, 0.18999766659570494, 0.7995550740417632, 1.0999285784728061])
-    loc: pd.Float64Dtype = pa.Field(eq=[14.907132788358753, 18.999766659570493, 79.95550740417632, 109.99285784728062])
-    amp: pd.Float64Dtype = pa.Field(eq=[100.01095135740375, 99.95293326468028, 19.87594297337542, 99.95961060763156])
-    whh: pd.Float64Dtype = pa.Field(eq=[1.0043771984554946, 1.9992972517683638, 2.987978241175155, 0.9997562123213283])
-    skew: pd.Float64Dtype = pa.Field(eq=[0.11692925684391392, 0.0002840710874125317, 0.018674831493996104, 0.00895394995031418])
-    unmixed_area: np.float64 = pa.Field(eq=[10001.095135740376, 9995.29332646803, 1987.594297337542, 9995.961060763157])
-    unmixed_maxima: np.float64 = pa.Field(eq=[39.89647928958082, 19.94473401962076, 2.6540468064249763, 39.88885706340226])
+    retention_time: pd.Float64Dtype = pa.Field(eq=[0.14907132797396797, 0.18999760776493152, 0.7995550926291489, 1.1000517881769312])
+    loc: pd.Float64Dtype = pa.Field(eq=[14.907132797396796, 18.99976077649315, 79.95550926291489, 110.0051788176931])
+    amp: pd.Float64Dtype = pa.Field(eq=[100.01095135529069, 99.95293326727652, 19.87594297337034, 99.95961060435313])
+    whh: pd.Float64Dtype = pa.Field(eq=[1.0043771976008562, 1.9992972533746571, 2.9879782131837924, 0.9997441651276472])
+    skew: pd.Float64Dtype = pa.Field(eq=[0.11692924538584329, 0.00028775901715210814, 0.018674051548999857, -0.0064925018307393475])
+    unmixed_area: np.float64 = pa.Field(eq=[10001.095135529069, 9995.293326727651, 1987.594297337034, 9995.961060435313])
+    unmixed_maxima: np.float64 = pa.Field(eq=[39.89647928924097, 19.944734017503087, 2.6540468066889553, 39.88885501981935])
 
     class Config:
 
         name="OutPeakReportAssChrom"
         strict=True
+ 

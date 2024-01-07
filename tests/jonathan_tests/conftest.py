@@ -376,6 +376,8 @@ def unmixed_df(
     stored_popt,
 ):
     unmixed_df = chm._deconvolve._reconstruct_peak_signal(xdata, stored_popt)
+    unmixed_df = unmixed_df.reset_index(names='time_idx')
+    unmixed_df = unmixed_df.loc[:,['peak_idx','time_idx','time','unmixed_amp']]
     return unmixed_df
 
 
@@ -405,7 +407,7 @@ def windowed_signal_df(
 
 
 @pytest.fixture
-def param_df(
+def my_param_df(
     chm: Chromatogram,
     p0_df,
     default_bounds,
@@ -418,11 +420,11 @@ def param_df(
 def popt_df(
     chm: Chromatogram,
     windowed_signal_df,
-    param_df,
+    my_param_df,
 ):
     popt_df = chm._deconvolve._popt_factory(
         windowed_signal_df,
-        param_df,    
+        my_param_df,    
     )
     return popt_df
 

@@ -35,6 +35,7 @@ from hplc_py.map_peaks import map_peaks
 from hplc_py.baseline_correct import correct_baseline
 from hplc_py.find_windows import find_windows
 from hplc_py.deconvolve_peaks import mydeconvolution
+from hplc_py.fit_assessment import FitAssessment
 from hplc_py import show 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
@@ -42,6 +43,8 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutReconDFBase,
     OutPeakReportBase,
 )
+
+from typing import TypedDict
 
 @dataclass
 class Chromatogram(
@@ -55,6 +58,7 @@ class Chromatogram(
     # member class objects
     _findwindows=find_windows.WindowFinder(viz=_viz)
     _deconvolve=mydeconvolution.PPeakDeconvolver()
+    _fitassess=FitAssessment()
     
     if _correct_bline:
         _baseline=correct_baseline.BaselineCorrector()
@@ -283,7 +287,7 @@ class Chromatogram(
         for g, d in self.window_df[self.window_df['window_type'] == 'peak'].groupby('window_idx'):
             # Compute the non-peak windows separately.
             window_area = np.abs(d[self.amp_col].values).sum() + 1
-            window_peaks = self._deconvolved_peak_props[g]
+            window_peaks = self._peak_props[g]
             window_peak_area = np.array(
                 [np.abs(v['reconstructed_signal']) for v in window_peaks.values()]).sum() + 1
             score = np.array(window_peak_area / window_area).astype(float)

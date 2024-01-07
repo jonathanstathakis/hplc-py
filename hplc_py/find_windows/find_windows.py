@@ -171,18 +171,18 @@ class WindowFinder:
         
         amp_norm = self.normalize_series(amp)
         
-        time_idx, _ = signal.find_peaks(
+        peak_idxs, _ = signal.find_peaks(
                             amp_norm,
                             prominence =prominence,
                             **peak_kwargs)
         
-        time_idx = np.asarray(time_idx, np.int64)
+        peak_idxs = np.asarray(peak_idxs, np.int64)
         
-        if len(time_idx)<1:
+        if len(peak_idxs)<1:
             raise ValueError("length of 'time_idx' is less than 1")
         
-        peak_prom, _, _ = signal.peak_prominences(amp_norm,
-                                            time_idx,)
+        peak_prom, _, _ = signal.peak_prominences(amp,
+                                            peak_idxs,)
         
         peak_prom = np.asarray(peak_prom, np.float64)
         if len(peak_prom)<1:
@@ -199,8 +199,8 @@ class WindowFinder:
         # for the signal peak reconstruction
         
         whh, whhh, whh_left, whh_right = signal.peak_widths(
-            amp_norm,
-            time_idx,
+            amp,
+            peak_idxs,
             rel_height=0.5
         )
         
@@ -212,30 +212,29 @@ class WindowFinder:
         # this measurement defines the windows
         
         rl_width, rl_wh, rl_left, rl_right = signal.peak_widths(
-                                                            amp_norm,
-                                                            time_idx,
+                                                            amp,
+                                                            peak_idxs,
                                                             rel_height=rel_height)
         
         # convert wh measurements to base scale
         
-        whhh_inv = self.norm_inverse(amp, whhh)
-        rl_wh_inv = self.norm_inverse(amp, rl_wh)
         
         whh = np.asarray(whh, np.float64)
-        whhh_inv = np.asarray(whhh_inv, np.float64)
+        whhh = np.asarray(whhh, np.float64)
+
         whh_left = np.asarray(whh_left, np.float64)
         whh_right = np.asarray(whh_right, np.float64)
         
         rl_width = np.asarray(rl_width, np.float64)
-        rl_wh_inv = np.asarray(rl_wh_inv, np.float64)
+        
+        rl_wh = np.asarray(rl_wh, np.float64)
+
         rl_left = np.asarray(rl_left, np.float64)
         rl_right = np.asarray(rl_right, np.float64)
         
         
         if len(whh)<1:
             raise ValueError("length of 'whh' is less than 1")
-        if len(whhh_inv)<1:
-            raise ValueError("length of 'whhh' is less than 1")
         if len(whh_left)<1:
             raise ValueError("length of 'whh_left' is less than 1")
         if len(whh_right)<1:
@@ -243,8 +242,7 @@ class WindowFinder:
         
         if len(rl_width)<1:
             raise ValueError("length of 'width' is less than 1")
-        if len(rl_wh_inv)<1:
-            raise ValueError("length of 'width_height' is less than 1")
+
         if len(rl_left)<1:
             raise ValueError("length of 'left' is less than 1")
         if len(rl_right)<1:
@@ -253,15 +251,15 @@ class WindowFinder:
     
         peak_df = (pd.DataFrame(
         {
-        'time_idx': pd.Series(time_idx, dtype=pd.Int64Dtype()),
+        'time_idx': pd.Series(peak_idxs, dtype=pd.Int64Dtype()),
         'peak_prom': pd.Series(peak_prom, dtype=pd.Float64Dtype()),
         'whh': pd.Series(whh, dtype=pd.Float64Dtype()),
-        'whhh': pd.Series(whhh_inv, dtype=pd.Float64Dtype()),
+        'whhh': pd.Series(whhh, dtype=pd.Float64Dtype()),
         'whh_left': pd.Series(whh_left, dtype=pd.Float64Dtype()),
         'whh_right': pd.Series(whh_right, dtype=pd.Float64Dtype()),
-        'rel_height': pd.Series([rel_height]*len(time_idx), dtype=pd.Float64Dtype()),
+        'rel_height': pd.Series([rel_height]*len(peak_idxs), dtype=pd.Float64Dtype()),
         'rl_width': pd.Series(rl_width, dtype=pd.Float64Dtype()),
-        'rl_wh': pd.Series(rl_wh_inv, dtype=pd.Float64Dtype()),
+        'rl_wh': pd.Series(rl_wh, dtype=pd.Float64Dtype()),
         'rl_left': pd.Series(rl_left, dtype=pd.Float64Dtype()),
         'rl_right': pd.Series(rl_right, dtype=pd.Float64Dtype()),
         },
@@ -270,7 +268,6 @@ class WindowFinder:
         .reset_index()
         )
         
-
         return typing.cast(pt.DataFrame[OutPeakDF_Base],peak_df)
 
     def mask_subset_ranges(self, ranges:list[npt.NDArray[np.int64]])->npt.NDArray[np.bool_]:
