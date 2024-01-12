@@ -22,13 +22,15 @@ class Show:
     def __init__(self):
         pass
 
-    def plot_raw_chromatogram(
+    def plot_signal(
         self,
-        signal_df,
-        ax,
+        signal_df: pd.DataFrame,
+        time_col: str,
+        amp_col: str,
+        ax: plt.Axes,
     ):
-        x = signal_df['time']
-        y = signal_df['amp_raw']
+        x = signal_df[time_col]
+        y = signal_df[amp_col]
         
         ax.plot(
          x,y, label='bc chromatogram'   

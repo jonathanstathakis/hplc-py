@@ -2,10 +2,12 @@ import scipy
 import numpy as np
 import numpy.typing as npt
 
+from hplc_py.hplc_py_typing.hplc_py_typing import IntArray, FloatArray
+
 class SkewNorms:
     def _compute_skewnorm(self,
                           x,
-                          *params)->npt.NDArray[np.float64]:
+                          *params)->FloatArray:
         R"""
         Computes the lineshape of a skew-normal distribution given the shape,
         location, and scale parameters

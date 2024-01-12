@@ -1,12 +1,11 @@
 from typing import Annotated
 
-import matplotlib.pyplot as plt
-
 from collections import namedtuple
 
 import pandas as pd
 import pandera as pa
 import pandera.typing as pt
+from pandera.typing import Series, DataFrame
 
 import numpy as np
 import numpy.typing as npt
@@ -16,12 +15,13 @@ from scipy.optimize._lsq.common import in_bounds
 import warnings
 import tqdm
 
+from hplc_py.map_signals.map_signals import PeakMap
+
 from hplc_py.skewnorms import skewnorms
 from hplc_py.deconvolve_peaks import windowstate
 from hplc_py.skewnorms.skewnorms import SkewNorms
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutSignalDF_Base,
-    OutPeakDF_Base,
     OutWindowDF_Base,
     OutInitialGuessBase,
     OutDefaultBoundsBase,
@@ -30,10 +30,14 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutPoptDF_Base,
     OutReconDFBase,
     OutPeakReportBase,
+    IntArray,
+    FloatArray,
 )
 
+from dataclasses import dataclass
 
-class DataPrepper(skewnorms.SkewNorms):
+@dataclass
+class DataPrepper:
     """
     class containing methods to prepare the data for deconvolution
     """
@@ -42,7 +46,7 @@ class DataPrepper(skewnorms.SkewNorms):
         self,
         time_idx: pt.Series[np.int64],
         integration_window: list[float],
-    ) -> npt.NDArray[np.float64]:
+    ) -> FloatArray:
         t_range = 0
 
         # Determine the areas over which to integrate the window
@@ -65,7 +69,7 @@ class DataPrepper(skewnorms.SkewNorms):
     def p0_factory(
         self,
         signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[OutPeakDF_Base],
+        peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
         timestep: np.float64,
         int_col: str,
@@ -127,7 +131,8 @@ class DataPrepper(skewnorms.SkewNorms):
         p0["skew"] = 0
 
         # assign whh as half peak whh as per definition, in time units
-        p0["whh"] = p0["whh"] / 2 * timestep
+
+        p0["whh"] = p0["whh"].transform(lambda x: x/2*timestep)
 
         # melt frame to get p0 values as 1 column with param label column for each row
         p0 = p0.melt(
@@ -153,6 +158,7 @@ class DataPrepper(skewnorms.SkewNorms):
                     ),
                     "window_idx": pd.Int64Dtype(),
                     "peak_idx": pd.Int64Dtype(),
+                    "p0": pd.Float64Dtype(),
                 }
             )
             .sort_values(by=["window_idx", "peak_idx", "param"])
@@ -165,7 +171,7 @@ class DataPrepper(skewnorms.SkewNorms):
             nas = p0.loc[na_rows, :]
             raise ValueError(error_str + "\n\n" + str(nas))
 
-        return p0
+        return pt.DataFrame[OutInitialGuessBase](p0)
 
     @pa.check_types
     def default_bounds_factory(
@@ -173,7 +179,7 @@ class DataPrepper(skewnorms.SkewNorms):
         p0_df: pt.DataFrame[OutInitialGuessBase],
         signal_df: pt.DataFrame[OutSignalDF_Base],
         window_df: pt.DataFrame[OutWindowDF_Base],
-        peak_df: pt.DataFrame[OutPeakDF_Base],
+        peak_df: pt.DataFrame[PeakMap],
         timestep: np.float64,
     ) -> pt.DataFrame[OutDefaultBoundsBase]:
         """
@@ -277,12 +283,12 @@ class DataPrepper(skewnorms.SkewNorms):
             .reset_index(drop=True)
         )
 
-        return bounds
+        return DataFrame[OutDefaultBoundsBase](bounds)
 
     def get_loc_bounds(
         self,
         signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[OutPeakDF_Base],
+        peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ):
         """
@@ -390,7 +396,7 @@ class DataPrepper(skewnorms.SkewNorms):
             .dropna()
             .astype({"window_idx": pd.Int64Dtype()})
         )
-        return windowed_signal_df
+        return DataFrame[OutWindowedSignalBase](windowed_signal_df)
 
     @pa.check_types
     def _param_df_factory(
@@ -404,7 +410,8 @@ class DataPrepper(skewnorms.SkewNorms):
         combined df
         """
 
-        # input validation
+        # join p0 and bounds
+        
         param_df = (
             p0.set_index(["window_idx", "peak_idx", "param"])
             .join(
@@ -413,11 +420,11 @@ class DataPrepper(skewnorms.SkewNorms):
             )
             .reset_index()
         )
-
+    
         # test whether NA present
 
         if param_df.isna().sum().sum() > 0:
-            # na_param_df = param_df.loc[param_df.isna()]
+        
             raise ValueError(
                 f"NA present in `param_df`:\n{param_df[param_df.isna().any(axis=1)]}"
             )
@@ -435,43 +442,17 @@ class DataPrepper(skewnorms.SkewNorms):
             raise ValueError(
                 "oob guess detected" f"\n{param_df.query('inbounds==False')}"
             )
-        return param_df.pipe(pt.DataFrame[OutParamsBase])  # type: ignore
 
-
-class PPeakDeconvolver(SkewNorms):
-    """
-    Note: as of 2023-12-08 15:10:06 it is necessary to inherit SkewNorms rather than passing
-    class method objects in the `curve_fit` call because `_fit_skewnorms` is defined with the
-    packing operator for 'params' rather than explicit arguments. This is causing unexpected
-    behavior where the arguments 'xdata', 'p0', etc are bumped up one in the unpacking, resulting in
-    the xdata value being assigned to the 'self' parameter, the params[0] (amp) being assigned to x, etc.
-
-    Do not have time to solve this problem as it boils down to a paradigm choice rather than a critical feature,
-    thus it will be left for a later date when I can conclude whether the pack operator is necessary, i.e. due to
-    the behavior of `curve_fit`, and whether there is another option, i.e. excluding self somehow.
-
-    TODO:
-    - [x] establish master deconvolution method
-    - [x] add area to popt_df returning as 'peak_params'
-    - [ ] refactor assess fit methods to assess performance of my code
-    - [ ] run dataset on original code to get goodness of fit and compare
-    - [ ] complete schemas for new tables i.e. `popt_df`.
-    - [ ] define peak maxima as the maxima of the reconstructed signal, relabel 'amp' as param_amp or something.
-    """
-
-    def __init__(self):
-        self.dataprepper = DataPrepper()
-
-    @pa.check_types
-    def deconvolve_peaks(
+        
+        return pt.DataFrame[OutParamsBase](param_df)
+    
+    def prepare_data(
         self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[OutPeakDF_Base],
-        window_df: pt.DataFrame[OutWindowDF_Base],
-        timestep: np.float64,
-    ) -> tuple[pt.DataFrame[OutPoptDF_Base], pt.DataFrame[OutReconDFBase]]:
-        windowed_signal_df = self.dataprepper._window_signal_df(signal_df, window_df)
-
+        signal_df: pd.DataFrame,
+        peak_df: pd.DataFrame,
+        window_df: pd.DataFrame,
+        timestep: float,
+    ):
         p0_df = self.dataprepper.p0_factory(
             signal_df,
             peak_df,
@@ -491,13 +472,47 @@ class PPeakDeconvolver(SkewNorms):
             p0_df,
             default_bounds,
         )
+        
+        windowed_signal_df = self.dataprepper._window_signal_df(signal_df, window_df)   
+        
+        return p0_df, default_bounds, param_df, windowed_signal_df
 
+@dataclass
+class PPeakDeconvolver(SkewNorms):
+    """
+    Note: as of 2023-12-08 15:10:06 it is necessary to inherit SkewNorms rather than passing
+    class method objects in the `curve_fit` call because `_fit_skewnorms` is defined with the
+    packing operator for 'params' rather than explicit arguments. This is causing unexpected
+    behavior where the arguments 'xdata', 'p0', etc are bumped up one in the unpacking, resulting in
+    the xdata value being assigned to the 'self' parameter, the params[0] (amp) being assigned to x, etc.
+
+    Do not have time to solve this problem as it boils down to a paradigm choice rather than a critical feature,
+    thus it will be left for a later date when I can conclude whether the pack operator is necessary, i.e. due to
+    the behavior of `curve_fit`, and whether there is another option, i.e. excluding self somehow.
+
+    """
+
+    dataprepper = DataPrepper()
+
+    @pa.check_types
+    def deconvolve_peaks(
+        self,
+        signal_df: pt.DataFrame[OutSignalDF_Base],
+        peak_df: pt.DataFrame[PeakMap],
+        window_df: pt.DataFrame[OutWindowDF_Base],
+        timestep: np.float64,
+    ) -> tuple[pt.DataFrame[OutPoptDF_Base], pt.DataFrame[OutReconDFBase]]:
+
+        p0_df, default_bounds, param_df, windowed_signal_df = self.dataprepper.prepare_data(
+            signal_df, peak_df, window_df, timestep
+        )
+        
         self._param_df = param_df
 
-        popt_df = self._popt_factory(windowed_signal_df, param_df)
+        popt_df: pd.DataFrame = self._popt_factory(windowed_signal_df, param_df)
 
         reconstructed_signals = self._reconstruct_peak_signal(
-            windowed_signal_df["time"], popt_df
+            windowed_signal_df["time"].to_numpy(np.float64), popt_df
         )
 
         return popt_df.pipe(pt.DataFrame[OutPoptDF_Base]), reconstructed_signals.pipe(pt.DataFrame[OutReconDFBase])  # type: ignore
@@ -560,30 +575,23 @@ class PPeakDeconvolver(SkewNorms):
     def _prep_for_curve_fit(
         self,
         window: int,
-        windowed_signal_df: pt.DataFrame[OutWindowedSignalBase],
+        ws_df: pt.DataFrame[OutWindowedSignalBase],
         amp_col: str,
         param_df: pt.DataFrame[OutParamsBase],
-    ) -> tuple[
-        Annotated[pt.Series[float], "x"],
-        Annotated[pt.Series[float], "y"],
-        Annotated[pt.Series[float], "p0"],
-        Annotated[pt.Series[float], "lb"],
-        Annotated[pt.Series[float], "ub"],
-    ]:
+    ):
         """ """
         
         
-        x = windowed_signal_df.query("window_idx==@window").loc[:, "time"]
+        x: pd.Series[float] = ws_df.loc[ws_df['window_idx']==window, "time"].astype(np.float64)
 
-        y = windowed_signal_df.query("window_idx==@window").loc[:, amp_col]
+        y: pd.Series[float] = ws_df.loc[ws_df['window_idx']==window, amp_col].astype(np.float64)
 
-        p0 = param_df.query("(window_idx==@window)")
-        p0 = p0.set_index(["window_idx", "peak_idx", "param"])
-        p0 = p0.loc[:, "p0"]
+        p0: pd.DataFrame = param_df.loc[ws_df['window_idx']==window]
+        p0: pd.DataFrame = p0.set_index(["window_idx", "peak_idx", "param"])
+        p0: pd.Series[float] = p0.loc[:, "p0"]
         
-
-        lb = param_df.query("(window_idx==@window)").set_index("param")["lb"]
-        ub = param_df.query("(window_idx==@window)").set_index("param")["ub"]
+        lb: pd.Series[float] = param_df.loc[ws_df['window_idx']==window].set_index("param")["lb"]
+        ub: pd.Series[float] = param_df.loc[ws_df['window_idx']==window].set_index("param")["ub"]
 
         # input validation
 
@@ -658,7 +666,7 @@ class PPeakDeconvolver(SkewNorms):
                 ydata=y.to_numpy(np.float64),
                 p0=p0.to_numpy(np.float64),
                 bounds=(lb.to_numpy(np.float64), ub.to_numpy(np.float64)),
-                maxfev=100,
+                # maxfev=100,
                 full_output=True,
                 **optimizer_kwargs,
             )
@@ -687,44 +695,45 @@ class PPeakDeconvolver(SkewNorms):
             .rename_axis(index="idx", columns="cols")
         )
 
-        return popt_df.pipe(pt.DataFrame[OutPoptDF_Base])
+        return pt.DataFrame[OutPoptDF_Base](popt_df)
 
-    @pa.check_types
+    # @pa.check_types
     def _reconstruct_peak_signal(
         self,
-        time: npt.NDArray[np.float64],
+        time: FloatArray,
         popt_df: pt.DataFrame[OutPoptDF_Base],
     ) -> pt.DataFrame[OutReconDFBase]:
+        
         def reconstruct_peak_signal(
             popt_df: pt.DataFrame[OutPoptDF_Base],
             time: pt.Series,
-        ):
+        )->pd.DataFrame:
             params = popt_df.loc[:, ["amp", "loc", "whh", "skew"]].values.flatten()
 
-            try:
-                unmixed_signal = self._compute_skewnorm(time.values, *params)
 
-                unmixed_signal_df = pd.merge(
-                    popt_df.loc[:, ["peak_idx"]], time, how="cross"
-                )
-                
-                unmixed_signal_df = unmixed_signal_df.assign(unmixed_amp=unmixed_signal)
+            unmixed_signal = self._compute_skewnorm(time.values, *params)
 
-            except Exception as e:
-                raise RuntimeError(f"{e}\n" f"{params}\n" f"{popt_df.index}\n")
+            unmixed_signal_df = pd.merge(
+                popt_df.loc[:, ["peak_idx"]], time, how="cross"
+            )
+            
+            unmixed_signal_df = unmixed_signal_df.assign(unmixed_amp=unmixed_signal)
 
+            unmixed_signal_df = unmixed_signal_df.reset_index(names='time_idx')
+            unmixed_signal_df['time_idx'] = unmixed_signal_df['time_idx'].astype(pd.Int64Dtype())
+            unmixed_signal_df = unmixed_signal_df.loc[:,['peak_idx','time_idx','time','unmixed_amp']]
+            
+            unmixed_signal_df = unmixed_signal_df.reset_index(drop=True)
+            
             return unmixed_signal_df
 
         # remove window_idx from identifier to avoid multiindexed column
 
-        unmixed_df = popt_df.groupby(
-            by=["peak_idx"],
-            group_keys=False,
-        ).apply(
-            reconstruct_peak_signal, time
-        )  # type: ignore
-
-        return unmixed_df.pipe(pt.DataFrame[OutReconDFBase])
+        unmixed_df = popt_df.groupby(by=["peak_idx"],group_keys=False,).apply(reconstruct_peak_signal, *[time])
+        
+        unmixed_df = unmixed_df.reset_index(drop=True)
+        
+        return DataFrame[OutReconDFBase](unmixed_df)
 
     def optimize_p(
         self,

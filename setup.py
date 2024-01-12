@@ -10,7 +10,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 setup(
-    name="hplc-py",
+    name="my_hplc_py",
     version=__version__,
     long_description=README,
     description="Python utilities for the processing and quantification of chromatograms from High Performance Liquid Chromatography (HPLC).",
@@ -22,7 +22,7 @@ setup(
         "Intended Audience :: Science/Research",
         "Programming Language :: Python :: 3",
     ],
-    author="Griffin Chure",
+    author="Griffin Chure, Jonathan Stathakis",
     author_email="griffinchure@gmail.com",
     packages=find_packages(
         exclude=('docs', 'doc', 'sandbox', 'dev', 'hplc_py.egg-info')),

@@ -3,37 +3,78 @@ import numpy as np
 import pandas as pd
 import pandera as pa
 import pandera.typing as pt
+from pandera.typing import Series, DataFrame
 import tqdm
 import warnings
 import copy
-from typing import Any
+from typing import Any, cast
+from hplc_py.hplc_py_typing.hplc_py_typing import FloatArray, IntArray
 import numpy.typing as npt
 
 import matplotlib.pyplot as plt
 
+from dataclasses import dataclass, field
 
-class BaselineCorrector:
-    def __init__(self):
-        self._bg_corrected = False
-        self._int_corr_col_suffix = "_corrected"
-        self._windowsize = (None,)
-        self._n_iter = None
-        self._verbose = True
-        self._background_col = "background"
-        self._bg_correction_progress_state = None
-        self._debug_bcorr_df=pd.DataFrame()
+from typing import TypedDict
+from hplc_py.misc.misc import TimeStep, LoadData
+
+class BlineKwargs(TypedDict, total=False):
+        windowsize: int
+        verbose: bool
+
+class SignalDFBCorr(pa.DataFrameModel):
+    time_idx: pd.Int64Dtype
+    time: pd.Float64Dtype
+    amp_raw: pd.Float64Dtype
+    amp_corrected: pd.Float64Dtype
+    background: pd.Float64Dtype
+    
+    class Config:
+        strict=True
+    
+
+@dataclass
+class CorrectBaseline(TimeStep, LoadData):
+    
+    _bg_corrected = False
+    _int_corr_col_suffix = "_corrected"
+    _windowsize = (None,)
+    _n_iter = None
+    _verbose = True
+    _background_col = "background"
+    _bg_correction_progress_state = None
+    _debug_bcorr_df: pd.DataFrame = field(default_factory=pd.DataFrame)
     
     def correct_baseline(
         self,
-        amp_raw: npt.NDArray[np.float64],
-        timestep: np.float64,
         windowsize: int = 5,
         verbose: bool = False,
         precision=9,
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        R""" """
-
+    ) -> DataFrame[SignalDFBCorr]:
+        """
+        Correct baseline and add corrected amplitude and background series to signal_df
+        """
+        if not any(cast(pd.DataFrame, self._signal_df)):
+            raise RuntimeError("Run `set_signal_df` first")
+        
+        if not self._timestep:
+            self.set_timestep(self._signal_df[self.time_col])
+        
+        if not isinstance(self._signal_df, pd.DataFrame):
+            raise TypeError(f"signal_df must be pd.DataFrame, got {type(self._signal_df)}")
+        
+        if not isinstance(self.amp_col, str):
+            raise TypeError(f"amp_col must be a string")
+        if not self.amp_col in self._signal_df.columns:
+            raise ValueError(f"amp_col: {self.amp_col} not in signal_df")
+        
+        timestep = np.float64(self._timestep)
+        
+        if not isinstance(windowsize, int):
+            raise TypeError("windowsize must be int")
+        
         shift = np.float64(0)
+        
         self._verbose = verbose
         self._precision = precision
 
@@ -41,6 +82,9 @@ class BaselineCorrector:
             warnings.warn(
                 "Baseline has already been corrected. Rerunning on original signal..."
             )
+        
+        # extract the amplitude series
+        amp_raw = self._signal_df.loc[:,self.amp_col].to_numpy(np.float64)
 
         # enforce array datatype
         amp_raw = np.asarray(amp_raw, np.float64)
@@ -89,13 +133,19 @@ class BaselineCorrector:
                 'y_corrected':pd.Series(amp_bcorr),
                 'background':pd.Series(background),
         })
-                             
-        return amp_bcorr, background
+        
+        self.amp_col = self.amp_col.replace("raw", "corrected")
+        
+        self._signal_df[self.amp_col]=pd.Series(amp_bcorr, dtype=pd.Float64Dtype())
+        
+        self._signal_df['background']=pd.Series(background, dtype=pd.Float64Dtype())
+        
+        return self._signal_df
     
     def shift_and_clip_amp(
         self,
-        amp: npt.NDArray[np.float64],
-    ) -> npt.NDArray[np.float64]:
+        amp: FloatArray,
+    ) -> FloatArray:
         # Look at the relative magnitudes of the maximum and minimum values
         # And raise a warning if there are appreciable negative peaks.
         has_negatives = self.check_for_negatives(amp)
@@ -121,8 +171,8 @@ class BaselineCorrector:
         return int(((window_size / timestep) - 1) / 2)
     
     def compute_compressed_signal(
-        self, signal: npt.NDArray[np.float64]
-    ) -> npt.NDArray[np.float64]:
+        self, signal: FloatArray
+    ) -> FloatArray:
         """
         return a compressed signal using the LLS operator.
         """
@@ -131,24 +181,24 @@ class BaselineCorrector:
         return tform.astype(np.float64)
 
     def compute_inv_tform(
-        self, tform: npt.NDArray[np.float64]
-    ) -> npt.NDArray[np.float64]:
+        self, tform: FloatArray
+    ) -> FloatArray:
         # invert the transformer
         inv_tform = (np.exp(np.exp(tform) - 1) - 1) ** 2 - 1
         return inv_tform.astype(np.float64)
 
     def transform_and_subtract(
         self,
-        signal: npt.NDArray[np.float64],
-        inv_tform: npt.NDArray[np.float64],
+        signal: FloatArray,
+        inv_tform: FloatArray,
         shift: np.float64,
-    ) -> npt.NDArray[np.float64]:
+    ) -> FloatArray:
         
         transformed_signal = signal - inv_tform# - shift
 
         return transformed_signal.astype(np.float64)
 
-    def check_for_negatives(self, signal: npt.NDArray[np.float64]) -> bool:
+    def check_for_negatives(self, signal: FloatArray) -> bool:
         has_negatives = False
 
         min_val = np.min(signal)
@@ -170,7 +220,7 @@ class BaselineCorrector:
 
         return has_negatives
 
-    def compute_shift(self, signal: npt.NDArray[np.float64]) -> np.float64:
+    def compute_shift(self, signal: FloatArray) -> np.float64:
         # the shift is computed as the median of the negative signal values
 
         shift = np.median(signal[signal < 0])
@@ -187,10 +237,10 @@ class BaselineCorrector:
 
     def compute_s_compressed_minimum(
         self,
-        s_compressed: npt.NDArray[np.float64],
+        s_compressed: FloatArray,
         n_iter: int,
         verbose: bool = True,
-    ) -> npt.NDArray[np.float64]:
+    ) -> FloatArray:
         """
         Apply the filter to find the minimum of s_compressed to approximate the baseline
         """
@@ -230,9 +280,9 @@ class BaselineCorrector:
 
     def compute_background(
         self,
-        inv_tform: npt.NDArray[np.float64],
+        inv_tform: FloatArray,
         shift: np.float64 = np.float64(0),
-    ) -> npt.NDArray[np.float64]:
+    ) -> FloatArray:
         background = inv_tform + shift
 
         return background

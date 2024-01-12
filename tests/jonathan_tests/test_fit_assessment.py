@@ -236,65 +236,6 @@ class TestScores:
     def amp_col(self):
         return "amp_corrected"
 
-    def test_compute_window_fano_exec(
-        self,
-        chm: Chromatogram,
-        windowed_signal_df: pt.DataFrame,
-        amp_col: str,
-    ):
-        fano = chm._fitassess._compute_fano_df(
-            windowed_signal_df,
-            amp_col,
-        )
-
-        print(f"\n{fano}")
-
-    @pytest.fixture
-    def unmixed_aucs(
-        self,
-        chm: Chromatogram,
-        peak_report: pt.DataFrame,
-        window_df: pt.DataFrame,
-    ) -> pt.DataFrame:
-        unmixed_aucs = chm._fitassess._calc_unmixed_window_auc(peak_report, window_df)
-        return unmixed_aucs
-
-    def test_calc_unmixed_aucs_exec(
-        self,
-        unmixed_aucs: pt.DataFrame,
-    ) -> None:
-        assert unmixed_aucs.all()
-
-    @pytest.fixture
-    def mixed_aucs(
-        self,
-        chm: Chromatogram,
-        amp_col: str,
-        windowed_signal_df: pt.DataFrame,
-    ) -> pt.DataFrame:
-        mixed_aucs = chm._fitassess._calc_mixed_window_auc(
-            windowed_signal_df,
-            amp_col,
-        )
-
-        return mixed_aucs
-
-    def test_calc_mixed_auc_exec(
-        self,
-        mixed_aucs: pt.DataFrame,
-    ):
-        assert mixed_aucs.all()
-
-    def test_compute_score_exec(
-        self,
-        chm: Chromatogram,
-        mixed_aucs: np.float64,
-        unmixed_aucs: np.float64,
-    ) -> None:
-        chm._fitassess._calc_peak_window_scores(mixed_aucs, unmixed_aucs)
-
-        pass
-
     @pytest.fixture
     def score_df(
         self,
@@ -356,12 +297,6 @@ class TestScores:
             else:
                 pass
         
-        
-        
-        
-        
-        
-
     def test_score_df_factory_exec(
         self,
         score_df: DataFrame,
@@ -415,71 +350,127 @@ class TestScores:
             
             raise AssertionError(err_str)
     
-    def test_score_df_compare_main_overlap(
-         self,
-        score_df: pt.DataFrame,
-        m_sc_df: DataFrame | Any,
+    @pytest.fixture
+    def rtol(
+        self,
     ):
-
-        ms_df_overlap: pd.DataFrame = m_sc_df.loc[:, m_sc_df.columns.isin(score_df.columns)]
-        ms_df_overlap: pd.DataFrame = ms_df_overlap.set_index(["window_type", "window_idx", "time_start"])
-
-        score_df_overlap = score_df.loc[:, score_df.columns.isin(m_sc_df)]
-        score_df_overlap = score_df_overlap.set_index(["window_type", "window_idx", "time_start"])
-        
-        print("")
-        for col in ms_df_overlap.columns:
-            
-            print(f"\n\n## {col} ##\n\n")
-            
-            lsuffix='_mine'
-            rsuffix='_main'
-            compare_df = ms_df_overlap.loc[:,[col]].join(
-                score_df_overlap.loc[:,[col]],
-                lsuffix=lsuffix,
-                rsuffix=rsuffix,
-                )
-            
-            compare_df['diff']=(compare_df[col+lsuffix]-compare_df[col+rsuffix])
-            compare_df['is_diff']=compare_df['diff']!=0
-            
-            print(compare_df)
-        
-            
-            print(compare_df.loc[:,['diff']].agg(['min','max']))
-            
-            print("\n")
-            
-
+        return 1E-2
+    
+    def test_assign_tolpass_exec(
+        self,
+        chm: Chromatogram,
+        score_df: DataFrame,
+        groups: list[str],
+        rtol: float,
+    ):
+        chm._fitassess.assign_tolpass(score_df, groups, rtol)
         
     
-    # compare variance
-    def test_compare_variances(
+    @pytest.fixture
+    def main_fit_report(
         self,
-        main_var_sig: DataFrame,
-        my_var_sig: Any
+        main_fitted_chm: hplc.quant.Chromatogram,
     ):
+        report = main_fitted_chm.assess_fit()
+        return report
+    
+    def test_main_fit_report_exec(
+        self,
+        main_fit_report: DataFrame,
+    ):
+        print("")
+        print(main_fit_report)
+    
+    @pytest.fixture
+    def ftol(self):
+        return 1E-2
+    
+    @pytest.fixture
+    def groups(self):
+        return ['window_type','window_idx']
+    
+    def test_assign_fanopass_exec(
+        self,
+        chm: Chromatogram,
+        score_df: DataFrame,
+        groups: list[str],
+        ftol: float,
+    ):
+        score_df_ = chm._fitassess.assign_fanopass(score_df, groups, ftol)
+    
+    @pytest.fixture
+    def score_df_with_passes(
+        self,
+        chm: Chromatogram,
+        score_df: DataFrame,
+        groups: list[str],
+        ftol: float,
+        rtol: float,
+    ):
+        score_df_ = chm._fitassess.assign_tolpass(score_df, groups, rtol)
+        score_df_ = chm._fitassess.assign_fanopass(score_df, groups, ftol)
+        return score_df_
+
+    def test_score_df_with_passes(
+        self,
+        score_df_with_passes: DataFrame,
+    ):
+        print("")
+        print(score_df_with_passes)
         
+    @pytest.fixture
+    def score_df_with_status(
+        self,
+        chm: Chromatogram,
+        score_df_with_passes: DataFrame,
+    ):
+        return chm._fitassess.assign_status(score_df_with_passes)
 
-        print(main_var_sig)
-        print(my_var_sig)
-        print((main_var_sig - my_var_sig).sum())
-        pd.options.display.precision = 20
-        print(np.var(np.abs(main_var_sig)))
-        # print(np.var(np.abs(my_var_sig)))
-        print(my_var_sig.abs().var())
+    def test_score_df_with_status(
+        self,
+        score_df_with_status: DataFrame,
+    ):
+        print("")
+        print(score_df_with_status)
         
-
-    # 2024-01-04 02:17:56 the difference between the two series is literally zero. wtf. and calculating the var with the same methdd produces the same value to 20 deimal places. Note however that using .abs().var() creates variation at the 7th decimal place..
-
-    # print(m_var_sig[m_var_sig!=my_var_sig])
-    # print(m_var_sig[m_var_sig!=my_var_sig])
-
-    # plt.plot(m_var_sig, label='main')
-    # plt.plot(my_var_sig.values, label='mine')
-    # # plt.plot((m_var_sig-my_var_sig.values), label='diff')
-    # plt.legend()
-    # plt.show()
-
-    # score_df.info()
-    # ms_df.info()
+        
+        
+    
+    @pytest.fixture
+    def fit_report(
+        self,
+        chm: Chromatogram,
+        signal_df: DataFrame,
+        unmixed_df: DataFrame,
+        peak_report: DataFrame,
+        window_df: DataFrame,
+        rtol: float,
+    )->DataFrame:
+        
+        fit_report = chm._fitassess.assess_fit(
+            signal_df,
+            unmixed_df,
+            window_df,
+            rtol,
+        )
+        return fit_report
+    
+    def test_fit_report_exec(
+        self, 
+        fit_report: DataFrame,
+    ):
+        pass
+    
+    def test_report_card_main(
+        self,
+        main_fitted_chm: hplc.quant.Chromatogram,
+        score_df: DataFrame,
+    ):
+        main_fitted_chm.assess_fit()
+    
+    def test_termcolors(
+        self
+    ):
+        import termcolor
+        
+        termcolor.cprint("test", color='blue', on_color='white')

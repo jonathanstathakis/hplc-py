@@ -59,3 +59,4 @@ TODO:
 - [ ] build the master method
 - [ ] seperate initial peak profiling from window finding 
 - [ ] make the modules more abstracted, expose intermediate values as class objects.
+

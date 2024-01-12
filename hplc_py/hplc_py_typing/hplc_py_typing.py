@@ -7,7 +7,13 @@ import pandera.extensions as extensions
 
 import numpy.typing as npt
 import numpy as np
-from typing import Optional
+from typing import Optional, TypeAlias
+
+FloatArray: TypeAlias = npt.NDArray[np.float64]
+IntArray: TypeAlias = npt.NDArray[np.int64]
+pdInt: TypeAlias = pd.Int64Dtype
+pdFloat: TypeAlias = pd.Float64Dtype
+rgba: TypeAlias = tuple[float, float, float, float]
 
 
 @extensions.register_check_method(statistics=["col", "stats"])  # type: ignore
@@ -288,6 +294,9 @@ class SignalDFInBase(pa.DataFrameModel):
     tbl_name: Optional[str] = pa.Field(eq="testsignal")
     time: np.float64
     amp_raw: np.float64
+    
+    class Config:
+        strict=True
 
 
 class SignalDFInAssChrom(SignalDFInBase):
@@ -300,6 +309,7 @@ class SignalDFInAssChrom(SignalDFInBase):
     amp_raw: np.float64 = pa.Field()
 
     class Config:
+        
         name = "SignalDFInAssChrom"
 
         _time_basic_stats = {
@@ -327,108 +337,15 @@ class SignalDFInAssChrom(SignalDFInBase):
         check_stats = _amp_raw_basic_stats
 
 
-class OutPeakDF_Base(pa.DataFrameModel):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
-
-    peak_idx: np.int64 = pa.Field()
-    time_idx: pd.Int64Dtype = pa.Field()
-    peak_prom: pd.Float64Dtype = pa.Field()
-    whh: pd.Float64Dtype = pa.Field()
-    whhh: pd.Float64Dtype = pa.Field()
-    whh_left: pd.Float64Dtype = pa.Field()
-    whh_right: pd.Float64Dtype = pa.Field()
-    rel_height: pd.Float64Dtype = pa.Field()
-    rl_width: pd.Float64Dtype = pa.Field()
-    rl_wh: pd.Float64Dtype = pa.Field()
-    rl_left: pd.Float64Dtype = pa.Field()
-    rl_right: pd.Float64Dtype = pa.Field()
-
-    class Config:
-        name = "OutPeakDF_Base"
-        strict = True
-
-
-class OutPeakDFAssChrom(OutPeakDF_Base):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
-
-    peak_idx: np.int64 = pa.Field(eq=[0, 1, 2, 3])
-    time_idx: pd.Int64Dtype = pa.Field(eq=[1507, 1899, 8000, 11000])
-    peak_prom: pd.Float64Dtype = pa.Field(
-        eq=[
-            42.69543317962209,
-            3.2455755293993427,
-            2.6593823182642895,
-            39.894228040095996,
-        ]
-    )
-    whh: pd.Float64Dtype = pa.Field(
-        eq=[
-            270.5127402263288,
-            172.53131767928198,
-            706.3953656908734,
-            235.48262868147685,
-        ]
-    )
-    whhh: pd.Float64Dtype = pa.Field(
-        eq=[
-            21.340119296918846,
-            18.33493676974333,
-            1.3221146563326696,
-            19.939516727155805,
-        ]
-    )
-    whh_left: pd.Float64Dtype = pa.Field(
-        eq=[
-            1385.0966943344852,
-            1809.5007097260184,
-            7646.804206458902,
-            10882.258685659264,
-        ]
-    )
-    whh_right: pd.Float64Dtype = pa.Field(
-        eq=[
-            1655.609434560814,
-            1982.0320274053004,
-            8353.199572149775,
-            11117.741314340741,
-        ]
-    )
-    rel_height: pd.Float64Dtype = pa.Field(eq=[1.0, 1.0, 1.0, 1.0])
-    rl_width: pd.Float64Dtype = pa.Field(
-        eq=[9244.513493271112, 282.912258486617, 2921.8149969110236, 1477.9876313272634]
-    )
-    rl_wh: pd.Float64Dtype = pa.Field(
-        eq=[
-            -0.007597292892199903,
-            16.71214900504366,
-            -0.007576502799475193,
-            -0.007597292892192797,
-        ]
-    )
-    rl_left: pd.Float64Dtype = pa.Field(
-        eq=[687.4865067288886, 1736.0, 6455.0, 10278.000332225438]
-    )
-    rl_right: pd.Float64Dtype = pa.Field(
-        eq=[9932.0, 2018.912258486617, 9376.814996911024, 11755.987963552701]
-    )
-
-    class Config:
-        name = "OutPeakDFAssChrom"
-        strict = True
-
 
 class OutSignalDF_Base(pa.DataFrameModel):
-    time_idx: np.int64 = pa.Field(coerce=False)
-    time: np.float64 = pa.Field(coerce=False)
-    amp_raw: np.float64 = pa.Field(coerce=False)
-    amp_corrected: Optional[np.float64] = pa.Field(coerce=False)
-    amp_bg: Optional[np.float64] = pa.Field(coerce=False)
-    amp_corrected_norm: Optional[np.float64] = pa.Field(coerce=False)
-    amp_norm: Optional[np.float64] = pa.Field(coerce=False)
+    time_idx: pd.Int64Dtype = pa.Field(coerce=False)
+    time: pd.Float64Dtype = pa.Field(coerce=False)
+    amp_raw: pd.Float64Dtype = pa.Field(coerce=False)
+    amp_corrected: Optional[pd.Float64Dtype] = pa.Field(coerce=False)
+    amp_bg: Optional[pd.Float64Dtype] = pa.Field(coerce=False)
+    amp_corrected_norm: Optional[pd.Float64Dtype] = pa.Field(coerce=False)
+    amp_norm: Optional[pd.Float64Dtype] = pa.Field(coerce=False)
 
     class Config:
         strict = True
@@ -441,27 +358,27 @@ class OutSignalDF_ManyPeaks(OutSignalDF_Base):
 
 
 class OutSignalDF_AssChrom(OutSignalDF_Base):
-    time_idx: np.int64 = pa.Field(
+    time_idx: pd.Int64Dtype = pa.Field(
         coerce=False, in_range={"min_value": 0, "max_value": 149999}
     )
-    time: np.float64 = pa.Field(
+    time: pd.Float64Dtype = pa.Field(
         coerce=False, in_range={"min_value": 0, "max_value": 149.99}
     )
-    amp_raw: np.float64 = pa.Field(
+    amp_raw: pd.Float64Dtype = pa.Field(
         coerce=False,
         in_range={"min_value": -0.0298383947260937, "max_value": 42.69012166052291},
     )
-    amp_corrected: Optional[np.float64] = pa.Field(
+    amp_corrected: Optional[pd.Float64Dtype] = pa.Field(
         coerce=False, in_range={"min_value": 0.007597293, "max_value": 42.703030473}
     )
-    amp_bg: Optional[np.float64] = pa.Field(
+    amp_bg: Optional[pd.Float64Dtype] = pa.Field(
         coerce=False,
         in_range={"min_value": -0.0075972928921949, "max_value": 0.0002465850460692323},
     )
-    amp_corrected_norm: Optional[np.float64] = pa.Field(
+    amp_corrected_norm: Optional[pd.Float64Dtype] = pa.Field(
         coerce=False, in_range={"min_value": 0, "max_value": 1}
     )
-    amp_norm: Optional[np.float64] = pa.Field(
+    amp_norm: Optional[pd.Float64Dtype] = pa.Field(
         coerce=False, in_range={"min_value": 0, "max_value": 1}
     )
 
@@ -544,6 +461,7 @@ class OutInitialGuessBase(pa.DataFrameModel):
     class Config:
         name = "OutInitialGuessBase"
         strict = True
+        coerce = False
 
 
 class OutInitialGuessAssChrom(OutInitialGuessBase):
@@ -696,15 +614,17 @@ class OutWindowedSignalAssChrom(OutWindowedSignalBase):
         check_stats = _window_idx_basic_stats
 
 class OutParamsBase(pa.DataFrameModel):
-    window_idx: pd.Int64Dtype
-    peak_idx: pd.Int64Dtype
-    param: pd.CategoricalDtype
-    p0: pd.Float64Dtype
-    lb: pd.Float64Dtype
-    ub: pd.Float64Dtype
+    window_idx: pd.Int64Dtype = pa.Field()
+    peak_idx: pd.Int64Dtype = pa.Field()
+    param: pd.CategoricalDtype = pa.Field()
+    p0: pd.Float64Dtype = pa.Field(coerce=False)
+    lb: pd.Float64Dtype = pa.Field()
+    ub: pd.Float64Dtype = pa.Field()
     inbounds: bool
 
     class Config:
+        name="OutParamsBase"
+        ordered=True
         strict = True
 
 
@@ -811,6 +731,7 @@ class OutReconDFBase(pa.DataFrameModel):
     """
 
     peak_idx: pd.Int64Dtype = pa.Field()
+    time_idx: pd.Int64Dtype = pa.Field()
     time: np.float64 = pa.Field()
     unmixed_amp: np.float64 = pa.Field()
 

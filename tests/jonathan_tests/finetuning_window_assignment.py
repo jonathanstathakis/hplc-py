@@ -54,7 +54,7 @@ def overlay_windows(chm: Chromatogram,
     
 
     # a summary of the peak window regions
-    pwtable = chm._findwindows.window_df_pivot(window_df)
+    pwtable = chm._ms.window_df_pivot(window_df)
 
     set2 = mpl.colormaps["Set2"].resampled(pwtable.groupby("window_idx").ngroups)
     
@@ -92,7 +92,7 @@ def test_windowing(filepath: str):
     bcorr_outpath = os.path.join(os.getcwd(), "tests/jonathan_tests/bcorr_df.parquet")
     
     df = pd.read_csv(filepath).rename({'x':'time','y':'amp'},axis=1, errors='raise')
-    df = chm.load_data(df) #type: ignore
+    df = chm.set_signal_df(df) #type: ignore
     
     # amp_corrected, background = chm.baseline.correct_baseline(
     #     df.amp.to_numpy(np.float64),
@@ -103,7 +103,7 @@ def test_windowing(filepath: str):
     # df.to_parquet(bcorr_outpath)
     
     df = pd.read_parquet(bcorr_outpath)
-    signal_df, peak_df, window_df = chm._findwindows.profile_peaks_assign_windows(
+    signal_df, peak_df, window_df = chm._ms.profile_peaks_assign_windows(
         df.time.to_numpy(np.float64),
         df.amp_corrected.to_numpy(np.float64),
         chm._timestep.astype(npt.float64),
@@ -112,7 +112,7 @@ def test_windowing(filepath: str):
     for df in [signal_df, peak_df, window_df]:
         print(df.head().to_markdown())
     
-    pw_tbl = chm._findwindows.window_df_pivot(window_df)
+    pw_tbl = chm._ms.window_df_pivot(window_df)
     
     print(pw_tbl.to_markdown())
     
