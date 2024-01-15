@@ -179,7 +179,7 @@ def chm():
 def time(in_signal: pt.DataFrame[SignalDFInBase]):
     assert isinstance(in_signal, pd.DataFrame)
     assert isArrayLike(in_signal.time)
-    return in_signal.time.values
+    return in_signal.time.to_numpy(np.float64)
 
 
 @pytest.fixture
