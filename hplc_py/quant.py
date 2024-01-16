@@ -42,7 +42,7 @@ from hplc_py.fit_assessment import FitAssessment
 from hplc_py import show 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDF,
-    OutReconDFBase,
+    Recon,
     OutPeakReportBase,
 )
 
@@ -60,7 +60,7 @@ class Chromatogram(LoadData):
     # member class objects
     _baseline=CorrectBaseline()
     _ms=MapWindows()
-    _deconvolve=mydeconvolution.PPeakDeconvolver()
+    _deconvolve=mydeconvolution.PeakDeconvolver()
     _fitassess=FitAssessment()
     _show=show.Show()
     
@@ -86,7 +86,7 @@ class Chromatogram(LoadData):
         fwindows_kwargs: dict={},
         deconvolve_kwargs: dict={},
         verbose: bool=True,
-    )->tuple[pt.DataFrame[OutPeakReportBase], pt.DataFrame[OutReconDFBase]]:
+    )->tuple[pt.DataFrame[OutPeakReportBase], pt.DataFrame[Recon]]:
         '''
         Process master method
         '''
@@ -131,7 +131,7 @@ class Chromatogram(LoadData):
             timestep
         )
         
-        self.peak_report = self._deconvolve.compile_peak_report(
+        self.peak_report = self._deconvolve._get_peak_report(
             self.popt_df,
             self.unmixed_df,
             timestep,

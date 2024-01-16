@@ -3,21 +3,19 @@ import os
 
 import pytest
 import pandera as pa
-from pandera.typing import Series, DataFrame, Index
+from pandera.typing import Series, DataFrame
 import pandas as pd
 
 import numpy as np
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
-    SignalDF,
     SignalDFInAssChrom,
     OutPeakReportBase,
-    OutWindowDF_Base,
-    OutInitialGuessBase,
-    OutDefaultBoundsBase,
-    OutReconDFBase,
-    OutPoptDF_Base,
+    InitGuesses,
+    Bounds,
+    Recon,
+    Popt,
     OutParamsBase,
     isArrayLike,
     FloatArray,
@@ -25,7 +23,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 
 from hplc_py.quant import Chromatogram
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
-from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_peaks import MapPeaks
 from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper
 from hplc_py.misc.misc import TimeStep, LoadData
 import json
@@ -318,55 +316,6 @@ def dp():
     dp = DataPrepper()
     return dp
 
-
-@pytest.fixture
-@pa.check_types
-def p0_df(
-    dp: DataPrepper,
-    bcorred_signal_df: DataFrame,
-    peak_df: DataFrame[PeakMap],
-    window_df: DataFrame[OutWindowDF_Base],
-    timestep: np.float64,
-    int_col: str,
-) -> DataFrame[OutInitialGuessBase]:
-    p0_df = dp.p0_factory(
-        bcorred_signal_df,
-        peak_df,
-        window_df,
-        timestep,
-        int_col,
-    )
-    return p0_df
-
-
-@pytest.fixture
-@pa.check_types
-def default_bounds(
-    chm: Chromatogram,
-    p0_df: DataFrame[OutInitialGuessBase],
-    signal_df: DataFrame[SignalDF],
-    window_df: DataFrame[OutWindowDF_Base],
-    peak_df: DataFrame[PeakMap],
-    timestep: np.float64,
-) -> DataFrame[OutDefaultBoundsBase]:
-    default_bounds = chm._deconvolve.dataprepper.default_bounds_factory(
-        p0_df,
-        signal_df,
-        window_df,
-        peak_df,
-        timestep,
-    )
-    return default_bounds
-
-
-@pa.check_types
-def test_default_bounds_tbl_init(
-    default_bounds: DataFrame[OutDefaultBoundsBase],
-):
-    "use check_types to test the input tbl"
-    pass
-
-
 @pytest.fixture
 def int_col():
     return "amp_corrected"
@@ -383,7 +332,7 @@ def xdata(
 def unmixed_df(
     chm: Chromatogram,
     xdata: FloatArray,
-    stored_popt: DataFrame[OutPoptDF_Base],
+    stored_popt: DataFrame[Popt],
 ):
     unmixed_df = chm._deconvolve._reconstruct_peak_signal(xdata, stored_popt)
 
@@ -393,11 +342,11 @@ def unmixed_df(
 @pytest.fixture
 def peak_report(
     chm: Chromatogram,
-    stored_popt: DataFrame[OutPoptDF_Base],
-    unmixed_df: DataFrame[OutReconDFBase],
+    stored_popt: DataFrame[Popt],
+    unmixed_df: DataFrame[Recon],
     timestep: np.float64,
 ) -> OutPeakReportBase:
-    peak_report = chm._deconvolve.compile_peak_report(
+    peak_report = chm._deconvolve._get_peak_report(
         stored_popt,
         unmixed_df,
         timestep,
@@ -422,8 +371,8 @@ def windowed_signal_df(
 @pytest.fixture
 def my_param_df(
     chm: Chromatogram,
-    p0_df: DataFrame[OutInitialGuessBase],
-    default_bounds: DataFrame[OutDefaultBoundsBase],
+    p0_df: DataFrame[InitGuesses],
+    default_bounds: DataFrame[Bounds],
 ) -> DataFrame[OutParamsBase]:
     params = chm._deconvolve.dataprepper._param_df_factory(
         p0_df,

@@ -296,7 +296,7 @@ class OutWindowDF_AssChrom(OutWindowDF_Base):
         check_stats = _sw_idx_basic_stats
 
 
-class OutInitialGuessBase(pa.DataFrameModel):
+class InitGuesses(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -312,7 +312,7 @@ class OutInitialGuessBase(pa.DataFrameModel):
         coerce = False
 
 
-class OutInitialGuessAssChrom(OutInitialGuessBase):
+class OutInitialGuessAssChrom(InitGuesses):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -362,7 +362,7 @@ class OutInitialGuessAssChrom(OutInitialGuessBase):
         check_stats = _p0_basic_stats
 
 
-class OutDefaultBoundsBase(pa.DataFrameModel):
+class Bounds(pa.DataFrameModel):
     window_idx: pd.Int64Dtype
     peak_idx: pd.Int64Dtype
     param: pd.CategoricalDtype
@@ -370,24 +370,7 @@ class OutDefaultBoundsBase(pa.DataFrameModel):
     ub: pd.Float64Dtype = pa.Field(nullable=False)
 
 
-class OutDefaultBoundsManyPeaks(OutDefaultBoundsBase):
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1])
-    peak_idx: pd.Int64Dtype = pa.Field(isin=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-    param: pd.CategoricalDtype = pa.Field(isin=["amp", "loc", "whh", "skew"])
-    lb: pd.Float64Dtype = pa.Field(
-        isin=[
-            636.0,
-            -np.inf,
-            0.009999999999999998,
-            3.9894525384046213,
-            3.9894376712094743,
-        ]
-    )
-    ub: pd.Float64Dtype = pa.Field(
-        isin=[5868.0, np.inf, 2616.0, 398.9452538404621, 398.9437671209474]
-    )
-
-class OutDefaultBoundsAssChrom(pa.DataFrameModel):
+class BoundsAssChrom(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -403,30 +386,8 @@ class OutDefaultBoundsAssChrom(pa.DataFrameModel):
         name="OutDefaultBoundsAssChrom"
         strict=True
 
-class OutWindowedSignalBase(pa.DataFrameModel):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
 
-    time_idx: np.int64 = pa.Field()
-    time: np.float64 = pa.Field()
-    amp_raw: np.float64 = pa.Field()
-    amp_corrected: np.float64 = pa.Field()
-    amp_bg: np.float64 = pa.Field()
-    sw_idx: pd.Int64Dtype = pa.Field()
-    window_type: pd.StringDtype = pa.Field()
-    window_idx: pd.Int64Dtype = pa.Field()
-
-    class Config:
-
-        name="OutWindowedSignalBase"
-        strict=True
-
-class OutWindowedSignalManyPeaks(OutSignalDF_ManyPeaks):
-    window_idx: pd.Int64Dtype = pa.Field(isin=[1])
-
-
-class OutWindowedSignalAssChrom(OutWindowedSignalBase):
+class WindowedSignalAssChrom(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -528,7 +489,7 @@ class OutParamsAssChrom(OutParamsBase):
         strict=True
 
 
-class OutPoptDF_Base(pa.DataFrameModel):
+class Popt(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -545,7 +506,7 @@ class OutPoptDF_Base(pa.DataFrameModel):
         name = "OutPoptDF_Base"
         strict = True
 
-class OutPoptDF_AssChrom(OutPoptDF_Base):
+class OutPoptDF_AssChrom(Popt):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -573,7 +534,7 @@ def isArrayLike(x: Any):
         return True
 
 
-class OutReconDFBase(pa.DataFrameModel):
+class Recon(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -588,7 +549,7 @@ class OutReconDFBase(pa.DataFrameModel):
         strict = True
 
 
-class OutReconDF_AssChrom(OutReconDFBase):
+class OutReconDF_AssChrom(Recon):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -610,7 +571,7 @@ class OutReconDF_AssChrom(OutReconDFBase):
         check_stats = _time_basic_stats
         check_stats = _unmixed_amp_basic_stats
         
-class OutPeakReportBase(OutPoptDF_Base):
+class OutPeakReportBase(Popt):
     tbl_name: pd.StringDtype = pa.Field(eq="peak_report")
     retention_time: pd.Float64Dtype
     unmixed_area: pd.Float64Dtype

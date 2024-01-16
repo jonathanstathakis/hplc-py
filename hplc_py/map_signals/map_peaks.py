@@ -28,6 +28,7 @@ class FindPeaksKwargs(TypedDict, total=False):
     plateau_size: Optional[float | ArrayLike]
 
 class FindPeaks(BaseDF):
+    p_idx: pd.Int64Dtype
     time_idx: pd.Int64Dtype
     time: pd.Float64Dtype
     amp: pd.Float64Dtype
@@ -36,6 +37,7 @@ class FindPeaks(BaseDF):
     prom_right: pd.Int64Dtype    
 
 class WHH(BaseDF):
+    p_idx: pd.Int64Dtype
     whh_rel_height: pd.Float64Dtype
     whh_width: pd.Float64Dtype
     whh_height: pd.Float64Dtype
@@ -43,6 +45,7 @@ class WHH(BaseDF):
     whh_right: pd.Float64Dtype
 
 class PeakBases(BaseDF):
+    p_idx: pd.Int64Dtype
     pb_rel_height: pd.Float64Dtype
     pb_width: pd.Float64Dtype
     pb_height: pd.Float64Dtype
@@ -376,6 +379,8 @@ class MapPeakPlots(DFrameChecks):
 
 @dataclass
 class MapPeaksMixin:
+    _idx_name: Literal["idx"] = "idx"
+    _pidx_col: Literal["p_idx"] = "p_idx"
     _ptime_col: Literal["time"] = "time"
     _ptime_idx_col: Literal["time_idx"] = "time_idx"
     _pmaxima_col: Literal["amp"] = "amp"
@@ -424,8 +429,8 @@ class MapPeaksMixin:
                 self._pmaxima_col: amp[peak_idx],
                 **_dict,
             }
-        ).reset_index(drop=True).rename_axis(index='idx')
-
+        ).reset_index(drop=True).reset_index(names=self._pidx_col).rename_axis(index=self._idx_name)
+        
         fp_ = fp_.rename(
             {
                 "prominences": self._prom_col,
@@ -434,8 +439,10 @@ class MapPeaksMixin:
             },
             axis=1,
         )
+        
         fp_ = fp_.astype(
             {
+                self._pidx_col: pd.Int64Dtype(),
                 self._ptime_col: pd.Float64Dtype(),
                 self._ptime_idx_col: pd.Int64Dtype(),
                 self._pmaxima_col: pd.Float64Dtype(),
@@ -503,16 +510,16 @@ class MapPeaksMixin:
             wlen,
         )
 
-        df = pd.DataFrame().rename_axis(index='idx')
+        wdf_: pd.DataFrame = pd.DataFrame().rename_axis(index='idx')
 
-        df[rel_h_key] = [rel_height] * len(time_idx)
+        wdf_[rel_h_key] = [rel_height] * len(time_idx)
 
-        df[w_key] = w
-        df[h_key] = h
-        df[h_left_key] = left_ips
-        df[h_right_key] = right_ips
+        wdf_[w_key] = w
+        wdf_[h_key] = h
+        wdf_[h_left_key] = left_ips
+        wdf_[h_right_key] = right_ips
 
-        df = df.astype(
+        wdf_: pd.DataFrame = wdf_.astype(
             {
                 rel_h_key: pd.Float64Dtype(),
                 w_key: pd.Float64Dtype(),
@@ -521,8 +528,12 @@ class MapPeaksMixin:
                 h_right_key: pd.Float64Dtype(),
             }
         )
+        
+        wdf_: pd.DataFrame = wdf_.reset_index(names=self._pidx_col).rename_axis(index=self._idx_name)
+        
+        wdf: pd.DataFrame = wdf_
 
-        return df
+        return wdf
 
     @pa.check_types
     def _set_peak_map(
@@ -531,11 +542,12 @@ class MapPeaksMixin:
         whh: DataFrame[WHH],
         pb: DataFrame[PeakBases],
     ) -> DataFrame[PeakMap]:
+        
         pm_ = pd.concat(
             [
                 fp,
-                whh,
-                pb,
+                whh.drop([self._pidx_col], axis=1),
+                pb.drop([self._pidx_col], axis=1),
             ],
             axis=1,
         )

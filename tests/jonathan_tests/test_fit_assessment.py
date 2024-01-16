@@ -29,7 +29,7 @@ import numpy as np
 import numpy.typing as npt
 
 from hplc_py.hplc_py_typing.hplc_py_typing import *
-from hplc_py.hplc_py_typing.hplc_py_typing import OutReconDFBase
+from hplc_py.hplc_py_typing.hplc_py_typing import Recon
 
 from hplc_py.quant import Chromatogram
 from .test_jonathan import AssChromResults
@@ -239,7 +239,7 @@ class TestScores:
     @pytest.fixture
     def score_df(
         self,
-        unmixed_df: DataFrame[OutReconDFBase],
+        unmixed_df: DataFrame[Recon],
         signal_df: DataFrame,
         window_df: DataFrame[Any],
         chm: Chromatogram,

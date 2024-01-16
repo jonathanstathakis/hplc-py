@@ -57,6 +57,7 @@ class TestMapPeaksFix:
         mpm: MapPeaksMixin,
         wlen: None,
     ) -> DataFrame[FindPeaks]:
+        
         fp = mpm._set_fp_df(
             amp_bcorr,
             time,
@@ -104,13 +105,15 @@ class TestMapPeaksFix:
         fp: DataFrame[FindPeaks],
         pb_rel_height: float,
     ) -> DataFrame[PeakBases]:
-        pb = DataFrame[PeakBases](mpm.width_df_factory(
+        
+        pb_ = mpm.width_df_factory(
             amp_bcorr,
             fp,
             pb_rel_height,
             None,
             'pb'
-        ))
+        )
+        pb = DataFrame[PeakBases](pb_)
 
         return pb
 
@@ -123,6 +126,7 @@ class TestMapPeaksFix:
         whh: DataFrame[WHH],
         pb: DataFrame[PeakBases],
     ) -> DataFrame[PeakMap]:
+        
         pm = mpm._set_peak_map(
             fp,
             whh,
@@ -153,9 +157,8 @@ class TestMapPeaksMixin(TestMapPeaksFix):
         try:
             FindPeaks.validate(fp, lazy=True)
         except pa.errors.SchemaError as e:
-            err_data = e.data
-            err_fc = e.failure_cases
-        
+            e.add_note(f"\n{e.data}")
+            e.add_note(f"\n{e.failure_cases}")
             
 
     def test_set_whh(

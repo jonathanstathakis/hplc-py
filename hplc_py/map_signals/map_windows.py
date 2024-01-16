@@ -19,7 +19,7 @@ from typing import Type
 
 from hplc_py import AMPRAW, AMPCORR
 
-class WindowedSignalDF(BaseDF):
+class WindowedSignal(BaseDF):
     window_type: pd.StringDtype
     window_idx: pd.Int64Dtype
     time_idx: pd.Int64Dtype
@@ -82,7 +82,7 @@ class MapWindowsMixin:
     ipb_sc = IPBounds
     pwdt_sc = PWdwdTime
     wt_sc = WindowedTime
-    ws_sc = WindowedSignalDF
+    ws_sc = WindowedSignal
 
     """
     - create the intervals
@@ -335,7 +335,7 @@ class MapWindowsMixin:
         self,
         amp: Series[pd.Float64Dtype],
         wt: DataFrame[WindowedTime],
-    ) -> DataFrame[WindowedSignalDF]:
+    ) -> DataFrame[WindowedSignal]:
         
         ws = wt.copy(deep=True)
         
@@ -344,7 +344,7 @@ class MapWindowsMixin:
         ws = ws.set_index(['window_type','window_idx','time_idx','time',]).reset_index().rename_axis(index='idx')
         
         try:
-            ws = DataFrame[WindowedSignalDF](ws)
+            ws = DataFrame[WindowedSignal](ws)
         except pa.errors.SchemaError as e:
             e.add_note(str(ws))
             raise e
@@ -380,7 +380,7 @@ from hplc_py.map_signals.map_peaks import MapPeakPlots
 
 @dataclass
 class MapWindowPlots(MapPeakPlots):
-    ws_sch: Type[WindowedSignalDF] = WindowedSignalDF
+    ws_sch: Type[WindowedSignal] = WindowedSignal
 
     def __post_init__(self):
         super().__init__()
@@ -401,7 +401,7 @@ class MapWindowPlots(MapPeakPlots):
     
     def plot_windows(
         self,
-        ws: DataFrame[WindowedSignalDF],
+        ws: DataFrame[WindowedSignal],
         height: float,
         ax: Axes = None,
         rectangle_kwargs: dict={},
@@ -465,7 +465,7 @@ class MapWindows(MapWindowsMixin):
         right_bases: Series[pd.Float64Dtype],
         time: Series[pd.Float64Dtype],
         amp: Series[pd.Float64Dtype],
-    ) -> DataFrame[WindowedSignalDF]:
+    ) -> DataFrame[WindowedSignal]:
 
         wt = self._map_windows(
             left_bases,

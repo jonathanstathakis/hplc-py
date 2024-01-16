@@ -15,7 +15,7 @@ from hplc_py.map_signals.map_windows import (
     MapWindowsMixin,
     PeakWindows,
     PWdwdTime,
-    WindowedSignalDF,
+    WindowedSignal,
     WindowedTime,
 )
 
@@ -171,7 +171,7 @@ class TestMapWindowsFix:
         amp_bcorr: Series[pd.Float64Dtype],
         left_bases: Series[pd.Float64Dtype],
         right_bases: Series[pd.Float64Dtype],
-    )->DataFrame[WindowedSignalDF]:
+    )->DataFrame[WindowedSignal]:
         
         ws = mw.window_signal(
             left_bases,
@@ -240,17 +240,17 @@ class TestMapWindows(TestMapWindowsFix):
         
     def test_map_windows(
         self,
-        wt: DataFrame[WindowedSignalDF],
+        wt: DataFrame[WindowedSignal],
     )->None:
         
         WindowedTime(wt, lazy=True)
         
     def test_ws(
         self,
-        ws: DataFrame[WindowedSignalDF],
+        ws: DataFrame[WindowedSignal],
     )->None:
         
-        WindowedSignalDF(ws)
+        WindowedSignal(ws)
         
 class TestMapWindowPlots(TestMapWindowsFix):
     @pytest.fixture
@@ -264,7 +264,7 @@ class TestMapWindowPlots(TestMapWindowsFix):
         self,
         mp: MapPeaks,
         mwp: MapWindowPlots,
-        ws: DataFrame[WindowedSignalDF],
+        ws: DataFrame[WindowedSignal],
         pm: DataFrame[PeakMap],
     )->None:
         mp._plot_signal_factory(ws, mp._ptime_col, 'amp')
