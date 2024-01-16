@@ -1,26 +1,21 @@
-import numpy as np
+import warnings
+from dataclasses import dataclass, field
+from typing import TypedDict, cast
 
+import numpy as np
 import pandas as pd
 import pandera as pa
-import pandera.typing as pt
-from pandera.typing import Series, DataFrame
 import tqdm
-import warnings
-import copy
-from typing import Any, cast
-from hplc_py.hplc_py_typing.hplc_py_typing import FloatArray, IntArray
-import numpy.typing as npt
+from pandera.typing import DataFrame
 
-import matplotlib.pyplot as plt
+from hplc_py.hplc_py_typing.hplc_py_typing import FloatArray
+from hplc_py.misc.misc import LoadData, TimeStep
 
-from dataclasses import dataclass, field
-
-from typing import TypedDict
-from hplc_py.misc.misc import TimeStep, LoadData
 
 class BlineKwargs(TypedDict, total=False):
-        windowsize: int
-        verbose: bool
+    windowsize: int
+    verbose: bool
+
 
 class SignalDFBCorr(pa.DataFrameModel):
     time_idx: pd.Int64Dtype
@@ -28,14 +23,13 @@ class SignalDFBCorr(pa.DataFrameModel):
     amp_raw: pd.Float64Dtype
     amp_corrected: pd.Float64Dtype
     background: pd.Float64Dtype
-    
+
     class Config:
-        strict=True
-    
+        strict = True
+
 
 @dataclass
 class CorrectBaseline(TimeStep, LoadData):
-    
     _bg_corrected = False
     _int_corr_col_suffix = "_corrected"
     _windowsize = (None,)
@@ -44,7 +38,7 @@ class CorrectBaseline(TimeStep, LoadData):
     _background_col = "background"
     _bg_correction_progress_state = None
     _debug_bcorr_df: pd.DataFrame = field(default_factory=pd.DataFrame)
-    
+
     def correct_baseline(
         self,
         windowsize: int = 5,
@@ -56,25 +50,27 @@ class CorrectBaseline(TimeStep, LoadData):
         """
         if not any(cast(pd.DataFrame, self._signal_df)):
             raise RuntimeError("Run `set_signal_df` first")
-        
+
         if not self._timestep:
             self.set_timestep(self._signal_df[self.time_col])
-        
+
         if not isinstance(self._signal_df, pd.DataFrame):
-            raise TypeError(f"signal_df must be pd.DataFrame, got {type(self._signal_df)}")
-        
+            raise TypeError(
+                f"signal_df must be pd.DataFrame, got {type(self._signal_df)}"
+            )
+
         if not isinstance(self.amp_col, str):
-            raise TypeError(f"amp_col must be a string")
-        if not self.amp_col in self._signal_df.columns:
+            raise TypeError("amp_col must be a string")
+        if self.amp_col not in self._signal_df.columns:
             raise ValueError(f"amp_col: {self.amp_col} not in signal_df")
-        
+
         timestep = np.float64(self._timestep)
-        
+
         if not isinstance(windowsize, int):
             raise TypeError("windowsize must be int")
-        
+
         shift = np.float64(0)
-        
+
         self._verbose = verbose
         self._precision = precision
 
@@ -82,9 +78,9 @@ class CorrectBaseline(TimeStep, LoadData):
             warnings.warn(
                 "Baseline has already been corrected. Rerunning on original signal..."
             )
-        
+
         # extract the amplitude series
-        amp_raw = self._signal_df.loc[:,self.amp_col].to_numpy(np.float64)
+        amp_raw = self._signal_df.loc[:, self.amp_col].to_numpy(np.float64)
 
         # enforce array datatype
         amp_raw = np.asarray(amp_raw, np.float64)
@@ -92,16 +88,15 @@ class CorrectBaseline(TimeStep, LoadData):
         if amp_raw.ndim != 1:
             raise ValueError("amp has too many dimensions, please enter a 1D array")
 
-
         amp_clipped = self.shift_and_clip_amp(amp_raw)
 
         # compute the LLS operator to reduce signal dynamic range
         s_compressed = self.compute_compressed_signal(amp_clipped)
 
         # calculate the number of iterations for the minimization
-        
+
         n_iter = self.compute_n_iter(windowsize, timestep)
-        
+
         # iteratively filter the compressed signal
         s_compressed_prime = self.compute_s_compressed_minimum(
             s_compressed, n_iter, verbose
@@ -111,37 +106,36 @@ class CorrectBaseline(TimeStep, LoadData):
 
         inv_tform = self.compute_inv_tform(s_compressed_prime)
 
-        amp_bcorr = self.transform_and_subtract(
-            amp_raw, inv_tform, shift
-        )
+        amp_bcorr = self.transform_and_subtract(amp_raw, inv_tform, shift)
 
         background = self.compute_background(inv_tform, shift)
 
         self._bg_corrected = True
-        
-        len_debug_bcorr_df=len(amp_raw)
-        
-        self._debug_bcorr_df=pd.DataFrame(
+
+        len_debug_bcorr_df = len(amp_raw)
+
+        self._debug_bcorr_df = pd.DataFrame(
             {
-                'amp_raw':pd.Series(amp_raw),
-                'timestep':pd.Series([timestep]*len_debug_bcorr_df),
-                'shift':pd.Series([shift]*len_debug_bcorr_df),
-                'n_iter':pd.Series([n_iter]*len_debug_bcorr_df),
-                's_compressed':pd.Series(s_compressed),
-                's_compressed_prime':pd.Series(s_compressed_prime),
-                'inv_tform':pd.Series(inv_tform),
-                'y_corrected':pd.Series(amp_bcorr),
-                'background':pd.Series(background),
-        })
-        
+                "amp_raw": pd.Series(amp_raw),
+                "timestep": pd.Series([timestep] * len_debug_bcorr_df),
+                "shift": pd.Series([shift] * len_debug_bcorr_df),
+                "n_iter": pd.Series([n_iter] * len_debug_bcorr_df),
+                "s_compressed": pd.Series(s_compressed),
+                "s_compressed_prime": pd.Series(s_compressed_prime),
+                "inv_tform": pd.Series(inv_tform),
+                "y_corrected": pd.Series(amp_bcorr),
+                "background": pd.Series(background),
+            }
+        )
+
         self.amp_col = self.amp_col.replace("raw", "corrected")
-        
-        self._signal_df[self.amp_col]=pd.Series(amp_bcorr, dtype=pd.Float64Dtype())
-        
-        self._signal_df['background']=pd.Series(background, dtype=pd.Float64Dtype())
-        
+
+        self._signal_df[self.amp_col] = pd.Series(amp_bcorr, dtype=pd.Float64Dtype())
+
+        self._signal_df["background"] = pd.Series(background, dtype=pd.Float64Dtype())
+
         return self._signal_df
-    
+
     def shift_and_clip_amp(
         self,
         amp: FloatArray,
@@ -155,24 +149,18 @@ class CorrectBaseline(TimeStep, LoadData):
             shift = self.compute_shift(amp)
         else:
             shift = 0
-            
+
         amp_shifted = amp - shift
-        
+
         heaviside_sf = np.heaviside(amp_shifted, 0)
-        
+
         amp_clipped = amp_shifted * heaviside_sf
         return amp_clipped
-    
-    def compute_n_iter(
-        self,
-        window_size,
-        timestep
-    ):
+
+    def compute_n_iter(self, window_size, timestep):
         return int(((window_size / timestep) - 1) / 2)
-    
-    def compute_compressed_signal(
-        self, signal: FloatArray
-    ) -> FloatArray:
+
+    def compute_compressed_signal(self, signal: FloatArray) -> FloatArray:
         """
         return a compressed signal using the LLS operator.
         """
@@ -180,9 +168,7 @@ class CorrectBaseline(TimeStep, LoadData):
 
         return tform.astype(np.float64)
 
-    def compute_inv_tform(
-        self, tform: FloatArray
-    ) -> FloatArray:
+    def compute_inv_tform(self, tform: FloatArray) -> FloatArray:
         # invert the transformer
         inv_tform = (np.exp(np.exp(tform) - 1) - 1) ** 2 - 1
         return inv_tform.astype(np.float64)
@@ -193,8 +179,7 @@ class CorrectBaseline(TimeStep, LoadData):
         inv_tform: FloatArray,
         shift: np.float64,
     ) -> FloatArray:
-        
-        transformed_signal = signal - inv_tform# - shift
+        transformed_signal = signal - inv_tform  # - shift
 
         return transformed_signal.astype(np.float64)
 
@@ -249,7 +234,6 @@ class CorrectBaseline(TimeStep, LoadData):
         # set loading bar if verbose is True
 
         # Compute the number of iterations given the window size.
-    
 
         _s_compressed = np.asarray(s_compressed, dtype=np.float64)
 
@@ -272,8 +256,9 @@ class CorrectBaseline(TimeStep, LoadData):
             for j in range(i, len(_s_compressed) - i):
                 s_compressed_prime[j] = min(
                     s_compressed_prime[j],
-                    0.5 * (s_compressed_prime[j + i] + s_compressed_prime[j - i]))
-                
+                    0.5 * (s_compressed_prime[j + i] + s_compressed_prime[j - i]),
+                )
+
             _s_compressed = s_compressed_prime
 
         return _s_compressed

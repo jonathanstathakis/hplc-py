@@ -6,7 +6,7 @@ import pandas as pd
 import pandera as pa
 from pandera.typing import Series
 
-from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFInBase, OutSignalDF_Base
+from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFInBase, SignalDF
 
 @dataclass
 class DataMixin:
@@ -72,7 +72,7 @@ class LoadData:
         
         self._signal_df = signal_df
         
-        return pt.DataFrame[OutSignalDF_Base](self._signal_df)
+        return pt.DataFrame[SignalDF](self._signal_df)
     
 
 @dataclass

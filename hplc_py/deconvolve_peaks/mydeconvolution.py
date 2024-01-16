@@ -15,13 +15,13 @@ from scipy.optimize._lsq.common import in_bounds
 import warnings
 import tqdm
 
-from hplc_py.map_signals.map_signals import PeakMap
+from hplc_py.map_signals.map_peaks import PeakMap
 
 from hplc_py.skewnorms import skewnorms
 from hplc_py.deconvolve_peaks import windowstate
 from hplc_py.skewnorms.skewnorms import SkewNorms
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    OutSignalDF_Base,
+    SignalDF,
     OutWindowDF_Base,
     OutInitialGuessBase,
     OutDefaultBoundsBase,
@@ -68,7 +68,7 @@ class DataPrepper:
     @pa.check_types
     def p0_factory(
         self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
         timestep: np.float64,
@@ -177,7 +177,7 @@ class DataPrepper:
     def default_bounds_factory(
         self,
         p0_df: pt.DataFrame[OutInitialGuessBase],
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         window_df: pt.DataFrame[OutWindowDF_Base],
         peak_df: pt.DataFrame[PeakMap],
         timestep: np.float64,
@@ -287,7 +287,7 @@ class DataPrepper:
 
     def get_loc_bounds(
         self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ):
@@ -382,7 +382,7 @@ class DataPrepper:
 
     def _window_signal_df(
         self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ) -> pt.DataFrame[OutWindowedSignalBase]:
         """
@@ -497,7 +497,7 @@ class PPeakDeconvolver(SkewNorms):
     @pa.check_types
     def deconvolve_peaks(
         self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
         timestep: np.float64,
@@ -739,7 +739,7 @@ class PPeakDeconvolver(SkewNorms):
         self,
         p0,
         default_bounds,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ) -> pd.DataFrame:
         windowed_signal_df = self._window_signal_df(

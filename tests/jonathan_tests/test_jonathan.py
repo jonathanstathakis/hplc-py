@@ -4,82 +4,52 @@ Best Practices:
     - Define stateless method classes which provide methods for a master state storage class.
 
 """
-import hplc
-from typing import Any, Literal, cast, Optional
-from matplotlib.figure import Figure
-from pandas.core.arrays.base import ExtensionArray
-from pandera.typing.pandas import DataFrame, Series
-import pytest
-import typing
+from typing import Any, Literal, cast
 
+import hplc 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pandera as pa
 import pandera.typing as pt
-
-import numpy as np
+import pytest
+from matplotlib.figure import Figure
 from numpy import float64, floating
-import numpy.typing as npt
 from numpy.typing import NDArray
-
-import matplotlib.pyplot as plt
-
-
-import matplotlib as mpl
-
+from pandera.typing.pandas import DataFrame, Series
 from scipy import integrate  # type: ignore
 
+from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
+from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper
+from hplc_py.hplc_py_typing.hplc_py_typing import (
+    FloatArray,
+    OutDefaultBoundsAssChrom,
+    OutDefaultBoundsBase,
+    OutInitialGuessAssChrom,
+    OutInitialGuessBase,
+    OutParamsAssChrom,
+    OutParamsBase,
+    OutPeakReportAssChrom,
+    OutPeakReportBase,
+    OutPoptDF_AssChrom,
+    OutPoptDF_Base,
+    OutReconDF_AssChrom,
+    OutReconDFBase,
+    OutWindowDF_Base,
+    OutWindowedSignalAssChrom,
+    OutWindowedSignalBase,
+    SignalDF,
+    SignalDFInBase,
+    schema_tests,
+)
+from hplc_py.hplc_py_typing.interpret_model import interpret_model
 
-import copy
-
+from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_windows import  MapWindows, MapWindowPlots, PeakWindows, PWdwdTime, WindowedSignalDF, WindowedTime
 
 from hplc_py.quant import Chromatogram
 
-from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PPeakDeconvolver
-from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
-from hplc_py.map_signals.map_signals import (
-    MapPeaks,
-    WHH,
-    PeakBases,
-    MapPeakPlots,
-    MapPeaksMixin,
-    MapWindows,
-    FindPeaks,
-    PeakMap,
-    PeakWindows,
-    PWdwdTime,
-    IPBounds,
-    WindowedTime,
-    WindowedSignalDF
-)
-
-
 from .conftest import AssChromResults
-
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    SignalDFInBase,
-    OutSignalDF_Base,
-    OutWindowDF_Base,
-    OutWindowDF_AssChrom,
-    OutInitialGuessBase,
-    OutInitialGuessAssChrom,
-    OutDefaultBoundsBase,
-    OutDefaultBoundsAssChrom,
-    OutWindowedSignalBase,
-    OutWindowedSignalAssChrom,
-    OutParamsBase,
-    OutParamsAssChrom,
-    OutPoptDF_Base,
-    OutPoptDF_AssChrom,
-    OutReconDFBase,
-    OutReconDF_AssChrom,
-    OutPeakReportBase,
-    OutPeakReportAssChrom,
-    interpret_model,
-    schema_tests,
-    FloatArray,
-    IntArray,
-)
-
 
 OutPeakDFAssChrom = PeakMap
 
@@ -124,7 +94,7 @@ class TestInterpretModel:
         sample_df: DataFrame,
     ):
         check_dict = {col: "eq" for col in sample_df.columns}
-        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict)
+        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict=check_dict)
 
         return schema_def_str
 
@@ -134,7 +104,7 @@ class TestInterpretModel:
         sample_df: DataFrame,
     ):
         check_dict = {col: "isin" for col in sample_df.columns}
-        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict)
+        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict=check_dict)
 
         return schema_def_str
 
@@ -157,7 +127,7 @@ class TestInterpretModel:
         )
 
         check_dict = dict(**numeric_col_check_dict, **non_numeric_col_check_dict)
-        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict)
+        schema_def_str = interpret_model(sample_df, "InSampleDF", "", check_dict=check_dict)
 
         return schema_def_str
 
@@ -287,15 +257,10 @@ class TestTimeStep:
 class TestLoadData:
     def test_loaded_signal_df(
         self,
-        loaded_signal_df: DataFrame[OutSignalDF_Base],
+        loaded_signal_df: DataFrame[SignalDF],
     ):
-        loaded_signal_df = cast(pd.DataFrame, loaded_signal_df)
 
-        if not isinstance(loaded_signal_df, pd.DataFrame):
-            raise TypeError("loaded_signal_df expected to be castable to pd.DataFrame")
-
-        if loaded_signal_df.empty:
-            raise ValueError("loaded_signal_df is expected to be populated")
+        SignalDF(loaded_signal_df, lazy=True)
 
 
 @pytest.mark.skip
@@ -307,59 +272,6 @@ class TestTimeWindows:
     @pytest.fixture
     def invalid_time_window(self):
         return [[15, 5]]
-
-    @pytest.mark.skip
-    def test_crop_valid_time_windows(
-        self,
-        chm: Chromatogram,
-        in_signal: pt.DataFrame[SignalDFInBase],
-        valid_time_windows: list[list[int]],
-    ):
-        """
-        test `crop()` by applying a series of valid time windows then testing whether all values within the time column fall within that defined range.
-        """
-
-        for window in valid_time_windows:
-            assert len(window) == 2
-
-            # copy to avoid any leakage across instances
-
-            in_signal = chm.crop(in_signal, time_window=window)
-
-            leq_mask = in_signal.time >= window[0]
-            geq_mask = in_signal.time <= window[1]
-
-            assert (leq_mask).all(), f"{in_signal[leq_mask].index}"
-            assert (geq_mask).all(), f"{in_signal[geq_mask].index}"
-
-        return None
-
-    @pytest.mark.skip
-    def test_crop_invalid_time_window(
-        self,
-        chm: Chromatogram,
-        in_signal: pt.DataFrame[SignalDFInBase],
-        invalid_time_window: list[list[int]],
-    ):
-        for window in invalid_time_window:
-            try:
-                chm.crop(in_signal, window)
-
-            except RuntimeError as e:
-                continue
-
-
-"""
-TODO:
-
-add comprehensive tests for `load_data`
-"""
-
-"""
-2023-11-27 06:26:22
-
-test `correct_baseline`
-"""
 
 
 class TestCorrectBaseline:
@@ -530,7 +442,7 @@ class TestCorrectBaseline:
         scale = x_end * 0.3
         skewnorm = stats.skewnorm(skew, loc=loc, scale=scale)
 
-        y = skewnorm.pdf(x) * np.max(amp_raw) ** 2
+        y = skewnorm.pdf(x) * np.power(np.max(amp_raw), 2) #type: ignore
 
         added_baseline = amp_raw + y
 
@@ -585,749 +497,6 @@ class TestCorrectBaseline:
 
         return None
 
-
-class TestMapPeaksFix:
-    
-    @pytest.fixture
-    def mpm(
-        self,
-    ) -> MapPeaksMixin:
-        mpm = MapPeaksMixin()
-
-        return mpm
-    
-    @pytest.fixture
-    def mp(
-        self,
-    )->MapPeaks:
-        mp = MapPeaks()
-        return mp
-
-    @pytest.fixture
-    def prom(self) -> float:
-        return 0.01
-
-    @pytest.fixture
-    def wlen(self) -> None:
-        return None
-
-    @pytest.fixture
-    def fp_df(
-        self,
-        amp_bcorr: FloatArray,
-        time: FloatArray,
-        prom: float,
-        mpm: MapPeaksMixin,
-        wlen: None,
-    ) -> DataFrame[FindPeaks]:
-        fp = mpm._set_fp_df(
-            amp_bcorr,
-            time,
-            prom,
-            wlen,
-        )
-
-        return fp
-
-    @pytest.fixture
-    def whh_rel_height(
-        self,
-    ) -> float:
-        return 0.5
-
-    @pytest.fixture
-    def whh(
-        self,
-        mpm: MapPeaksMixin,
-        amp_bcorr: FloatArray,
-        fp_df: IntArray,
-        whh_rel_height: float,
-    ) -> DataFrame[WHH]:
-        whh = mpm._set_whh_df(
-            amp_bcorr,
-            fp_df,
-            whh_rel_height,
-        )
-
-        return whh
-
-    @pytest.fixture
-    def pb(
-        self,
-        mpm: MapPeaksMixin,
-        amp_bcorr: FloatArray,
-        fp_df: IntArray,
-    ):
-        pb = mpm._set_pb_df(
-            amp_bcorr,
-            fp_df,
-        )
-        return pb
-
-    @pytest.fixture
-    def pm(
-        self,
-        mpm: MapPeaksMixin,
-        fp_df: DataFrame[FindPeaks],
-        whh: DataFrame[WHH],
-        pb: DataFrame[PeakBases],
-    ) -> DataFrame[PeakMap]:
-        pm = mpm._set_peak_map(
-            fp_df,
-            whh,
-            pb,
-        )
-        return pm
-
-    @pytest.fixture
-    def mpp(
-        self,
-    ):
-        mpp = MapPeakPlots()
-        return mpp
-
-    @pytest.fixture
-    def peak_amp_colname(self) -> Literal["amp"]:
-        return "amp"
-
-
-class TestMapPeaksMixin(TestMapPeaksFix):
-    """
-    Before you get too carried away. To test you need to test the individual units - which should not have 'self' at the base level, and test the top level as well. Frankly the low level should be in their own classes without stored data, and only the top level should have stored data - the shinanigans you've been pulling for the last 12 hours may have been fun but ultimately they are bad practice, and a waste of time. Now to undo everything..
-
-    2 classes - top level and low level.
-
-    top level contains state storage, low level contains methods. MapPeaks, MapPeaksMixin, MapPeaksPlot Mixin, DataMixin
-
-
-    """
-    def test_set_fp_df(
-        self,
-        fp_df: DataFrame[FindPeaks],
-    ):
-        FindPeaks(fp_df)
-
-    def test_set_whh(
-        self,
-        whh: DataFrame[WHH],
-    ) -> None:
-        WHH(whh)
-        
-    def test_set_pb(
-        self,
-        pb: DataFrame[PeakBases],
-    ) -> None:
-        PeakBases(pb)
-        
-    def test_set_peak_map(
-        self,
-        pm: DataFrame[PeakMap],
-    ) -> None:
-        PeakMap(pm)
-        
-class TestMapPeaks(TestMapPeaksFix):
-    def test_map_peaks(
-        self,
-        mp: MapPeaks,
-        amp_bcorr: FloatArray,
-        time: FloatArray,
-    )->None:
-        
-        mp = mp.map_peaks(amp_bcorr, time)
-        
-        
-class TestMapPeakPlots(TestMapPeaksFix):
-    def test_signal_plot(
-        self,
-        mpp: MapPeakPlots,
-        bcorred_signal_df: DataFrame[SignalDFBCorr],
-        time_colname: Literal["time"],
-        bcorr_colname: Literal["amp_corrected"],
-        mp,
-    ) -> None:
-        mpp._plot_signal_factory(bcorred_signal_df, time_colname, bcorr_colname)
-        plt.show()
-
-    def test_plot_peaks(
-        self,
-        mpp: MapPeakPlots,
-        mpm: MapPeaksMixin,
-        bcorred_signal_df: DataFrame[SignalDFBCorr],
-        pm: DataFrame[PeakMap],
-        time_colname: Literal["time"],
-        bcorr_colname: Literal["amp_corrected"],
-    ) -> None:
-        
-        PeakMap(pm)
-        
-        mpp._plot_signal_factory(bcorred_signal_df, time_colname, bcorr_colname)
-
-        mpp._plot_peaks(
-            pm,
-            mpm._ptime_col,
-            mpm._pmaxima_col,
-        )
-
-        plt.show()
-
-    def test_plot_whh(
-        self,
-        mpp: MapPeakPlots,
-        mpm: MapPeaksMixin,
-        pm: DataFrame[PeakMap],
-        bcorred_signal_df: DataFrame[SignalDFBCorr],
-        time_colname: str,
-        bcorr_colname: str,
-        timestep: float,
-    ) -> None:
-        mpp._plot_signal_factory(bcorred_signal_df, time_colname, bcorr_colname)
-        
-        mpp.plot_whh(pm, mpm._whh_h_col, mpm._whh_l_col, mpm._whh_r_col, timestep)
-
-        plt.show()
-
-    def test_pb_plot(
-        self,
-        bcorred_signal_df: DataFrame[SignalDFBCorr],
-        bcorr_colname: str,
-        time_colname: str,
-        mpp: MapPeakPlots,
-        mpm: MapPeaksMixin,
-        pm: DataFrame[PeakMap],
-        timestep: float,
-    ) -> None:
-        mpp._plot_signal_factory(
-            bcorred_signal_df,
-            time_colname,
-            bcorr_colname,
-        )
-        mpp._plot_peaks(
-            pm,
-            mpm._ptime_col,
-            mpm._pmaxima_col,
-        )
-        mpp.plot_whh(pm, mpm._whh_h_col, mpm._whh_l_col, mpm._whh_r_col, timestep)
-        
-        mpp.plot_bases(
-            pm,
-            mpm._pb_h_col,
-            mpm._pb_l_col,
-            mpm._pb_r_col,
-            timestep,
-            plot_kwargs={"marker":"+"}
-        )
-
-        plt.show()
-
-from hplc_py.map_signals.map_signals import MapWindowsMixin
-        
-class TestMapWindows:
-    
-    @pytest.fixture
-    def mwm(
-        self,
-    )-> MapWindowsMixin:
-        
-        mwm = MapWindowsMixin()
-        return mwm
-    
-    @pytest.fixture
-    def mw(
-        self,
-    )->MapWindows:
-        mw = MapWindows()
-        
-        return mw
-    @pytest.fixture
-    def pm(
-        self,
-        amp_bcorr: FloatArray,
-        time: FloatArray,
-    )-> DataFrame[PeakMap]:
-        mp = MapPeaks()
-        pm = mp.map_peaks(amp_bcorr, time,)
-        return pm
-    
-    @pytest.fixture
-    def time_idx(
-        self,
-        time: FloatArray,
-    ):
-        time_idx = np.arange(0, len(time), 1)
-        
-        return time_idx
-
-    @pytest.fixture
-    def left_bases(
-        self,
-        pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        left_bases: Series[pd.Int64Dtype] = pm[PeakMap.pb_left].astype(pd.Int64Dtype())
-        return left_bases
-    
-    @pytest.fixture
-    def right_bases(
-        self,
-        pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        right_bases: Series[pd.Int64Dtype] = pm[PeakMap.pb_right].astype(pd.Int64Dtype())
-        return right_bases
-    
-    @pytest.fixture
-    def intvls(
-        self,
-        mwm: MapWindowsMixin,
-        left_bases: Series[pd.Int64Dtype],
-        right_bases: Series[pd.Int64Dtype],
-    )->Series[pd.Interval]:
-        intvls: Series[pd.Interval] = mwm._interval_factory(left_bases, right_bases)
-        return intvls
-    
-    @pytest.fixture
-    def w_idxs(
-        self,
-        mwm: MapWindowsMixin,
-        intvls: Series[pd.Interval],
-    )->dict[int, list[int]]:
-        w_idxs: dict[int, list[int]] = mwm._label_windows(intvls)
-        return w_idxs
-    
-    @pytest.fixture
-    def w_intvls(
-        self,
-        mwm: MapWindowsMixin,
-        intvls: Series[pd.Interval],
-        w_idxs: dict[int, list[int]],
-    )->dict[int, pd.Interval]:
-        w_intvls: dict[int, pd.Interval] = mwm._combine_intvls(intvls, w_idxs)
-        return w_intvls
-
-    @pytest.fixture
-    def peak_wdws(
-        self,
-        mwm: MapWindowsMixin,
-        time: FloatArray,
-        w_intvls: dict[int, pd.Interval],
-    )-> DataFrame[PeakWindows]:
-        peak_windows = mwm._set_peak_windows(
-        w_intvls,
-        time,
-        )
-        
-        return peak_windows
-    
-    @pytest.fixture
-    def pwdwd_time(
-        self,
-        mwm: MapWindowsMixin,
-        time: FloatArray,
-        peak_wdws: DataFrame[PeakWindows],
-    )->DataFrame[PWdwdTime]:
-        
-        pwdwd_time: DataFrame[PWdwdTime] = mwm._set_peak_wndwd_time(
-            time,
-            peak_wdws,
-        )
-        
-        return pwdwd_time
-    
-    @pytest.fixture
-    def wdwd_time(
-        self,
-        mwm: MapWindowsMixin,
-        pwdwd_time: DataFrame[PWdwdTime],
-    )->DataFrame[WindowedTime]:
-        
-        wdwd_time: DataFrame[WindowedTime] = mwm._label_interpeaks(
-            pwdwd_time, mwm.pwdt_sc.window_idx
-        )
-        
-        return wdwd_time
-    
-    @pytest.fixture
-    def wm(
-        self,
-        mw: MapWindows,
-        bcorred_signal_df: DataFrame[OutSignalDF_Base],
-        pm: DataFrame[PeakMap],
-    )->DataFrame[WindowedSignalDF]:
-        
-        
-        wdwd_sdf = mw.map_windows(pm['pb_left'], pm['pb_right'], bcorred_signal_df['time'].to_numpy(np.float64))
-        
-        return wdwd_sdf
-    
-    def test_interval_factory(
-        self,
-        intvls: Series[pd.Interval],
-    )->None:
-        
-        if not isinstance(intvls, pd.Series):
-            raise TypeError("expected pd.Series")
-        elif intvls.empty:
-            raise ValueError("intvls is empty")
-        elif not intvls.index.dtype == np.int64:
-            raise TypeError(f"Expected np.int64 index, got {intvls.index.dtype}")
-        elif not intvls.index[0]==0:
-            raise ValueError("Expected interval to start at 0")
-        
-        
-    def test_label_windows(
-        self,
-        w_idxs: dict[int, list[int]],
-    )->None:
-        if not w_idxs:
-            raise ValueError('w_idxs is empty')
-        if not any(v for v in w_idxs.values()):
-            raise ValueError('a w_idx is empty')
-        if not isinstance(w_idxs, dict):
-            raise TypeError(f"expected dict")
-        elif not all(isinstance(l, list) for l in w_idxs.values()):
-            raise TypeError('expected list')
-        elif not all(isinstance(x, int) for v in w_idxs.values() for x in v):
-            raise TypeError("expected values of window lists to be int")
-    
-    def test_combine_intvls(
-        self,
-        w_intvls: dict[str, pd.Interval],
-        )->None:
-        if not w_intvls:
-            raise ValueError("w_intvls is empty")
-        if not isinstance(w_intvls, dict):
-            raise TypeError("expected dict")
-        if not all(isinstance(intvl, pd.Interval) for intvl in w_intvls.values()):
-            raise TypeError("expected pd.Interval")
-        
-    def test_set_peak_windows(
-        self,
-        peak_wdws: DataFrame[PeakWindows],
-    ):
-        PeakWindows(peak_wdws)
-    
-    def test_label_interpeaks(
-        self,
-        wdwd_time: DataFrame[WindowedTime],
-    ):
-        WindowedTime.validate(wdwd_time, lazy=True)
-        
-    def test_map_windows(
-        self,
-        wm: DataFrame[WindowedSignalDF],
-    )->None:
-        WindowedTime(wm, lazy=True)
-        
-    def test_join_wm_to_sdf(
-        self,
-        bcorred_signal_df: DataFrame[SignalDFBCorr],
-        wm: DataFrame[WindowedTime],
-    ):
-
-        wsdf_ = pd.merge(bcorred_signal_df, wm, on='time_idx', how='left', validate="1:1", indicator=True)
-
-        wsdf = wsdf_.drop(['time_y', '_merge'], axis=1).copy(deep=True)
-        
-        return wsdf
-        
-    
-class TestWindowing:
-    manypeakspath = "/Users/jonathan/hplc-py/tests/test_data/test_many_peaks.csv"
-    asschrompath = "tests/test_data/test_assessment_chrom.csv"
-
-    @pytest.fixture
-    def all_ranges(
-        self,
-        chm: Chromatogram,
-        norm_amp: FloatArray,
-        peak_df: pt.DataFrame[PeakMap],
-    ):
-        ranges = chm._ms.compute_individual_peak_ranges(
-            norm_amp,
-            peak_df["rl_left"].to_numpy(np.float64),
-            peak_df["rl_right"].to_numpy(np.float64),
-        )
-
-        for range in ranges:
-            assert all(range)
-
-        assert len(ranges) > 0
-        return ranges
-
-    @pytest.fixture
-    def all_ranges_mask(self, chm: Chromatogram, all_ranges: list[IntArray]):
-        mask = chm._ms.mask_subset_ranges(all_ranges)
-
-        assert len(mask) > 0
-        assert any(mask == True)
-
-        return mask
-
-    @pytest.fixture
-    def ranges_with_subset(
-        self,
-        chm: Chromatogram,
-        all_ranges_mask: npt.NDArray[np.bool_],
-        all_ranges: list[IntArray],
-    ):
-        new_ranges = copy.deepcopy(all_ranges)
-
-        # for the test data, there are no subset ranges, thus prior to setup all
-        # values in the mask will be true
-
-        new_ranges.append(new_ranges[-1])
-
-        return new_ranges
-
-    def test_norm_amp(self, norm_amp: FloatArray) -> None:
-        assert len(norm_amp) > 0
-        assert np.min(norm_amp) == 0
-        assert np.max(norm_amp) == 1
-        return None
-
-    test_peak_df_kwargs = {
-        "argnames": [
-            # "datapath",
-            "schema"
-        ],
-        "argvalues": [
-            # (
-            #     manypeakspath,
-            #     OutPeakDF_ManyPeaks
-            # ),
-            (
-                # asschrompath,
-                OutPeakDFAssChrom,
-            ),
-        ],
-    }
-
-    @pytest.mark.parametrize(**test_peak_df_kwargs)
-    def test_peak_df(
-        self,
-        peak_df: pt.DataFrame,
-        bcorred_signal_df: pd.DataFrame,
-        bcorr_colname: str,
-        schema,
-    ):
-        plt.scatter(peak_df["time_idx"], peak_df["peak_amp"])
-        plt.show()
-        try:
-            schema(peak_df)
-        except Exception as e:
-            print("")
-            print(
-                interpret_model(peak_df, "OutPeakDF_Base", is_base=True),
-            )
-
-            print(
-                interpret_model(
-                    peak_df,
-                    "OutPeakDFAssChrom",
-                    "OutPeakBase",
-                    check_dict={col: "eq" for col in peak_df},
-                ),
-            )
-            raise ValueError(e)
-
-    test_window_df_kwargs = {
-        "argnames": [
-            # "datapath",
-            "schema"
-        ],
-        "argvalues": [
-            # (manypeakspath, OutWindowDF_ManyPeaks),
-            (
-                # asschrompath,
-                OutWindowDF_AssChrom,
-            ),
-        ],
-    }
-
-    @pytest.mark.parametrize(**test_window_df_kwargs)
-    def test_window_df(
-        self,
-        window_df: pt.DataFrame[OutWindowDF_Base],
-        schema,
-    ):
-        try:
-            schema(window_df)
-        except Exception as e:
-            print(
-                interpret_model(
-                    window_df,
-                    "OutWindowDF_Base",
-                    "",
-                    is_base=True,
-                )
-            )
-            print(
-                interpret_model(
-                    window_df,
-                    "OutWindowDF_AssChrom",
-                    "OutWindowDF_Base",
-                )
-            )
-            raise ValueError(e)
-
-        return None
-
-    @pa.check_types
-    def test_windows_plot(
-        self,
-        chm: Chromatogram,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[PeakMap],
-        window_df: pt.DataFrame[OutWindowDF_Base],
-        time_col: str = "time_idx",
-        y_col: str = "amp_corrected",
-    ) -> None:
-        # signal overlay
-
-        fig, ax = plt.subplots()
-        chm._ms.display_windows(
-            peak_df,
-            signal_df,
-            window_df,
-            time_col,
-            y_col,
-            ax,
-        )
-
-        # plt.show()
-
-    def test_join_signal_peak_tbls(
-        self,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-        peak_df: pt.DataFrame[PeakMap],
-    ):
-        """
-        test_join_signal_peak_tbls demonstrate successful joins of the signal and peak tables based on the time idx.
-        """
-
-        # default left join. Can join without explicitly setting index
-        # but then you have to manually remove the join columns which
-        # are duplicated
-
-        peak_signal_join = (
-            peak_df.set_index("time_idx")
-            .join(signal_df.set_index("time_idx"), sort=True, validate="1:1")
-            .reset_index()
-        )
-
-        # expect length to be the same as peak df
-        assert len(peak_signal_join) == len(peak_df)
-        # expect no NA
-        assert peak_signal_join.isna().sum().sum() == 0
-
-        return None
-
-    def test_window_signal_join(
-        self,
-        window_df: pt.DataFrame[OutWindowDF_Base],
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-    ):
-        window_signal_join = window_df.set_index("time_idx").join(
-            signal_df.set_index("time_idx"), sort=True, validate="1:1"
-        )
-
-        # left join onto window_df, expect row counts to be the same
-        assert len(window_signal_join) == len(window_df)
-
-        # expect no NAs as every index should match.
-        assert window_signal_join.isna().sum().sum() == 0
-
-    def test_assign_windows_exec(
-        self,
-        chm: Chromatogram,
-        time: FloatArray,
-        timestep: float,
-        amp_bcorr: FloatArray,
-    ) -> None:
-        if amp_bcorr.ndim != 1:
-            raise ValueError
-
-        assert len(time) > 0
-        assert len(amp_bcorr) > 0
-
-        try:
-            peak_df, window_df = chm._ms.profile_peaks_assign_windows(
-                time,
-                amp_bcorr,
-                timestep,
-            )
-        except Exception as e:
-            raise RuntimeError(e)
-
-    @pytest.fixture
-    def window_df_main(
-        self,
-        acr: AssChromResults,
-    ):
-        df = acr.tables["window_df"]
-        df = df.reindex(labels=["time_idx", "window_idx", "window_type"], axis=1)
-
-        # assign sw_idx as 1
-        sw_df = (
-            df.groupby(["window_type", "window_idx"])["time_idx"]
-            .agg("first")
-            .sort_values()
-            .to_frame()
-            .assign(**{"sw_idx": 1})
-            .assign(
-                **{"sw_idx": lambda df: df["sw_idx"].cumsum().astype(pd.Int64Dtype())}
-            )
-            .reset_index()
-            .set_index("time_idx")
-            .loc[:, ["sw_idx"]]
-        )
-
-        df = (
-            df.set_index("time_idx")
-            .join(sw_df, how="left")
-            .assign(**{"sw_idx": lambda df: df["sw_idx"].ffill()})
-            .reset_index()
-        )
-
-        df = df.astype(
-            {
-                "window_type": pd.StringDtype(),
-                "time_idx": pd.Int64Dtype(),
-                "window_idx": pd.Int64Dtype(),
-            }
-        )
-
-        return df
-
-    # @pytest.mark.xf;ail
-    def test_assign_windows_compare_main(
-        self,
-        chm: Chromatogram,
-        window_df: pt.DataFrame[OutWindowDF_Base],
-        window_df_main: pt.DataFrame[OutWindowDF_Base],
-        peak_df: pt.DataFrame[PeakMap],
-        signal_df: pt.DataFrame[OutSignalDF_Base],
-    ):
-        """ """
-
-        try:
-            assert_frame_equal(window_df, window_df_main)
-
-        except Exception as e:
-            fig, axs = plt.subplots(ncols=2)
-            chm._ms.display_windows(peak_df, signal_df, window_df_main, ax=axs[0])
-            chm._ms.display_windows(peak_df, signal_df, window_df, ax=axs[1])
-            plt.show()
-
-            diff = window_df_main["sw_idx"] - window_df["sw_idx"]
-
-            plt.plot(window_df_main["sw_idx"], label="main")
-            plt.plot(window_df["sw_idx"], label="me")
-            plt.legend()
-            plt.show()
-            raise RuntimeError(e)
-
-        return None
-
-
 class TestDataPrepper:
     manypeakspath = "tests/test_data/test_many_peaks.csv"
     asschrompath = "tests/test_data/test_assessment_chrom.csv"
@@ -1373,7 +542,7 @@ class TestDataPrepper:
     def test_find_integration_range(
         self,
         dp: DataPrepper,
-        bcorrected_signal_df: pt.DataFrame[OutSignalDF_Base],
+        bcorrected_signal_df: pt.DataFrame[SignalDF],
     ) -> None:
         """
         find the integration range in time units for the given user input: note: note sure
@@ -1439,7 +608,7 @@ class TestDataPrepper:
     def test_get_loc_bounds(
         self,
         chm: Chromatogram,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
     ):
@@ -1985,7 +1154,7 @@ class TestDeconvolver:
     def test_deconvolve_peaks(
         self,
         chm: Chromatogram,
-        signal_df: pt.DataFrame[OutSignalDF_Base],
+        signal_df: pt.DataFrame[SignalDF],
         peak_df: pt.DataFrame[PeakMap],
         window_df: pt.DataFrame[OutWindowDF_Base],
         timestep: np.float64,
@@ -2076,7 +1245,7 @@ class TestShow:
         self,
         fig_ax: tuple[Figure, Any],
         chm: Chromatogram,
-        signal_df: OutSignalDF_Base,
+        signal_df: SignalDF,
     ):
         chm._show.plot_raw_chromatogram(
             signal_df,

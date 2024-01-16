@@ -34,18 +34,21 @@ import termcolor
 from .misc.misc import LoadData
 
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, BlineKwargs
-from hplc_py.map_signals.map_signals import MapSignal
+from hplc_py.map_signals.map_peaks import MapPeaks
+from hplc_py.map_signals.map_windows import MapWindows
+
 from hplc_py.deconvolve_peaks import mydeconvolution
 from hplc_py.fit_assessment import FitAssessment
 from hplc_py import show 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    SignalDFInBase,
-    OutSignalDF_Base,
+    SignalDF,
     OutReconDFBase,
     OutPeakReportBase,
 )
 
 from typing import TypedDict
+
+
 
 @dataclass
 class Chromatogram(LoadData):
@@ -56,7 +59,7 @@ class Chromatogram(LoadData):
     
     # member class objects
     _baseline=CorrectBaseline()
-    _ms=MapSignal()
+    _ms=MapWindows()
     _deconvolve=mydeconvolution.PPeakDeconvolver()
     _fitassess=FitAssessment()
     _show=show.Show()
@@ -121,7 +124,7 @@ class Chromatogram(LoadData):
         
         # peak deconvolution
         
-        self.popt_df, self.unmixed_df = self._deconvolve.deconvolve_peaks(
+        self.popt_df, selSignalDFelf._deconvolve.deconvolve_peaks(
             pt.DataFrame[OutSignalDF_Base](self._signal_df),
             self.peak_df,
             self.window_df,

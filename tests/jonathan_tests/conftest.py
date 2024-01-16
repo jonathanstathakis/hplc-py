@@ -1,21 +1,17 @@
+from scipy.optimize._lsq.common import in_bounds #type: ignore
 import os
 
 import pytest
 import pandera as pa
-import pandera.typing as pt
-from pandera.typing import DataFrame
+from pandera.typing import Series, DataFrame, Index
 import pandas as pd
 
-from typing import Literal
-
 import numpy as np
-import numpy.typing as npt
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
-    OutSignalDF_Base,
+    SignalDF,
     SignalDFInAssChrom,
-    
     OutPeakReportBase,
     OutWindowDF_Base,
     OutInitialGuessBase,
@@ -24,13 +20,12 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     OutPoptDF_Base,
     OutParamsBase,
     isArrayLike,
-    IntArray,
     FloatArray,
 )
 
 from hplc_py.quant import Chromatogram
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
-from hplc_py.map_signals.map_signals import MapPeaks, MapSignal, PeakMap
+from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
 from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper
 from hplc_py.misc.misc import TimeStep, LoadData
 import json
@@ -76,12 +71,11 @@ class AssChromResults:
         adapt main param_df to be expressed as per the definition that `popt_factory` is expecting
 
         """
-        from scipy.optimize._lsq.common import in_bounds
 
         self.timestep = self.tables["asschrom_param_tbl"].loc[0, "timestep"]
 
         #
-        df: pd.DataFrame = param_df.copy(deep=True)
+        df: DataFrame = param_df.copy(deep=True)
 
         # assign inbounds column
         df["inbounds"] = df.apply(lambda x: in_bounds(x["p0"], x["lb"], x["ub"]), axis=1)  # type: ignore
@@ -101,12 +95,14 @@ class AssChromResults:
         )
 
         # provide an ascending peak idx col irrespective of windows
-        df["peak_idx"] = np.repeat([0, 1, 2, 3], len(df) / 4)
+        pattern = np.asarray([0, 1, 2, 3], dtype=np.int64)
+        repeats = np.int64(len(df)/4)
+        df["peak_idx"] = np.repeat(pattern, repeats)
 
         # remove the timestep col
-        df = df.drop(["timestep"], axis=1)
+        df_: pd.DataFrame | None = df.drop(["timestep"], axis=1, errors='raise')
 
-        return df
+        return df_
 
     def get_results_paths(self):
         out_basepath = (
@@ -155,16 +151,16 @@ def datapath():
 
 @pytest.fixture
 @pa.check_types
-def in_signal(datapath: str) -> pt.DataFrame[SignalDFInBase]:
+def in_signal(datapath: str) -> DataFrame[SignalDFInBase]:
     data = pd.read_csv(datapath)
 
     data = data.rename({"x": "time", "y": "amp_raw"}, axis=1, errors="raise")
-
+    data = DataFrame[SignalDFInBase](data)
     return data
 
 
 @pa.check_types
-def test_in_signal_matches_schema(in_signal: pt.DataFrame[SignalDFInBase]) -> None:
+def test_in_signal_matches_schema(in_signal: DataFrame[SignalDFInBase]) -> None:
     "currently in signal is asschrom"
     SignalDFInAssChrom(in_signal)
     return None
@@ -176,10 +172,8 @@ def chm():
 
 
 @pytest.fixture
-def time(in_signal: pt.DataFrame[SignalDFInBase]):
-    assert isinstance(in_signal, pd.DataFrame)
-    assert isArrayLike(in_signal.time)
-    return in_signal.time.to_numpy(np.float64)
+def time(in_signal: DataFrame[SignalDFInBase]):
+    return Series(in_signal['time'], dtype=pd.Float64Dtype())
 
 
 @pytest.fixture
@@ -189,20 +183,15 @@ def ts():
 
 
 @pytest.fixture
-def timestep(ts: TimeStep, time: FloatArray) -> float:
-    timestep = ts.compute_timestep(time)
-
-    assert timestep
-
-    assert isinstance(timestep, float)
-
-    assert timestep > 0
+def timestep(ts: TimeStep, time: FloatArray) -> np.float64:
+    
+    timestep: np.float64 = ts.compute_timestep(Series(time, dtype=pd.Float64Dtype()))
 
     return timestep
 
 
 @pytest.fixture
-def amp_raw(in_signal: pt.DataFrame[SignalDFInBase]):
+def amp_raw(in_signal: DataFrame[SignalDFInBase]):
     amp = in_signal["amp_raw"].values
 
     return amp
@@ -214,8 +203,9 @@ def windowsize():
 
 
 @pytest.fixture
-def bcorr_colname(amp_col: str) -> Literal["amp_corrected"]:
-    return amp_col.replace("raw", "corrected")
+def bcorr_colname(amp_col: str) -> str:
+    bcorr_col_str: str = amp_col.replace("raw", "corrected")
+    return bcorr_col_str
 
 
 @pytest.fixture
@@ -277,7 +267,7 @@ def bcorred_signal_df(bcorred_cb: CorrectBaseline)->DataFrame[SignalDFBCorr]:
 
 
 @pytest.fixture
-def amp_bcorr(bcorred_signal_df: pd.DataFrame, bcorr_colname: str):
+def amp_bcorr(bcorred_signal_df: DataFrame, bcorr_colname: str):
     return bcorred_signal_df[bcorr_colname].to_numpy(np.float64)
 
 
@@ -309,42 +299,6 @@ def amp_cn(
     return int_cn
 
 @pytest.fixture
-def ms():
-    ms = MapSignal()
-    return ms
-
-@pytest.fixture
-def loaded_ms(
-    ms: MapSignal,
-    bcorred_signal_df: pd.DataFrame,
-    bcorr_colname: str,
-              ):
-    ms.amp_col = bcorr_colname
-    ms._signal_df = bcorred_signal_df
-    
-    return ms
-    
-    
-@pytest.fixture
-def peak_df(
-    loaded_ms: MapSignal,
-) -> pt.DataFrame[PeakMap]:
-
-    peak_df = loaded_ms.peak_df_factory()
-
-    return peak_df
-
-
-@pytest.fixture
-def norm_amp(
-    ms: MapSignal,
-    amp_bcorr: FloatArray,
-):
-    norm_int = ms.normalize_series(amp_bcorr)
-    return norm_int
-
-
-@pytest.fixture
 def time_colname():
     return "time"
 
@@ -358,13 +312,6 @@ def mp():
     mp = MapPeaks()
     return mp
 
-@pytest.fixture
-def mp_loaded(
-    mp: MapPeaks,
-    bcorred_signal_df: DataFrame[SignalDFBCorr]
-):
-    mp._signal_df = bcorred_signal_df
-    return mp
 
 @pytest.fixture
 def dp():
@@ -373,31 +320,15 @@ def dp():
 
 
 @pytest.fixture
-def window_df(
-    chm: Chromatogram,
-    signal_df: pt.DataFrame,
-    peak_df: pt.DataFrame[PeakMap],
-) -> pt.DataFrame:
-    window_df = chm._ms.window_df_factory(
-        signal_df["time"].to_numpy(np.float64),
-        signal_df["amp_corrected"].to_numpy(np.float64),
-        peak_df["rl_left"].to_numpy(np.float64),
-        peak_df["rl_right"].to_numpy(np.float64),
-    )
-
-    return window_df
-
-
-@pytest.fixture
 @pa.check_types
 def p0_df(
     dp: DataPrepper,
     bcorred_signal_df: DataFrame,
-    peak_df: pt.DataFrame[PeakMap],
-    window_df: pt.DataFrame[OutWindowDF_Base],
+    peak_df: DataFrame[PeakMap],
+    window_df: DataFrame[OutWindowDF_Base],
     timestep: np.float64,
     int_col: str,
-) -> pt.DataFrame[OutInitialGuessBase]:
+) -> DataFrame[OutInitialGuessBase]:
     p0_df = dp.p0_factory(
         bcorred_signal_df,
         peak_df,
@@ -412,12 +343,12 @@ def p0_df(
 @pa.check_types
 def default_bounds(
     chm: Chromatogram,
-    p0_df: pt.DataFrame[OutInitialGuessBase],
-    signal_df: pt.DataFrame[OutSignalDF_Base],
-    window_df: pt.DataFrame[OutWindowDF_Base],
-    peak_df: pt.DataFrame[PeakMap],
+    p0_df: DataFrame[OutInitialGuessBase],
+    signal_df: DataFrame[SignalDF],
+    window_df: DataFrame[OutWindowDF_Base],
+    peak_df: DataFrame[PeakMap],
     timestep: np.float64,
-) -> pt.DataFrame[OutDefaultBoundsBase]:
+) -> DataFrame[OutDefaultBoundsBase]:
     default_bounds = chm._deconvolve.dataprepper.default_bounds_factory(
         p0_df,
         signal_df,
@@ -430,7 +361,7 @@ def default_bounds(
 
 @pa.check_types
 def test_default_bounds_tbl_init(
-    default_bounds: pt.DataFrame[OutDefaultBoundsBase],
+    default_bounds: DataFrame[OutDefaultBoundsBase],
 ):
     "use check_types to test the input tbl"
     pass
@@ -462,8 +393,8 @@ def unmixed_df(
 @pytest.fixture
 def peak_report(
     chm: Chromatogram,
-    stored_popt: OutPoptDF_Base,
-    unmixed_df: OutReconDFBase,
+    stored_popt: DataFrame[OutPoptDF_Base],
+    unmixed_df: DataFrame[OutReconDFBase],
     timestep: np.float64,
 ) -> OutPeakReportBase:
     peak_report = chm._deconvolve.compile_peak_report(
@@ -471,7 +402,7 @@ def peak_report(
         unmixed_df,
         timestep,
     )
-    return peak_report.pipe(pt.DataFrame[OutPeakReportBase])  # type: ignore
+    return peak_report.pipe(DataFrame[OutPeakReportBase])  # type: ignore
 
 
 @pytest.fixture
@@ -534,15 +465,12 @@ def stored_popt(popt_parqpath):
 @pytest.fixture
 def fitted_chm(
     chm: Chromatogram,
-    amp_colname: str,
-    time_colname: str,
-    signal_df: pt.DataFrame[SignalDFInBase],
+    signal_df: DataFrame[SignalDFInBase],
 ):
     chm.set_signal_df(signal_df)
 
     chm.fit_peaks(
-        amp_colname,
-        time_colname,
+        True,
     )
 
     return chm
