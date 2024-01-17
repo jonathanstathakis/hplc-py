@@ -283,5 +283,3 @@ class TestMapWindowPlots(TestMapWindowsFix):
         
 
         plt.show()
-
-        import pytest; pytest.set_trace()

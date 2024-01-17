@@ -12,11 +12,11 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
     SignalDFInAssChrom,
     OutPeakReportBase,
-    InitGuesses,
+    P0,
     Bounds,
     Recon,
     Popt,
-    OutParamsBase,
+    Params,
     isArrayLike,
     FloatArray,
 )
@@ -371,9 +371,9 @@ def windowed_signal_df(
 @pytest.fixture
 def my_param_df(
     chm: Chromatogram,
-    p0_df: DataFrame[InitGuesses],
+    p0_df: DataFrame[P0],
     default_bounds: DataFrame[Bounds],
-) -> DataFrame[OutParamsBase]:
+) -> DataFrame[Params]:
     params = chm._deconvolve.dataprepper._param_df_factory(
         p0_df,
         default_bounds,

@@ -15,7 +15,7 @@ from numpy.typing import NDArray
 from pandera.typing.pandas import DataFrame
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    OutParamsBase,
+    Params,
     Popt,
     Recon,
     SignalDF,
@@ -186,7 +186,7 @@ def test_param_df_adapter(acr: AssChromResults):
 
     adapted_param_df = acr.adapt_param_df(param_df)
     try:
-        OutParamsBase(adapted_param_df)
+        Params(adapted_param_df)
     except Exception as e:
         raise RuntimeError(e)
 

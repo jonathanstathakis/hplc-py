@@ -444,8 +444,6 @@ class MapWindowPlots(MapPeakPlots):
         
         cmap = mpl.colormaps["Set1"].resampled(len(window_stats))
         
-        import pytest; pytest.set_trace()
-        
         pc = PatchCollection(
             rectangles,
             zorder=0,

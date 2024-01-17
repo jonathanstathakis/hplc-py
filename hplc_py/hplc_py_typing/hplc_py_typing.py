@@ -1,3 +1,5 @@
+from hplc_py import P0AMP, P0TIME, P0WIDTH, P0SKEW
+
 from typing_extensions import TypedDict
 from typing import Any
 
@@ -57,7 +59,7 @@ def check_stats(df, *, col: str, stats: dict):
         # if all checks pass, move on
         return True
 
-
+from pandera.api.pandas.model_config import BaseConfig
 class BaseDF(pa.DataFrameModel):
     """
     Lowest level class for basic DataFrame assumptions - for example, they will all
@@ -76,9 +78,9 @@ class BaseDF(pa.DataFrameModel):
         check = left_idx.equals(right_idx)
         return check
     
-    class Config:
+    class Config(BaseConfig):
         strict=True
-        ordered=True
+        ordered=False
 
 
 class InterpModelKwargs(TypedDict, total=False):
@@ -296,23 +298,23 @@ class OutWindowDF_AssChrom(OutWindowDF_Base):
         check_stats = _sw_idx_basic_stats
 
 
-class InitGuesses(pa.DataFrameModel):
+class P0(BaseDF):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
     window_idx: pd.Int64Dtype = pa.Field()
-    peak_idx: pd.Int64Dtype = pa.Field()
-    param: pd.CategoricalDtype = pa.Field()
+    p_idx: pd.Int64Dtype = pa.Field()
+    param: pd.CategoricalDtype = pa.Field(isin=[P0AMP, P0TIME, P0WIDTH, P0SKEW])
     p0: pd.Float64Dtype = pa.Field()
-
+    
     class Config:
-        name = "OutInitialGuessBase"
+        name = "p0"
         strict = True
         coerce = False
 
 
-class OutInitialGuessAssChrom(InitGuesses):
+class OutInitialGuessAssChrom(P0):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
@@ -362,9 +364,9 @@ class OutInitialGuessAssChrom(InitGuesses):
         check_stats = _p0_basic_stats
 
 
-class Bounds(pa.DataFrameModel):
+class Bounds(BaseDF):
     window_idx: pd.Int64Dtype
-    peak_idx: pd.Int64Dtype
+    p_idx: pd.Int64Dtype
     param: pd.CategoricalDtype
     lb: pd.Float64Dtype = pa.Field(nullable=False)
     ub: pd.Float64Dtype = pa.Field(nullable=False)
@@ -422,22 +424,11 @@ class WindowedSignalAssChrom(pa.DataFrameModel):
         check_stats = _sw_idx_basic_stats
         check_stats = _window_idx_basic_stats
 
-class OutParamsBase(pa.DataFrameModel):
-    window_idx: pd.Int64Dtype = pa.Field()
-    peak_idx: pd.Int64Dtype = pa.Field()
-    param: pd.CategoricalDtype = pa.Field()
-    p0: pd.Float64Dtype = pa.Field(coerce=False)
-    lb: pd.Float64Dtype = pa.Field()
-    ub: pd.Float64Dtype = pa.Field()
-    inbounds: bool
-
-    class Config:
-        name="OutParamsBase"
-        ordered=True
-        strict = True
+class Params(Bounds, P0):
+    pass
 
 
-class OutParamManyPeaks(OutParamsBase):
+class OutParamManyPeaks(Params):
     window_idx: pd.Int64Dtype = pa.Field(isin=[1])
     peak_idx: pd.Int64Dtype = pa.Field(isin=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     param: pd.CategoricalDtype = pa.Field(isin=["amp", "loc", "whh", "skew"])
@@ -470,7 +461,7 @@ class OutParamManyPeaks(OutParamsBase):
     inbounds: bool = pa.Field(isin=[True])
 
 
-class OutParamsAssChrom(OutParamsBase):
+class OutParamsAssChrom(Params):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """

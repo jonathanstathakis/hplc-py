@@ -8,8 +8,8 @@ from pandera.typing.pandas import DataFrame, Series
 from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PeakDeconvolver
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     Bounds,
-    InitGuesses,
-    OutParamsBase,
+    P0,
+    Params,
     OutPeakReportAssChrom,
     OutPeakReportBase,
     OutWindowDF_Base,
@@ -23,7 +23,7 @@ from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
 from hplc_py.hplc_py_typing.interpret_model import interpret_model
 from hplc_py.map_signals.map_windows import WindowedSignal, MapWindows
 
-from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, WdwPeakMap
+from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, WdwPeakMap, InP0
 
 import numpy as np
 
@@ -112,41 +112,51 @@ class TestDataPrepFix(TestMapPeaksFix):
         return wpm    
     
     @pytest.fixture
-    def p0_df(
+    def p0(
         self,
         dp: DataPrepper,
-        pm: DataFrame[PeakMap],
-        ws: DataFrame[WindowedSignal],
-    ) -> DataFrame[InitGuesses]:
+        wpm: DataFrame[PeakMap],
+    ) -> DataFrame[P0]:
         
-        p0_df = dp._p0_factory(
-            pm,
-            ws,
+        wpm_ = wpm.loc[:,[InP0.window_idx, InP0.p_idx, InP0.amp, InP0.time, InP0.whh]]
+        wpm_ = DataFrame[InP0](wpm_)
+        p0 = dp._p0_factory(
+            wpm_,
         )
-        return p0_df
 
+        return p0
 
     @pytest.fixture
     def default_bounds(
         self,
         dp: DataPrepper,
-        p0_df: DataFrame[InitGuesses],
-        signal_df: DataFrame[SignalDF],
-        window_df: DataFrame[OutWindowDF_Base],
-        peak_df: DataFrame[PeakMap],
+        p0: DataFrame[P0],
+        ws: DataFrame[WindowedSignal],
         timestep: np.float64,
     ) -> DataFrame[Bounds]:
         
         default_bounds = dp._default_bounds_factory(
-            p0_df,
-            signal_df,
-            window_df,
-            peak_df,
+            p0,
+            ws,
             timestep,
         )
         return default_bounds
-
-
+    @pytest.fixture
+    def params(
+        self,
+        dp: DataPrepper,
+        pm: DataFrame[PeakMap],
+        ws: DataFrame[WindowedSignal],
+        timestep: np.float64,
+    )->DataFrame[Params]:
+        
+        params = dp._prepare_params(
+            pm,
+            ws,
+            timestep
+        )
+        
+        return params
 
 class TestDataPrepper(TestDataPrepFix):
     
@@ -164,82 +174,39 @@ class TestDataPrepper(TestDataPrepFix):
         
         WdwPeakMap.validate(wpm, lazy=True)
 
-    def test_p0_factory_exec(
+    def test_p0_factory(
         self,
-        p0_df: DataFrame[InitGuesses],
+        p0: DataFrame[P0],
     ):
         """
         Test the initial guess factory output against the dataset-specific schema.
         """
 
-        InitGuesses.validate(p0_df, lazy=True)
-
-    def test_get_loc_bounds(
-        self,
-        chm: Chromatogram,
-        signal_df: DataFrame[SignalDF],
-        peak_df: DataFrame[PeakMap],
-        window_df: DataFrame[OutWindowDF_Base],
-    ):
-        class LocBounds(pa.DataFrameModel):
-            window_idx: pd.Int64Dtype = pa.Field(eq=[1, 1, 1, 2])
-            peak_idx: pd.Int64Dtype = pa.Field(eq=[0, 1, 2, 3])
-            param: str = pa.Field(eq=["loc"] * 4)
-            lb: pd.Float64Dtype = pa.Field(in_range={"min_value": 0, "max_value": 150})
-            ub: pd.Float64Dtype = pa.Field(in_range={"min_value": 0, "max_value": 150})
-
-        loc_bounds = chm._deconvolve.dataprepper._get_loc_bounds(
-            signal_df, peak_df, window_df
-        )
-
-        LocBounds(loc_bounds)
+        P0.validate(p0, lazy=True)
 
     def test_default_bounds_factory(
         self,
         default_bounds: DataFrame[Bounds],
-        schema,
     ) -> None:
         """
         Define default bounds schemas
         """
 
-        schema_tests(
-            Bounds,
-            schema,
-            {"schema_name": "OutDefaultBoundsBase", "is_base": True},
-            {
-                "schema_name": "OutDefaultBoundsAssChrom",
-                "check_dict": {col: "eq" for col in default_bounds.columns},
-            },
-            default_bounds,
-        )
+        Bounds.validate(default_bounds, lazy=True)
 
-        return None
-
-
-class TestDeconvolver:
-    manypeakspath = "tests/test_data/test_many_peaks.csv"
-    asschrompath = "tests/test_data/test_assessment_chrom.csv"
-
-    def test_param_df_factory(
+    def test_prepare_params(
         self,
-        my_param_df: DataFrame[OutParamsBase],
-        schema,
+        dp: DataPrepper,
+        params: DataFrame[Params],
     ) -> None:
-        schema_tests(
-            OutParamsBase,
-            schema,
-            {"schema_name": "OutParamsBase", "is_base": True},
-            {
-                "schema_name": "OutParamsAssChrom",
-                "inherit_from": "OutParamsBase",
-                "check_dict": {col: "eq" for col in my_param_df},
-            },
-            my_param_df,
-        )
+        
+        dp.prm_sc.validate(params, lazy=True)
+        
+        
+    
+class TestDeconvolver:
 
-        return None
-
+    
     @pa.check_types
     @pytest.fixture
     def curve_fit_params(
@@ -247,7 +214,7 @@ class TestDeconvolver:
         chm: Chromatogram,
         window: int,
         windowed_signal_df: DataFrame[WindowedSignal],
-        my_param_df: DataFrame[OutParamsBase],
+        my_param_df: DataFrame[Params],
     ):
         params = chm._deconvolve._prep_for_curve_fit(
             window,
