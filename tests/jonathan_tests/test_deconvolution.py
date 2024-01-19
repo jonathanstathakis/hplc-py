@@ -1,3 +1,5 @@
+import polars as pl
+
 from tests.jonathan_tests.test_map_peaks import TestMapPeaksFix
 
 import pandas as pd
@@ -17,7 +19,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     Recon,
     SignalDF,
     schema_tests,
-    FloatArray
+    FloatArray,
 )
 from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
 from hplc_py.hplc_py_typing.interpret_model import interpret_model
@@ -31,41 +33,47 @@ from typing import TypeAlias
 
 Chromatogram: TypeAlias = None
 
-chm=None
+chm = None
+
 
 class TestDataPrepFix(TestMapPeaksFix):
-    
     @pytest.fixture
     def mw(
         self,
-    )->MapWindows:
+    ) -> MapWindows:
         mw = MapWindows()
         return mw
-    
+
     @pytest.fixture
     def left_bases(
         self,
         pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        left_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](pm[PeakMap.pb_left], dtype=pd.Int64Dtype())
+    ) -> Series[pd.Int64Dtype]:
+        left_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
+            pm[PeakMap.pb_left], dtype=pd.Int64Dtype()
+        )
         return left_bases
-    
+
     @pytest.fixture
     def right_bases(
         self,
         pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        right_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](pm[PeakMap.pb_right], dtype=pd.Int64Dtype())
+    ) -> Series[pd.Int64Dtype]:
+        right_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
+            pm[PeakMap.pb_right], dtype=pd.Int64Dtype()
+        )
         return right_bases
-    
+
     @pytest.fixture
     def amp(
         self,
         amp_bcorr: FloatArray,
-    )-> Series[pd.Float64Dtype]:
-        amp: Series[pd.Float64Dtype] = Series(amp_bcorr, name='amp', dtype=pd.Float64Dtype())
+    ) -> Series[pd.Float64Dtype]:
+        amp: Series[pd.Float64Dtype] = Series(
+            amp_bcorr, name="amp", dtype=pd.Float64Dtype()
+        )
         return amp
-    
+
     @pytest.fixture
     def ws(
         self,
@@ -74,54 +82,57 @@ class TestDataPrepFix(TestMapPeaksFix):
         amp: Series[pd.Float64Dtype],
         left_bases: Series[pd.Float64Dtype],
         right_bases: Series[pd.Float64Dtype],
-    )->DataFrame[WindowedSignal]:
-        
+    ) -> DataFrame[WindowedSignal]:
         ws = mw.window_signal(
             left_bases,
             right_bases,
             time,
             amp,
-            )
-        
+        )
+
         return ws
-    
-    
+
     @pytest.fixture
     def pm(
         self,
         mp: MapPeaks,
         amp: Series[pd.Float64Dtype],
         time: Series[pd.Float64Dtype],
-    )->DataFrame[PeakMap]:
+    ) -> DataFrame[PeakMap]:
         pm = mp.map_peaks(
             amp,
             time,
         )
         return pm
-    
+
     @pytest.fixture
     def wpm(
         self,
         dp: DataPrepper,
         pm: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
-    )->DataFrame[WdwPeakMap]:
-        
+    ) -> DataFrame[WdwPeakMap]:
         wpm = dp._window_peak_map(pm, ws)
-        
-        return wpm    
-    
+
+        return wpm
+
     @pytest.fixture
     def p0(
         self,
         dp: DataPrepper,
         wpm: DataFrame[PeakMap],
+        timestep: float,
     ) -> DataFrame[P0]:
-        
-        wpm_ = wpm.loc[:,[InP0.window_idx, InP0.p_idx, InP0.amp, InP0.time, InP0.whh]]
+        wpm_ = wpm.loc[:, [InP0.window_idx, InP0.p_idx, InP0.amp, InP0.time, InP0.whh]]
+
+        import pytest
+
+        pytest.set_trace()
+
         wpm_ = DataFrame[InP0](wpm_)
         p0 = dp._p0_factory(
             wpm_,
+            timestep,
         )
 
         return p0
@@ -134,13 +145,13 @@ class TestDataPrepFix(TestMapPeaksFix):
         ws: DataFrame[WindowedSignal],
         timestep: np.float64,
     ) -> DataFrame[Bounds]:
-        
-        default_bounds = dp._default_bounds_factory(
+        default_bounds = dp._bounds_factory(
             p0,
             ws,
             timestep,
         )
         return default_bounds
+
     @pytest.fixture
     def params(
         self,
@@ -148,30 +159,23 @@ class TestDataPrepFix(TestMapPeaksFix):
         pm: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
         timestep: np.float64,
-    )->DataFrame[Params]:
-        
-        params = dp._prepare_params(
-            pm,
-            ws,
-            timestep
-        )
-        
+    ) -> DataFrame[Params]:
+        params = dp._prepare_params(pm, ws, timestep)
+
         return params
 
+
 class TestDataPrepper(TestDataPrepFix):
-    
     def test_map_peaks_exec(
         self,
         pm: DataFrame[PeakMap],
-    )->None:
-        
+    ) -> None:
         PeakMap.validate(pm, lazy=True)
-        
+
     def test_window_peak_map(
         self,
         wpm: DataFrame[WdwPeakMap],
-    )->None:
-        
+    ) -> None:
         WdwPeakMap.validate(wpm, lazy=True)
 
     def test_p0_factory(
@@ -181,7 +185,9 @@ class TestDataPrepper(TestDataPrepFix):
         """
         Test the initial guess factory output against the dataset-specific schema.
         """
+        import pytest
 
+        pytest.set_trace()
         P0.validate(p0, lazy=True)
 
     def test_default_bounds_factory(
@@ -199,88 +205,122 @@ class TestDataPrepper(TestDataPrepFix):
         dp: DataPrepper,
         params: DataFrame[Params],
     ) -> None:
-        
         dp.prm_sc.validate(params, lazy=True)
-        
-        
-    
-class TestDeconvolver:
 
-    
-    @pa.check_types
+
+class TestDeconvolverFix:
     @pytest.fixture
-    def curve_fit_params(
+    def dc(
         self,
-        chm: Chromatogram,
-        window: int,
-        windowed_signal_df: DataFrame[WindowedSignal],
-        my_param_df: DataFrame[Params],
+    ) -> PeakDeconvolver:
+        dc = PeakDeconvolver()
+        return dc
+
+    @pytest.fixture
+    def optimizer_jax(
+        self,
     ):
-        params = chm._deconvolve._prep_for_curve_fit(
-            window,
-            windowed_signal_df,
-            "amp_corrected",
-            my_param_df,
+        from jaxfit import CurveFit
+        cf = CurveFit()
+        return cf.curve_fit
+    
+    @pytest.fixture
+    def optimizer_scipy(
+        self,
+    ):
+        from scipy.optimize import curve_fit
+        return curve_fit
+    
+    @pytest.fixture
+    def popt_scipy(
+        self,
+        dc: PeakDeconvolver,
+        ws: DataFrame[WindowedSignal],
+        params: DataFrame[Params],
+        optimizer_scipy,
+    ) -> DataFrame[Popt]:
+        popt = dc._popt_factory(
+            ws,
+            params,
+            optimizer_scipy,
+            # optimizer_jax,
         )
-        return params
 
-    def test_prep_for_curve_fit(
+        return popt
+    @pytest.fixture
+    def fit_func_jax(
         self,
-        curve_fit_params: tuple[
-            Series[float], Series[float], Series[float], Series[float], Series[float]
-        ],
     ):
-        pass
+        import hplc_py.skewnorms.skewnorms as sk
+        return sk.fit_skewnorms_jax
+    
+    @pytest.fixture
+    def popt_jax(
+        self,
+        dc: PeakDeconvolver,
+        ws: DataFrame[WindowedSignal],
+        params: DataFrame[Params],
+        optimizer_jax,
+        fit_func_jax,
+    ) -> DataFrame[Popt]:
+        
+        popt = dc._popt_factory(
+            ws,
+            params,
+            optimizer_jax,
+            fit_func_jax,
+        )
 
-    @pa.check_types
+        return popt
+
+
+
+class TestDeconvolver(TestDataPrepFix, TestDeconvolverFix):
+    
+    
+    def test_popt_factory_benchmark(
+        self,
+        dc: PeakDeconvolver,
+        ws: DataFrame[WindowedSignal],
+        params: DataFrame[Params],
+        optimizer_jax,
+        fit_func_jax,
+        benchmark,
+
+    ):
+        benchmark(dc._popt_factory,
+            ws,
+            params,
+            optimizer_jax,
+            fit_func_jax,
+        )
+        
     def test_popt_factory(
         self,
-        popt_df: DataFrame[Popt],
-        dset_schema,
+        popt_jax: DataFrame[Popt],
+
     ):
-        """
-        TODO:
-        - [ ] define dataset specific schemas
-        - [ ] identify why algo needs more than 1200 iterations to minimize mine vs 33 for main
-        - [ ] testing with the main adapted param_df, 24 iterations for the first window, 21 for the second. Whats the difference?
-
-        Note: as of 2023-12-21 11:02:03 first window now takes 803 iterations. same window in main takes 70 iterations.
-        """
-
-        schema_tests(
-            Popt,
-            dset_schema,
-            {"schema_name": "OutPoptDF_Base", "is_base": True},
-            {"schema_name": "OutPoptDF_AssChrom", "inherit_from": "OutPoptDF_Base"},
-            popt_df,
-        )
-
+        Popt.validate(popt_jax, lazy=True)
+        
         return None
-
-    """
-    2023-12-08 16:24:07
-
-    Next is to..
-
-    'assemble_deconvolved_peak_output'
-
-    which includes:
-
-    - for each peak, the optimum parameter:
-        - amplitude
-        - loc
-        - whh
-        - skew
-        - area
-        - and reconstructed signal.
-
-    Both area and reconstructed signal are derived from `_compute_skewnorm` by passing
-    the window time range and unpacking the optimized paramters.
-
-    so we've already got the first 4. Need to construct the signal as a series, calculate its ara and add that to the popt df. We then construct a new frame where each column is a reconstructed signal series for each peak running the length of the original signal. The summation of that frame will provide the reconstructed convoluted signal for verification purposes.
-
-    so, the reconstructed peak signal should have a peak_id and window_idx    
-    """
+    
+    
+    def test_unique_windows_benchmark(
+        self,
+        dc: PeakDeconvolver,
+        ws: DataFrame[WindowedSignal],
+        benchmark,
+    ):
+        
+        
+        
+        def get_unique_windows(ws,):
+            windows = ws.filter(pl.col('window_type')=='peak').select('window_idx').unique()
+            return windows
+        
+        benchmark(get_unique_windows, ws)
+    
+    
 
     def test_reconstruct_peak_signal(
         self, unmixed_df: DataFrame[Recon], schema
@@ -312,17 +352,14 @@ class TestDeconvolver:
 
     def dp(
         self,
-    )->PeakDeconvolver:
+    ) -> PeakDeconvolver:
         dp = PeakDeconvolver()
         return dp
-    
+
     @pa.check_types
     def test_deconvolve_peaks(
-        self,
-        dp: PeakDeconvolver,
-        ws: DataFrame[WindowedSignal]
-    )->None:
-        
+        self, dp: PeakDeconvolver, ws: DataFrame[WindowedSignal]
+    ) -> None:
         dp.deconvolve_peaks(
             ws,
         )

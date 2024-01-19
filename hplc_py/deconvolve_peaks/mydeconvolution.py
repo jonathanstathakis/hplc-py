@@ -36,7 +36,8 @@
     This test class now contains methods pertaining to the preparation stage of the deconvolution process.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Type
 
 import numpy as np
 import pandas as pd
@@ -45,7 +46,6 @@ import pandera.typing as pt
 import tqdm
 from pandera.typing import DataFrame
 from scipy import optimize
-from scipy.optimize._lsq.common import in_bounds
 
 from hplc_py import P0AMP, P0SKEW, P0TIME, P0WIDTH
 from hplc_py.hplc_py_typing.hplc_py_typing import (
@@ -53,27 +53,31 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     BaseDF,
     Bounds,
     FloatArray,
-    Params,
     OutPeakReportBase,
     OutWindowDF_Base,
+    Params,
     Popt,
     Recon,
     SignalDF,
 )
 from hplc_py.map_signals.map_peaks import PeakMap
 from hplc_py.map_signals.map_windows import WindowedSignal
-from hplc_py.skewnorms.skewnorms import SkewNorms
 
 
 class WdwPeakMap(PeakMap):
+    
     window_type: pd.StringDtype
     window_idx: pd.Int64Dtype
 
     class Config:
         ordered = False
         strict = True
+        
+
+
 
 from pandera.api.pandas.model_config import BaseConfig
+
 
 class InP0(BaseDF):
     window_idx: pd.Int64Dtype
@@ -89,25 +93,7 @@ class InP0(BaseDF):
 
 
 @dataclass
-class DataPrepper:
-    ws_sc = WindowedSignal
-    pm_sc = PeakMap
-    wpm_sc = WdwPeakMap
-    p0_sc = P0
-    inp0_sc = InP0
-    bds_sc = Bounds
-    prm_sc = Params
-
-    p0_param_cats = pd.CategoricalDtype(
-        [
-            P0AMP,
-            P0TIME,
-            P0WIDTH,
-            P0SKEW,
-        ],
-        ordered=True,
-    )
-
+class PanderaMixin:
     def try_validate(
         self,
         df: DataFrame | pd.DataFrame,
@@ -124,6 +110,48 @@ class DataPrepper:
             raise err
 
         return df_
+
+    def get_sc_cols(
+        self,
+        sch,
+    ):
+        cols = list(sch.get_metadata()[sch.Config.name]["columns"].keys())
+
+        return cols
+
+
+@dataclass
+class DataPrepper(PanderaMixin):
+    ws_sc: Type[WindowedSignal] = WindowedSignal
+    ws: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    pm_sc: Type[PeakMap] = PeakMap
+    pm: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    wpm_sc: Type[WdwPeakMap] = WdwPeakMap
+    wpm: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    inp0_sc: Type[InP0] = InP0
+    in_p0: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    p0_sc: Type[P0] = P0
+    p0: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    bds_sc: Type[Bounds] = Bounds
+    bds: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    prm_sc: Type[Bounds] = Params
+    params: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    p0_param_cats = pd.CategoricalDtype(
+        [
+            P0AMP,
+            P0TIME,
+            P0WIDTH,
+            P0SKEW,
+        ],
+        ordered=True,
+    )
 
     """
     class containing methods to prepare the data for deconvolution
@@ -155,14 +183,15 @@ class DataPrepper:
 
         wpm_ = wpm_.set_index(wpm_idx_cols).reset_index().set_index(self.wpm_sc.idx)
 
-        wpm = self.try_validate(wpm_, self.wpm_sc)
+        self.wpm = self.try_validate(wpm_, self.wpm_sc)
 
-        return wpm
+        return self.wpm
 
     # @pa.check_types
     def _p0_factory(
         self,
         wpm: DataFrame[InP0],
+        timestep: float,
     ) -> pt.DataFrame[P0]:
         """
         Build a table of initial guesses for each peak in each window following the format:
@@ -180,7 +209,7 @@ class DataPrepper:
         p0_[P0SKEW] = pd.Series([0.0] * len(p0_), dtype=pd.Float64Dtype())
 
         # assign whh as half peak whh as per definition, in time units
-        p0_[P0WIDTH] = p0_.pop(str(self.inp0_sc.whh)).div(2)
+        p0_[P0WIDTH] = p0_.pop(str(self.inp0_sc.whh)).div(2)*timestep
 
         # set index as idx, w_idx, p_idx
         p0_ = p0_.set_index(
@@ -216,10 +245,12 @@ class DataPrepper:
 
         p0 = self.try_validate(p0_, self.p0_sc)
 
-        return DataFrame[P0](p0)
+        self.p0 = p0
+
+        return p0
 
     @pa.check_types
-    def _default_bounds_factory(
+    def _bounds_factory(
         self,
         p0: pt.DataFrame[P0],
         ws: pt.DataFrame[WindowedSignal],
@@ -248,7 +279,7 @@ class DataPrepper:
 
         - amplitude: 10% peak maxima, 1000% * peak maxima.
                 - location: peak window time min, peak window time max
-                - width: the timestep, half the width of the window
+                - width: the timestep, half the range of the window
                 - skew: between negative and positive infinity
         """
 
@@ -274,60 +305,70 @@ class DataPrepper:
         bounds_[self.bds_sc.lb] = pd.Series([np.nan * len(p0)], dtype=pd.Float64Dtype())
         bounds_[self.bds_sc.ub] = pd.Series([np.nan * len(p0)], dtype=pd.Float64Dtype())
 
-        bounds_ = bounds_.set_index([self.bds_sc.window_idx, self.bds_sc.param])
+        bounds_ = bounds_.set_index(
+            [self.bds_sc.window_idx, self.bds_sc.p_idx, self.bds_sc.param]
+        )
 
         # amp
-
-        for b, v in zip([str(self.bds_sc.lb), str(self.bds_sc.ub)], [0.1, 10]):
-            _ = (
-                ws.loc[ws[self.ws_sc.window_type] == "peak"]
-                .groupby(str(self.ws_sc.window_idx))[str(self.ws_sc.amp)]
-                .max()
-                .mul(v)
-                .rename(b)
-                .reset_index()
-                .assign(**{str(self.bds_sc.param): str(self.ws_sc.amp)})
-                .set_index([str(self.bds_sc.window_idx), str(self.bds_sc.param)])
-            )
-
-            bounds_.loc[_.index, b] = _
-
+        amp = p0.set_index(["param"]).loc["amp"].reset_index()
+        amp = (
+            amp.groupby(["window_idx", "p_idx", "param"], observed=True)["p0"]
+            .agg([("lb", lambda x: x * 0.1), ("ub", lambda x: x * 10)])
+            .dropna()
+        )
         # loc
+
+        bounds_.loc[amp.index, [self.bds_sc.lb, self.bds_sc.ub]] = amp
 
         loc_b = (
             ws.loc[ws[self.ws_sc.window_type] == "peak"]
-            .groupby(str(self.ws_sc.window_idx))[str(self.ws_sc.time_idx)]
-            .agg(["min", "max"])
-            .rename(
-                {"min": self.bds_sc.lb, "max": self.bds_sc.ub}, axis=1, errors="raise"
-            )
+            .groupby(str(self.ws_sc.window_idx))[str(self.ws_sc.time)]
+            .agg([("lb", "min"), ("ub", "max")])
             .reset_index()
             .assign(param=P0TIME)
             .set_index([str(self.bds_sc.window_idx), str(self.bds_sc.param)])
         )
 
+        # get the peak idx from p0
+        loc_b = (
+            p0.set_index(["window_idx", "param"])
+            .drop("p0", axis=1)
+            .join(loc_b.reset_index().set_index(["window_idx", "param"]), how="right")
+            .reset_index()
+        )
+
+        loc_b = loc_b.set_index(["window_idx", "p_idx", "param"])
         bounds_.loc[loc_b.index, [self.bds_sc.lb, self.bds_sc.ub]] = loc_b
 
-        # width
-
-        bounds_.loc[pd.IndexSlice[:, P0WIDTH], str(self.bds_sc.lb)] = timestep
+        bounds_.loc[pd.IndexSlice[:, :, P0WIDTH], str(self.bds_sc.lb)] = timestep
 
         width_ub = (
             ws.loc[ws[self.ws_sc.window_type] == "peak"]
-            .groupby(self.ws_sc.window_idx)[str(self.ws_sc.time_idx)]
-            .median()
+            .groupby(self.ws_sc.window_idx)[str(self.ws_sc.time)]
+            .agg(lambda x: (x.max()-x.min())/2)
             .rename(self.bds_sc.ub)
             .reset_index()
             .assign(param=P0WIDTH)
             .set_index([self.ws_sc.window_idx, self.bds_sc.param])
         )
+        
+        width_ub = (
+            p0.set_index(["window_idx", "param"])
+            .drop("p0", axis=1)
+            .join(
+                width_ub.reset_index().set_index(["window_idx", "param"]), how="right"
+            )
+            .reset_index()
+            .set_index(["window_idx", "p_idx", "param"])
+        )
 
+        
         bounds_.loc[width_ub.index, self.bds_sc.ub] = width_ub
-
+        
         # skew
 
-        bounds_.loc[pd.IndexSlice[:, P0SKEW], self.bds_sc.lb] = -np.inf
-        bounds_.loc[pd.IndexSlice[:, P0SKEW], self.bds_sc.ub] = np.inf
+        bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.lb] = -np.inf
+        bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.ub] = np.inf
 
         column_ordering = list(
             self.bds_sc.get_metadata()[str(self.bds_sc)]["columns"].keys()
@@ -335,60 +376,54 @@ class DataPrepper:
         column_ordering.remove("idx")
 
         bounds_ = bounds_.reset_index()
-        bounds_ = bounds_.reindex(column_ordering, axis=1).rename_axis(index=self.bds_sc.idx)
+        bounds_ = bounds_.reindex(column_ordering, axis=1).rename_axis(
+            index=self.bds_sc.idx
+        )
 
-        bounds = self.try_validate(bounds_, self.bds_sc)
+        self.bounds = self.try_validate(bounds_, self.bds_sc)
 
-        return bounds
-
+        return self.bounds
 
     def _prepare_params(
         self,
         pm: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
         timestep: float,
-    )-> DataFrame[Params]:
+    ) -> DataFrame[Params]:
         wpm = self._window_peak_map(pm, ws)
-        
-        def get_sc_cols(
-            sch
-        ):
-            
-            cols = list(sch.get_metadata()[sch.Config.name]["columns"].keys())
-            
-            return cols
-        
-        in_p0_cols = get_sc_cols(self.inp0_sc)
+
+        in_p0_cols = self.get_sc_cols(self.inp0_sc)
         in_p0_cols.remove(self.inp0_sc.idx)
-        
-        in_p0_ = wpm.copy(deep=True).loc[:,in_p0_cols]
+
+        in_p0_ = wpm.copy(deep=True).loc[:, in_p0_cols]
         in_p0 = self.inp0_sc.validate(in_p0_)
-        
+
         p0 = self._p0_factory(
             in_p0,
+            timestep,
         )
 
-        bounds = self._default_bounds_factory(
+        bounds = self._bounds_factory(
             p0,
             ws,
             timestep,
         )
-        
+
         join_cols = [self.p0_sc.window_idx, self.p0_sc.p_idx, self.p0_sc.param]
-        
+
         p0_ = p0.reset_index().set_index(join_cols)
         bounds_ = bounds.set_index(join_cols)
-        
-        params_ = p0_.join(bounds_, how='left', validate="1:1")
+
+        params_ = p0_.join(bounds_, how="left", validate="1:1")
         params_ = params_.reset_index().set_index(self.prm_sc.idx)
-        
-        params = self.try_validate(params_, self.prm_sc)
-        
-        return params
+
+        self.params = self.try_validate(params_, self.prm_sc)
+
+        return self.params
 
 
 @dataclass
-class PeakDeconvolver(SkewNorms, DataPrepper):
+class PeakDeconvolver(DataPrepper):
     """
     Note: as of 2023-12-08 15:10:06 it is necessary to inherit SkewNorms rather than passing
     class method objects in the `curve_fit` call because `_fit_skewnorms` is defined with the
@@ -405,16 +440,10 @@ class PeakDeconvolver(SkewNorms, DataPrepper):
     @pa.check_types
     def deconvolve_peaks(
         self,
-        ws: DataFrame[WindowedSignal],
+        params: DataFrame[Params],
+        timestep: np.float64,
     ) -> tuple[pt.DataFrame[Popt], pt.DataFrame[Recon]]:
-        (
-            p0,
-            default_bounds,
-            param_df,
-            windowed_signal_df,
-        ) = self.dataprepper.prepare_data(signal_df, peak_df, window_df, timestep)
-
-        self._param_df = param_df
+        params = self._prepare_params(pm, ws, timestep)
 
         popt_df: pd.DataFrame = self._popt_factory(windowed_signal_df, param_df)
 
@@ -482,139 +511,78 @@ class PeakDeconvolver(SkewNorms, DataPrepper):
 
         return peak_report_df.pipe(pt.DataFrame[OutPeakReportBase])
 
-    def _prep_for_curve_fit(
-        self,
-        window: int,
-        ws_df: pt.DataFrame[WindowedSignal],
-        amp_col: str,
-        param_df: pt.DataFrame[Params],
-    ):
-        """ """
-
-        x: pd.Series[float] = ws_df.loc[ws_df["window_idx"] == window, "time"].astype(
-            np.float64
-        )
-
-        y: pd.Series[float] = ws_df.loc[ws_df["window_idx"] == window, amp_col].astype(
-            np.float64
-        )
-
-        p0: pd.DataFrame = param_df.loc[ws_df["window_idx"] == window]
-        p0: pd.DataFrame = p0.set_index(["window_idx", "peak_idx", "param"])
-        p0: pd.Series[float] = p0.loc[:, "p0"]
-
-        lb: pd.Series[float] = param_df.loc[ws_df["window_idx"] == window].set_index(
-            "param"
-        )["lb"]
-        ub: pd.Series[float] = param_df.loc[ws_df["window_idx"] == window].set_index(
-            "param"
-        )["ub"]
-
-        # input validation
-
-        if not x.ndim == 1:
-            raise ValueError("ndim x should be 1")
-        if not y.ndim == 1:
-            raise ValueError("ndim y should be 1")
-        if not p0.ndim == 1:
-            raise ValueError("ndim p0 should be 1")
-        if not lb.ndim == 1:
-            raise ValueError("ndim lb should be 1")
-        if not ub.ndim == 1:
-            raise ValueError("ndim ub should be 1")
-        # assert False, f"\n{len(p0)}"
-
-        if len(x) == 0:
-            raise ValueError("len x must be greater than zero")
-        if len(y) == 0:
-            raise ValueError("len y must be greater than zero")
-        if len(p0) == 0:
-            raise ValueError("len p0 must be greater than zero")
-        if len(lb) == 0:
-            raise ValueError("len lb must be greater than zero")
-        if len(ub) == 0:
-            raise ValueError("len ub must be greater than zero")
-
-        """
-            From the docs: `curve_fit` returns an array of "Optimal values for the parameters so that the sum of the squared residuals of f(xdata, *popt) - ydata is minimized."
-            """
-        # check that each array is the appropriate length divisible by 4
-
-        if len(p0) % 4 != 0:
-            raise ValueError("length of p0 is not a multiple of 4")
-        if len(lb) % 4 != 0:
-            raise ValueError("length of lb is not a multiple of 4")
-        if len(ub) % 4 != 0:
-            raise ValueError("length of ub is not a multiple of 4")
-
-        return x, y, p0, lb, ub
 
     def _popt_factory(
         self,
-        windowed_signal_df: pt.DataFrame[WindowedSignal],
-        param_df: pt.DataFrame[Params],
-        verbose=True,
+        ws: DataFrame[WindowedSignal],
+        params: DataFrame[Params],
+        optimizer,
+        fit_func,
         optimizer_kwargs={},
+        verbose=True,
     ) -> pt.DataFrame[Popt]:
         popt_list = []
-
-        windows = windowed_signal_df.loc[lambda df: df["window_type"] == "peak"][
-            "window_idx"
-        ].unique()
-
+        
+        import polars as pl
+        
+        ws_ = pl.from_pandas(ws)
+        
+        # windows = ws.loc[lambda df: df[self.ws_sc.window_type] == "peak"][
+        #     self.ws_sc.window_idx
+        # ].unique()
+        params_ = pl.from_pandas(params)
         if verbose:
-            windows_itr = tqdm.tqdm(windows, desc="deconvolving windows")
+            windows_grpby = tqdm.tqdm(params_.partition_by('window_idx', maintain_order=True, as_dict=True).items(), desc="deconvolving windows")
 
         else:
-            windows_itr = windows
-
-        for window in windows_itr:
-            x, y, p0, lb, ub = self._prep_for_curve_fit(
-                window, windowed_signal_df, "amp_corrected", param_df
+            windows_grpby = windows
+            
+        # ws_ = ws.set_index('window_idx')
+        
+        
+        from copy import deepcopy
+        
+        for wix, wdw in windows_grpby:
+            
+            optimizer_ = deepcopy(optimizer)
+            p0 = wdw['p0'].to_numpy()
+            bounds = (wdw['lb'].to_numpy(), wdw['ub'].to_numpy())
+            x = ws_.filter(pl.col('window_idx')==wix)['time'].to_numpy()
+            y = ws_.filter(pl.col('window_idx')==wix)['amp'].to_numpy()
+            
+            
+            results = optimizer_(
+                fit_func,
+                x,
+                y,
+                p0,
+                bounds=bounds,
             )
-
-            (
-                popt,
-                _,
-                infodict,
-                mesg,
-                ier,
-            ) = optimize.curve_fit(
-                self._fit_skewnorms,
-                xdata=x.to_numpy(np.float64),
-                ydata=y.to_numpy(np.float64),
-                p0=p0.to_numpy(np.float64),
-                bounds=(lb.to_numpy(np.float64), ub.to_numpy(np.float64)),
-                # maxfev=100,
-                full_output=True,
-                **optimizer_kwargs,
-            )
+            
+            del optimizer_
+            del x
+            del y
+            del p0
+            del bounds
 
             # the output of `curve_fit` appears to not match the input ordering. Could
-
-            popt_series = pd.Series(
-                popt, index=p0.index, dtype=pd.Float64Dtype(), name="popt"
+        
+            results_ = wdw.select(['window_idx','p_idx','param']).clone().with_columns(values=results[0])
+                
+            popt_list.append(results_)
+        
+        popt_df_ = pl.concat(popt_list)
+        popt_df_ = popt_df_.pivot(columns='param', index=['window_idx','p_idx'], values='values')
+        
+        popt_df = pt.DataFrame[Popt](
+            popt_df_
+            .with_row_index('idx')
+            .to_pandas()
+            .astype({'idx':pd.Int64Dtype()})
+            .set_index('idx')
             )
-
-            popt_list.append(popt_series)
-
-        popt_df = (
-            pd.concat(popt_list)
-            .reset_index()
-            .pivot_table(
-                columns="param", index=["window_idx", "peak_idx"], values="popt"
-            )
-            .reset_index()
-            .assign(
-                tbl_name=lambda df: pd.Series(
-                    ["popt"] * len(df), dtype=pd.StringDtype()
-                )
-            )
-            .loc[:, ["tbl_name", "window_idx", "peak_idx", "amp", "loc", "whh", "skew"]]
-            .rename_axis(index="idx", columns="cols")
-        )
-
-        return pt.DataFrame[Popt](popt_df)
+        import pytest; pytest.set_trace()
+        return popt_df
 
     # @pa.check_types
     def _reconstruct_peak_signal(

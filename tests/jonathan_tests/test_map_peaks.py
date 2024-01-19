@@ -4,7 +4,7 @@ from typing import Any, Literal
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
-from pandera.typing import DataFrame
+from pandera.typing import Series, DataFrame
 import pandera as pa
 
 from hplc_py.baseline_correct.correct_baseline import SignalDFBCorr
@@ -83,10 +83,12 @@ class TestMapPeaksFix:
     def whh(
         self,
         mpm: MapPeaksMixin,
-        amp_bcorr: FloatArray,
+        amp_bcorr: Series[pd.Float64Dtype],
         fp: DataFrame[FindPeaks],
         whh_rel_height: float,
     ) -> DataFrame[WHH]:
+        
+        
         whh = DataFrame[WHH](mpm.width_df_factory(
             amp_bcorr,
             fp,
@@ -151,8 +153,11 @@ class TestMapPeaksMixin(TestMapPeaksFix):
     def test_set_fp(
         self,
         fp: DataFrame[FindPeaks],
-    ):
+    ):  
+        
         fp = fp.reset_index(drop=True).rename_axis(index='idx')
+        
+        import pytest; pytest.set_trace()
         
         try:
             FindPeaks.validate(fp, lazy=True)
@@ -165,6 +170,8 @@ class TestMapPeaksMixin(TestMapPeaksFix):
         self,
         whh: DataFrame[WHH],
     ) -> None:
+        
+        import pytest; pytest.set_trace()
         WHH(whh)
         
     def test_set_pb(
@@ -177,6 +184,8 @@ class TestMapPeaksMixin(TestMapPeaksFix):
         self,
         pm: DataFrame[PeakMap],
     ) -> None:
+        
+        import pytest; pytest.set_trace()
         PeakMap(pm)
         
 class TestMapPeaks(TestMapPeaksFix):

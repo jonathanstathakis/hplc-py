@@ -283,3 +283,4 @@ class TestMapWindowPlots(TestMapWindowsFix):
         
 
         plt.show()
+.

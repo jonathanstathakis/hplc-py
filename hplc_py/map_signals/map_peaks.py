@@ -1,3 +1,5 @@
+import pandera.extensions as extensions
+from pandera.api.pandas.model_config import BaseConfig
 from dataclasses import dataclass, field
 from typing import Any, Hashable, Literal, Optional, TypedDict
 
@@ -52,13 +54,19 @@ class PeakBases(BaseDF):
     pb_left: pd.Float64Dtype
     pb_right: pd.Float64Dtype
 
+@extensions.register_check_method(statistics=['col_a','col_b'])
+def col_a_less_than_col_b(df, *, col_a: str, col_b: str):
+    return df[col_a]<df[col_b]
 
 class PeakMap(
     PeakBases,
     WHH,
     FindPeaks,
               ):
-    pass
+    
+    class Config(BaseDF.Config):
+        col_a_less_than_col_b = {"col_a":"whh_width","col_b":"pb_width"}
+        
 
 
 class MapPeakPlots(DFrameChecks):
@@ -468,9 +476,9 @@ class MapPeaksMixin:
         self,
         amp: Series[pd.Float64Dtype],
         fp_df: DataFrame[FindPeaks],
-        rel_height: float = 1,
+        rel_height: float,
         wlen: Optional[int] = None,
-        prefix: str = "width_",
+        prefix: str = "width",
     ) -> pd.DataFrame:
         """
         width is calculated by first identifying a height to measure the width at, calculated as:
@@ -531,6 +539,8 @@ class MapPeaksMixin:
         
         wdf_: pd.DataFrame = wdf_.reset_index(names=self._pidx_col).rename_axis(index=self._idx_name)
         
+        
+        
         wdf: pd.DataFrame = wdf_
 
         return wdf
@@ -556,7 +566,9 @@ class MapPeaksMixin:
             
             PeakMap.validate(pm_, lazy=True)
         except pa.errors.SchemaError as e:
-            e.add_note(f"\n{pm_}")
+            import pytest; pytest.set_trace()
+            
+            # e.add_note(str(e.data)
             raise e
         else:
             pm: DataFrame[PeakMap] = DataFrame[PeakMap](pm_)
