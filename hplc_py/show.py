@@ -45,14 +45,14 @@ class Show:
         '''
         Plot the reconstructed signal as the sum of the deconvolved peak series
         '''
-        unmixed_amp = (unmixed_df
-              .pivot_table(columns='peak_idx', values='unmixed_amp',index='time')
+        amp_unmixed = (unmixed_df
+              .pivot_table(columns='p_idx', values='amp_unmixed',index='time')
               .sum(axis=1)
               .reset_index()
-              .rename({0:"unmixed_amp"},axis=1)
+              .rename({0:"amp_unmixed"},axis=1)
               )
-        x = unmixed_amp['time']
-        y = unmixed_amp['unmixed_amp']
+        x = amp_unmixed['time']
+        y = amp_unmixed['amp_unmixed']
         
         ax.plot(x,y, label='reconstructed signal')
         
@@ -67,10 +67,10 @@ class Show:
         Plot the individual deconvolved peaks with a semi-transparent fill to demonstrate overlap
         '''
         def plot_peak(df, ax):
-            peak_idx = df.loc[0,'peak_idx']
+            p_idx = df.loc[0,'p_idx']
             
             x = df['time']
-            y = df['unmixed_amp']
+            y = df['amp_unmixed']
             
             x = np.asarray(x, dtype=np.float64)
             y = np.asarray(y, dtype=np.float64)
@@ -81,12 +81,12 @@ class Show:
             
             facecolor = pc.get_facecolor()
             # see https://matplotlib.org/stable/users/explain/axes/legend_guide.html#creating-artists-specifically-for-adding-to-the-legend-aka-proxy-artists
-            patch = mpatches.Patch(color=facecolor, label=peak_idx)
+            patch = mpatches.Patch(color=facecolor, label=p_idx)
             ax.legend(handles=[patch])
             
-            # ax.annotate(df['peak_idx'][0], xy=[])
+            # ax.annotate(df['p_idx'][0], xy=[])
             return ax
         
-        ax = unmixed_df.groupby('peak_idx').apply(plot_peak, ax)
+        ax = unmixed_df.groupby('p_idx').apply(plot_peak, ax)
     
         return ax

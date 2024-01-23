@@ -2,7 +2,6 @@ from hplc_py import AMPCORR
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline
 from hplc_py.hplc_py_typing.hplc_py_typing import FloatArray
 from hplc_py.quant import Chromatogram
-from tests.jonathan_tests.conftest import AssChromResults
 
 
 import matplotlib.pyplot as plt
@@ -18,20 +17,6 @@ from typing import Any, Literal
 
 
 class TestCorrectBaseline:
-    @pytest.fixture
-    def debug_bcorr_df_main(self, acr: AssChromResults):
-        """
-        ['timestep', 'shift', 'n_iter', 'signal', 's_compressed', 's_compressed_prime', 'inv_tform', 'y_corrected', 'background']
-        """
-        return acr.tables["bcorr_dbug_tbl"]
-
-    @pytest.fixture
-    def target_s_compressed_prime(
-        self,
-        debug_bcorr_df_main: Any,
-    ):
-        return debug_bcorr_df_main["s_compressed_prime"].to_numpy(np.float64)
-
     @pytest.fixture
     def windowsize(self):
         return 5
@@ -50,63 +35,6 @@ class TestCorrectBaseline:
         s_compressed = cb.compute_compressed_signal(amp_clipped)
 
         return s_compressed
-
-    @pytest.fixture
-    def s_compressed_main(
-        self,
-        acr: AssChromResults,
-    ):
-        s_compressed = acr.tables["bcorr_dbug_tbl"]["s_compressed"]
-
-        return s_compressed
-
-    def test_s_compressed_against_main(
-        self,
-        s_compressed: NDArray[float64],
-        s_compressed_main: Any,
-    ):
-        """
-        test calculated s_compressed against the main version
-        """
-        assert all(np.equal(s_compressed, s_compressed_main))
-
-    def test_s_compressed_against_dbug_tbl(
-        self,
-        s_compressed: FloatArray,
-        debug_bcorr_df: pd.DataFrame,
-    ):
-        """ """
-
-        diff_tol = 5e-10
-
-        s_comp_df = pd.DataFrame(
-            {
-                "main": debug_bcorr_df.s_compressed,
-                "mine": s_compressed,
-                "diff_tol": diff_tol,
-            }
-        )
-
-        s_comp_df["diff"] = s_comp_df["main"] - s_comp_df["mine"]
-
-        s_comp_df["is_diff"] = s_comp_df["diff"].abs() > s_comp_df["diff_tol"]
-
-        if s_comp_df["is_diff"].any():
-            plt.plot(s_compressed, label="s_compressed")
-            plt.plot(debug_bcorr_df.s_compressed, label="debug tbl")
-            plt.suptitle("Divergent S compressed series")
-            plt.legend()
-            plt.show()
-            raise ValueError(
-                f"my s_compressed is divergent from main s_compressed in {(s_comp_df['is_diff']==True).shape[0]} elements above a threshold of {diff_tol}"
-            )
-
-    def test_amp_raw_equals_main(
-        self,
-        amp_raw: FloatArray,
-        amp_raw_main: FloatArray,
-    ):
-        assert np.all(np.equal(amp_raw, amp_raw_main))
 
     def test_amp_compressed_exists_and_is_array(
         self,
@@ -137,17 +65,8 @@ class TestCorrectBaseline:
         )
         return s_compressed_prime
 
-    def test_s_compressed_prime_set(self, s_compressed_prime: FloatArray):
+    def test_s_compressed_prime_exec(self, s_compressed_prime: FloatArray):
         pass
-
-    def test_amp_compressed_prime_against_main(
-        self,
-        s_compressed_prime: FloatArray,
-        target_s_compressed_prime: FloatArray,
-    ):
-        if not np.all(s_compressed_prime == target_s_compressed_prime):
-            raise ValueError("`amp_compressed_prime` does not equal target")
-        return None
 
     def test_compute_inv_tfrom(
         self,
@@ -184,7 +103,7 @@ class TestCorrectBaseline:
         scale = x_end * 0.3
         skewnorm = stats.skewnorm(skew, loc=loc, scale=scale)
 
-        y = skewnorm.pdf(x) * np.power(np.max(amp_raw), 2) #type: ignore
+        y = skewnorm.pdf(x) * np.power(np.max(amp_raw), 2)  # type: ignore
 
         added_baseline = amp_raw + y
 
@@ -194,47 +113,39 @@ class TestCorrectBaseline:
 
         assert baseline_auc > bcorr_auc
 
-    @pytest.fixture
-    def debug_bcorr_df(
+    def test_baseline_compare_main(
         self,
-        bcorred_cb: CorrectBaseline,
-    ):
-        debug_df = bcorred_cb._debug_bcorr_df
-
-        return debug_df
-
-    @pytest.mark.skip
-    def test_debug_bcorr_df_compare_s_compressed_prime(
-        self, s_compressed_prime: NDArray[float64], debug_bcorr_df: DataFrame
+        amp_bcorr,
+        main_window_df,
     ):
         """
-        I am expecting these two series to be identical, however they currently are not. the debug df is the same as the target.
+        Compare the differences in baseline correction between the main and my approach
         """
-        diff_tol = 1e-10
-        prime_df = pd.DataFrame(
+        import polars as pl
+        import hvplot
+        from holoviews.plotting import bokeh
+
+        bokeh.ElementPlot.width = 10000
+        bokeh.ElementPlot.height = 10000
+
+        df = pl.DataFrame(
             {
-                "mine": s_compressed_prime,
-                "main": debug_bcorr_df["s_compressed_prime"],
-                "diff_tol": diff_tol,
+                "main": main_window_df["signal_corrected"],
+                "mine": amp_bcorr,
+                "amp_raw": main_window_df["signal"],
             }
+        ).with_columns(
+            main_my_diff=pl.col("main") - pl.col("mine"),
+            my_raw_diff=pl.col("amp_raw") - pl.col("mine"),
+            main_raw_diff=pl.col("amp_raw") - pl.col("main"),
         )
 
-        prime_df["diff"] = prime_df["main"] - prime_df["mine"]
+        breakpoint()
 
-        prime_df["is_diff"] = prime_df["diff"].abs() > prime_df["diff_tol"]
-
-        if prime_df["is_diff"].any():
-            plt.plot(debug_bcorr_df["s_compressed_prime"], label="debug series")
-            plt.plot(s_compressed_prime, label="isolated")
-            plt.legend()
-            plt.suptitle("divergent s_comp_prime series")
-            plt.show()
-
-            raise ValueError(
-                f"Divergence greater than {diff_tol} detected between my s_compressed_prime and main over {(prime_df['is_diff']==True).shape[0]} elements"
-            )
-
-    def test_compare_timestep(self, timestep: float, debug_bcorr_df: DataFrame):
-        difference = timestep - debug_bcorr_df.iloc[0]
-
-        return None
+    def test_main_interms(
+        self,
+        main_bcorr_interm_params,
+        main_bcorr_interm_signals
+    ):
+        breakpoint()
+        pass

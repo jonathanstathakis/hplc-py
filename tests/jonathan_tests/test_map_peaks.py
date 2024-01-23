@@ -1,3 +1,7 @@
+import polars as pl
+pl.Config(set_tbl_cols=50)
+import polars.selectors as ps
+import polars.testing as polt
 
 from typing import Any, Literal
 
@@ -24,7 +28,6 @@ from hplc_py.map_signals.map_peaks import (
 
 
 class TestMapPeaksFix:
-    
     @pytest.fixture
     def mpm(
         self,
@@ -32,11 +35,11 @@ class TestMapPeaksFix:
         mpm = MapPeaksMixin()
 
         return mpm
-    
+
     @pytest.fixture
     def mp(
         self,
-    )->MapPeaks:
+    ) -> MapPeaks:
         mp = MapPeaks()
         return mp
 
@@ -57,7 +60,6 @@ class TestMapPeaksFix:
         mpm: MapPeaksMixin,
         wlen: None,
     ) -> DataFrame[FindPeaks]:
-        
         fp = mpm._set_fp_df(
             amp_bcorr,
             time,
@@ -87,18 +89,12 @@ class TestMapPeaksFix:
         fp: DataFrame[FindPeaks],
         whh_rel_height: float,
     ) -> DataFrame[WHH]:
-        
-        
-        whh = DataFrame[WHH](mpm.width_df_factory(
-            amp_bcorr,
-            fp,
-            whh_rel_height,
-            None,
-            'whh'
-        ))
+        whh = DataFrame[WHH](
+            mpm.width_df_factory(amp_bcorr, fp, whh_rel_height, None, "whh")
+        )
 
         return whh
-    
+
     @pytest.fixture
     def pb(
         self,
@@ -107,34 +103,10 @@ class TestMapPeaksFix:
         fp: DataFrame[FindPeaks],
         pb_rel_height: float,
     ) -> DataFrame[PeakBases]:
-        
-        pb_ = mpm.width_df_factory(
-            amp_bcorr,
-            fp,
-            pb_rel_height,
-            None,
-            'pb'
-        )
+        pb_ = mpm.width_df_factory(amp_bcorr, fp, pb_rel_height, None, "pb")
         pb = DataFrame[PeakBases](pb_)
 
         return pb
-
-
-    @pytest.fixture
-    def pm(
-        self,
-        mpm: MapPeaksMixin,
-        fp: DataFrame[FindPeaks],
-        whh: DataFrame[WHH],
-        pb: DataFrame[PeakBases],
-    ) -> DataFrame[PeakMap]:
-        
-        pm = mpm._set_peak_map(
-            fp,
-            whh,
-            pb,
-        )
-        return pm
 
     @pytest.fixture
     def mpp(
@@ -149,51 +121,128 @@ class TestMapPeaksFix:
 
 
 class TestMapPeaksMixin(TestMapPeaksFix):
-    
     def test_set_fp(
         self,
         fp: DataFrame[FindPeaks],
-    ):  
-        
-        fp = fp.reset_index(drop=True).rename_axis(index='idx')
-        
-        import pytest; pytest.set_trace()
-        
+    ):
+        fp = fp.reset_index(drop=True).rename_axis(index="idx")
+
+        import pytest
+
+        pytest.set_trace()
+
         try:
             FindPeaks.validate(fp, lazy=True)
         except pa.errors.SchemaError as e:
             e.add_note(f"\n{e.data}")
             e.add_note(f"\n{e.failure_cases}")
-            
 
     def test_set_whh(
         self,
         whh: DataFrame[WHH],
     ) -> None:
-        
-        import pytest; pytest.set_trace()
+        import pytest
+
+        pytest.set_trace()
         WHH(whh)
-        
+
     def test_set_pb(
         self,
         pb: DataFrame[PeakBases],
     ) -> None:
         PeakBases(pb)
+
+    def test_compare_input_amp(
+        self,
+        main_peak_widths_amp_input,
+        amp_bcorr,
+        main_chm_asschrom_fitted_pk
+    ):
         
+        df = pl.DataFrame({"main":main_peak_widths_amp_input, "mine":amp_bcorr}).with_columns(diff=pl.col('main')-pl.col('mine'))
+        
+        breakpoint()
+        
+    
     def test_set_peak_map(
         self,
         pm: DataFrame[PeakMap],
     ) -> None:
-        
-        import pytest; pytest.set_trace()
+        import pytest
+
+        pytest.set_trace()
         PeakMap(pm)
+
+    def test_peak_map_compare(self, pm, main_peak_map, main_chm_asschrom_fitted_pk):
+
+        mpm = pl.from_pandas(main_peak_map)
+        pm = pl.from_pandas(pm)
+
+
+        mpm = mpm.with_columns(
+            ps.matches("^*._left$|^*._right$").cast(pl.Int64),
+        )
+
+        pm = (
+            pm.drop(
+                [
+                    "prom",
+                    "prom_right",
+                    "prom_left",
+                    "time",
+                    "amp",
+                    "whh_rel_height",
+                    "pb_rel_height",
+                    "time_idx",
+                ]
+            )
+            .rename(
+                {
+                    "whh_width": "whh",
+                }
+            )
+            .with_columns(
+                ps.matches("^*._left$|^*._right$").cast(pl.Int64),
+                p_idx=pl.col("p_idx").cast(pl.UInt32),
+            )
+        )
+
+
+        pm_ = pm.with_columns(source=pl.lit("mine")).melt(id_vars=["source", "p_idx"])
+        mpm_ = (
+            mpm.with_row_index("p_idx")
+            .with_columns(source=pl.lit("main"))
+            .melt(id_vars=["source", "p_idx"])
+        )
+        breakpoint()
+        df = pl.concat([pm_, mpm_])
+        df = (df.pivot(
+            columns="source", values="value", index=["p_idx", "variable"]
+        )
+            .with_columns(
+                diff=(pl.col("mine") - pl.col("main")).abs(),
+                tol_perc=pl.lit(0.05),
+                av_hz=pl.sum_horizontal('mine','main')/2,
+            )
+            .with_columns(
+                tol_limit=pl.col("av_hz") * pl.col("tol_perc"),
+            )
+            .with_columns(
+                tol_pass=pl.col("diff") <= pl.col("tol_limit"),
+            )
+        )
         
+        
+        # polt.assert_frame_equal(mpm, pm.drop(['p_idx','time_idx']))
+        breakpoint()
+        pass
+
+
 class TestMapPeaks(TestMapPeaksFix):
     def test_map_peaks(
         self,
         pm: DataFrame[PeakMap],
-    )->None:
-        
+    ) -> None:
         PeakMap(pm, lazy=True)
 
 
@@ -201,48 +250,39 @@ class TestDFrameChecks:
     @pytest.fixture
     def dfc(
         self,
-    )->DFrameChecks:
-        
+    ) -> DFrameChecks:
         dfc = DFrameChecks()
-        
+
         return dfc
-    
+
     @pytest.fixture
-    def empty_df(
-        self
-    ):
+    def empty_df(self):
         df = pd.DataFrame()
-        return df    
-    
+        return df
+
     @pytest.fixture
-    def not_df(
-        self
-    ):
-       x = 0
-       
-       return x
-    
+    def not_df(self):
+        x = 0
+
+        return x
+
     def test_check_df_not_df(
         self,
         dfc: DFrameChecks,
         not_df: Any,
-    )->None:
-        
+    ) -> None:
         try:
             dfc._check_df(not_df)
         except TypeError:
             pass
-        
+
     def test_check_df_empty(
         self,
         dfc: DFrameChecks,
         empty_df: pd.DataFrame,
-    )->None:
-        
+    ) -> None:
         try:
-            dfc._check_df(
-                empty_df
-            )
+            dfc._check_df(empty_df)
         except ValueError:
             pass
 
@@ -268,9 +308,8 @@ class TestMapPeakPlots(TestMapPeaksFix, TestDFrameChecks):
         time_colname: Literal["time"],
         bcorr_colname: Literal["amp_corrected"],
     ) -> None:
-        
         PeakMap(pm)
-        
+
         mpp._plot_signal_factory(bcorred_signal_df, time_colname, bcorr_colname)
 
         mpp._plot_peaks(
@@ -292,7 +331,7 @@ class TestMapPeakPlots(TestMapPeaksFix, TestDFrameChecks):
         timestep: float,
     ) -> None:
         mpp._plot_signal_factory(bcorred_signal_df, time_colname, bcorr_colname)
-        
+
         mpp.plot_whh(pm, mpm._whh_h_col, mpm._whh_l_col, mpm._whh_r_col, timestep)
 
         plt.show()
@@ -318,14 +357,14 @@ class TestMapPeakPlots(TestMapPeaksFix, TestDFrameChecks):
             mpm._pmaxima_col,
         )
         mpp.plot_whh(pm, mpm._whh_h_col, mpm._whh_l_col, mpm._whh_r_col, timestep)
-        
+
         mpp.plot_bases(
             pm,
             mpm._pb_h_col,
             mpm._pb_l_col,
             mpm._pb_r_col,
             timestep,
-            plot_kwargs={"marker":"+"}
+            plot_kwargs={"marker": "+"},
         )
 
         plt.show()

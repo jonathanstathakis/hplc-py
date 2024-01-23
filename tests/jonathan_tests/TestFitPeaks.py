@@ -1,6 +1,5 @@
 from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFInBase
 from hplc_py.quant import Chromatogram
-from tests.jonathan_tests.conftest import AssChromResults
 
 
 import pandera as pa
@@ -42,12 +41,3 @@ class TestFitPeaks:
         fitted_chm: Chromatogram,
     ):
         assert fitted_chm
-
-    def test_compare_timesteps(
-        self,
-        acr: AssChromResults,
-        timestep: float,
-    ):
-        assert (
-            acr.timestep == timestep
-        ), f"timesteps are not equal. {acr.timestep, timestep}"

@@ -17,14 +17,12 @@ from pandera.typing.pandas import DataFrame
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     Params,
     Popt,
-    Recon,
+    PSignals,
     SignalDF,
 )
 from hplc_py.hplc_py_typing.interpret_model import interpret_model
 from hplc_py.map_signals.map_peaks import PeakMap
 from hplc_py.quant import Chromatogram
-
-from .conftest import AssChromResults
 
 OutPeakDFAssChrom = PeakMap
 
@@ -175,22 +173,6 @@ def schema_error_str_long_frame(schema, e, df):
 manypeakspath = "/Users/jonathan/hplc-py/tests/test_data/test_many_peaks.csv"
 asschrompath = "tests/test_data/test_assessment_chrom.csv"
 
-
-def test_acr(acr: AssChromResults):
-    assert acr
-    pass
-
-
-def test_param_df_adapter(acr: AssChromResults):
-    param_df = acr.tables["asschrom_param_tbl"]
-
-    adapted_param_df = acr.adapt_param_df(param_df)
-    try:
-        Params(adapted_param_df)
-    except Exception as e:
-        raise RuntimeError(e)
-
-
 def check_df_exists(df):
     assert isinstance(df, pd.DataFrame)
     assert df.all
@@ -200,15 +182,6 @@ def check_df_exists(df):
 def test_target_window_df_exists(target_window_df: Any):
     check_df_exists(target_window_df)
     pass
-
-
-def test_get_asschrom_results(acr: AssChromResults):
-    """
-    Simply test whether the member objects of AssChromResults are initialized.
-    """
-
-    for tbl in acr.tables:
-        check_df_exists(acr.tables[tbl])
 
 
 def test_timestep_exists_and_greater_than_zero(timestep: float):
@@ -270,13 +243,13 @@ class TestShow:
 
     @pytest.fixture
     def popt_df(
-        self, decon_out: tuple[DataFrame[Popt], DataFrame[Recon]]
+        self, decon_out: tuple[DataFrame[Popt], DataFrame[PSignals]]
     ):
         return decon_out[0]
 
     @pytest.fixture
     def popt_df(
-        self, decon_out: tuple[DataFrame[Popt], DataFrame[Recon]]
+        self, decon_out: tuple[DataFrame[Popt], DataFrame[PSignals]]
     ):
         return decon_out[0]
 
@@ -295,20 +268,20 @@ class TestShow:
         self,
         chm: Chromatogram,
         fig_ax: tuple[Figure, Any],
-        unmixed_df: DataFrame[Recon],
+        psignals: DataFrame[PSignals],
     ):
-        chm._show.plot_reconstructed_signal(unmixed_df, fig_ax[1])
+        chm._show.plot_reconstructed_signal(psignals, fig_ax[1])
 
     def test_plot_individual_peaks(
         self,
         chm: Chromatogram,
         fig_ax: tuple[Figure, Any],
-        unmixed_df: DataFrame[Recon],
+        psignals: DataFrame[PSignals],
     ):
         ax = fig_ax[1]
 
         chm._show.plot_individual_peaks(
-            unmixed_df,
+            psignals,
             ax,
         )
 
@@ -317,7 +290,7 @@ class TestShow:
         chm: Chromatogram,
         fig_ax: tuple[Figure, Any],
         signal_df: DataFrame,
-        unmixed_df: DataFrame[Recon],
+        psignals: DataFrame[PSignals],
     ):
         fig = fig_ax[0]
         ax = fig_ax[1]
@@ -326,10 +299,10 @@ class TestShow:
             ax,
         )
         chm._show.plot_reconstructed_signal(
-            unmixed_df,
+            psignals,
             ax,
         )
         chm._show.plot_individual_peaks(
-            unmixed_df,
+            psignals,
             ax,
         )

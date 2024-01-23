@@ -423,7 +423,7 @@ class MapPeaksMixin:
         # 'denormalize' the prominence input to put it on the scale of amp
         prom_ = prominence * amp.max()
 
-        peak_idx, _dict = signal.find_peaks(
+        p_idx, _dict = signal.find_peaks(
             amp,
             prominence=prom_,
             wlen=wlen,
@@ -432,9 +432,9 @@ class MapPeaksMixin:
 
         fp_: pd.DataFrame = pd.DataFrame(
             {
-                self._ptime_idx_col: peak_idx,
-                self._ptime_col: time[peak_idx],
-                self._pmaxima_col: amp[peak_idx],
+                self._ptime_idx_col: p_idx,
+                self._ptime_col: time[p_idx],
+                self._pmaxima_col: amp[p_idx],
                 **_dict,
             }
         ).reset_index(drop=True).reset_index(names=self._pidx_col).rename_axis(index=self._idx_name)
@@ -493,6 +493,7 @@ class MapPeaksMixin:
 
         :prefix: is used to prefix the column labels, i.e. measured at half is 'whh'
         """
+        
 
         rel_h_key = prefix + "_rel_height"
         w_key = prefix + "_width"
@@ -507,6 +508,8 @@ class MapPeaksMixin:
                 fp_df[self._prom_rb_col].to_numpy(np.int64),
             ]
         )
+        
+        
 
         time_idx = fp_df[self._ptime_idx_col].to_numpy(np.int64)
 

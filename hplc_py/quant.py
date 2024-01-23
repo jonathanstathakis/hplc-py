@@ -42,8 +42,8 @@ from hplc_py.fit_assessment import FitAssessment
 from hplc_py import show 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDF,
-    Recon,
-    OutPeakReportBase,
+    PSignals,
+    PReport,
 )
 
 from typing import TypedDict
@@ -86,7 +86,7 @@ class Chromatogram(LoadData):
         fwindows_kwargs: dict={},
         deconvolve_kwargs: dict={},
         verbose: bool=True,
-    )->tuple[pt.DataFrame[OutPeakReportBase], pt.DataFrame[Recon]]:
+    )->tuple[pt.DataFrame[PReport], pt.DataFrame[PSignals]]:
         '''
         Process master method
         '''

@@ -20,8 +20,8 @@ from typing import Type
 from hplc_py import AMPRAW, AMPCORR
 
 class WindowedSignal(BaseDF):
-    window_type: pd.StringDtype
-    window_idx: pd.Int64Dtype
+    w_type: pd.StringDtype
+    w_idx: pd.Int64Dtype
     time_idx: pd.Int64Dtype
     time: pd.Float64Dtype
     amp: pd.Float64Dtype=pa.Field(regex=f"\b({AMPRAW}|{AMPCORR})\b")
@@ -30,20 +30,20 @@ class WindowedSignal(BaseDF):
 class PeakWindows(BaseDF):
     time_idx: pd.Int64Dtype
     time: pd.Float64Dtype
-    window_idx: pd.Int64Dtype
-    window_type: pd.StringDtype
+    w_idx: pd.Int64Dtype
+    w_type: pd.StringDtype
 
     class Config:
         strict = True
 
 
 class IPBounds(BaseDF):
-    ip_window_idx: pd.Int64Dtype
+    ip_w_idx: pd.Int64Dtype
     ip_bound: pd.StringDtype
     time_idx: pd.Int64Dtype
-    ip_window_type: pd.StringDtype
+    ip_w_type: pd.StringDtype
 
-    @pa.check("ip_window_idx", name="check_w_idx_increasing")
+    @pa.check("ip_w_idx", name="check_w_idx_increasing")
     def check_monotonic_increasing_w_idx(cls, s: Series[pd.Int64Dtype]) -> bool:
         return s.is_monotonic_increasing
 
@@ -62,16 +62,16 @@ class PWdwdTime(BaseDF):
 
     time_idx: pd.Int64Dtype
     time: pd.Float64Dtype
-    window_idx: pd.Int64Dtype = pa.Field(nullable=True)
-    window_type: pd.StringDtype = pa.Field(nullable=True)
+    w_idx: pd.Int64Dtype = pa.Field(nullable=True)
+    w_type: pd.StringDtype = pa.Field(nullable=True)
 
     class Config:
         strict = True
 
 
 class WindowedTime(PWdwdTime):
-    window_idx: pd.Int64Dtype
-    window_type: pd.StringDtype
+    w_idx: pd.Int64Dtype
+    w_type: pd.StringDtype
 
 
 @dataclass
@@ -92,7 +92,7 @@ class MapWindowsMixin:
             - if no overlap, move to next interval
     - combine the intervals if they overlap
     - mask the time index with the overlap index, unmasked intervals labeled as 'nonpeak'
-    outcome: two level index: window_type, window_num. window_type has two vals: 'peak', 'nonpeak'
+    outcome: two level index: w_type, window_num. w_type has two vals: 'peak', 'nonpeak'
     """
 
     def _is_not_empty(
@@ -155,12 +155,12 @@ class MapWindowsMixin:
         intvls: Series[pd.Interval],
     ) -> dict[int, list[int]]:
         """
-        For a Series of closedpd.Interval objects, sort them into windows based on whether they overlap. Returns a dict of window_idx: interval list. for later combination.
+        For a Series of closedpd.Interval objects, sort them into windows based on whether they overlap. Returns a dict of w_idx: interval list. for later combination.
 
         iterating through the intervals starting at zero, compare to the set of values
         already assigned to window indexes (initally none), if the interval index is already
-        present, continue to the next interval, else set up a new window_idx list, and
-        if the i+1th interval overlaps with interval i, assign it to the current window_idx.
+        present, continue to the next interval, else set up a new w_idx list, and
+        if the i+1th interval overlaps with interval i, assign it to the current w_idx.
         if no more intervals overlap, move to the next window index and the next interval iteration.
         """
 
@@ -231,7 +231,7 @@ class MapWindowsMixin:
     ) -> DataFrame[PeakWindows]:
         """
         Given a dict of Interval objects, subset the time series by the bounds of the
-        Interval, then label the subset with the window_idx, also labeling window type.
+        Interval, then label the subset with the w_idx, also labeling window type.
         """
 
         intvl_times = []
@@ -246,15 +246,15 @@ class MapWindowsMixin:
                 }
             )
 
-            time_intvl["window_idx"] = i
-            time_intvl["window_type"] = "peak"
+            time_intvl["w_idx"] = i
+            time_intvl["w_type"] = "peak"
 
             time_intvl = time_intvl.astype(
                 {
                     "time_idx": pd.Int64Dtype(),
                     "time": pd.Float64Dtype(),
-                    "window_idx": pd.Int64Dtype(),
-                    "window_type": pd.StringDtype(),
+                    "w_idx": pd.Int64Dtype(),
+                    "w_type": pd.StringDtype(),
                 }
             )
 
@@ -289,8 +289,8 @@ class MapWindowsMixin:
         )
 
         # label the peak windows
-        wdwd_time["window_type"] = wdwd_time["window_type"].where(
-            wdwd_time["window_type"] == "peak", np.nan
+        wdwd_time["w_type"] = wdwd_time["w_type"].where(
+            wdwd_time["w_type"] == "peak", np.nan
         )
         try:
             wdwd_time = DataFrame[PWdwdTime](wdwd_time)
@@ -317,12 +317,12 @@ class MapWindowsMixin:
     ) -> DataFrame[WindowedTime]:
         labels = self._get_na_labels(pwdwd_time, w_idx_col)
 
-        pwdwd_time["window_idx"] = pwdwd_time["window_idx"].mask(
-            pwdwd_time["window_idx"].isna(), Series(labels - 1)
+        pwdwd_time["w_idx"] = pwdwd_time["w_idx"].mask(
+            pwdwd_time["w_idx"].isna(), Series(labels - 1)
         )
 
-        pwdwd_time["window_type"] = pwdwd_time["window_type"].mask(
-            pwdwd_time["window_type"].isna(), "interpeak"
+        pwdwd_time["w_type"] = pwdwd_time["w_type"].mask(
+            pwdwd_time["w_type"].isna(), "interpeak"
         )
 
         wdwd_time: DataFrame[WindowedTime] = DataFrame[WindowedTime](
@@ -341,7 +341,7 @@ class MapWindowsMixin:
         
         ws['amp']=Series[pd.Float64Dtype](amp, dtype=pd.Float64Dtype())
 
-        ws = ws.set_index(['window_type','window_idx','time_idx','time',]).reset_index().rename_axis(index='idx')
+        ws = ws.set_index(['w_type','w_idx','time_idx','time',]).reset_index().rename_axis(index='idx')
         
         try:
             ws = DataFrame[WindowedSignal](ws)
@@ -369,7 +369,7 @@ class MapWindowsMixin:
         pw: DataFrame[PeakWindows] = self._set_peak_windows(w_intvls, time)
         pwt: DataFrame[PWdwdTime] = self._set_peak_wndwd_time(time, pw)
         wt: DataFrame[WindowedTime] = self._label_interpeaks(
-            pwt, str(self.pwdt_sc.window_idx)
+            pwt, str(self.pwdt_sc.w_idx)
         )
 
         return wt
@@ -420,13 +420,13 @@ class MapWindowPlots(MapPeakPlots):
         
         
         
-        window_stats = ws.groupby([self.ws_sch.window_type, self.ws_sch.window_idx])[self.ws_sch.time].agg(['min','max'])
+        window_stats = ws.groupby([self.ws_sch.w_type, self.ws_sch.w_idx])[self.ws_sch.time].agg(['min','max'])
         
         rh = height*1.05
         
         # peak windows
         rectangles = []
-        for k, g in window_stats.groupby([self.ws_sch.window_type,self.ws_sch.window_idx]):
+        for k, g in window_stats.groupby([self.ws_sch.w_type,self.ws_sch.w_idx]):
             x0 = g['min'].iat[0]
             y0 = 0
             width = g['max'].iat[0]-x0

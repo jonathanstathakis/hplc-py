@@ -36,23 +36,7 @@ class TestMapWindowsFix:
         
         mwm = MapWindowsMixin()
         return mwm
-    
-    @pytest.fixture
-    def mw(
-        self,
-    )->MapWindows:
-        mw = MapWindows()
-        
-        return mw
-    @pytest.fixture
-    def pm(
-        self,
-        amp_bcorr: Series[pd.Float64Dtype],
-        time: Series[pd.Float64Dtype],
-    )-> DataFrame[PeakMap]:
-        mp = MapPeaks()
-        pm = mp.map_peaks(amp_bcorr, time,)
-        return pm
+
     
     @pytest.fixture
     def time_idx(
@@ -145,7 +129,7 @@ class TestMapWindowsFix:
     )->DataFrame[WindowedTime]:
         
         wdwd_time: DataFrame[WindowedTime] = mwm._label_interpeaks(
-            pwdwd_time, mwm.pwdt_sc.window_idx
+            pwdwd_time, mwm.pwdt_sc.w_idx
         )
         
         return wdwd_time

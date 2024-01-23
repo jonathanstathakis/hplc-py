@@ -1,4 +1,12 @@
-from scipy.optimize._lsq.common import in_bounds #type: ignore
+from typing import Any
+import polars as pl
+
+import pytest
+import hplc
+from pandera.typing import DataFrame
+import typing
+import pandas as pd
+from scipy.optimize._lsq.common import in_bounds  # type: ignore
 import os
 
 import pytest
@@ -11,10 +19,10 @@ import numpy as np
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     SignalDFInBase,
     SignalDFInAssChrom,
-    OutPeakReportBase,
+    PReport,
     P0,
     Bounds,
-    Recon,
+    PSignals,
     Popt,
     Params,
     isArrayLike,
@@ -24,122 +32,9 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 from hplc_py.quant import Chromatogram
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
 from hplc_py.map_signals.map_peaks import MapPeaks
-from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper
+from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PeakDeconvolver
 from hplc_py.misc.misc import TimeStep, LoadData
 import json
-
-
-class AssChromResults:
-    """
-    The results of 'fit_peaks' on the 'test_assessment_chrom' dataset
-
-    to add:
-
-    - [x] timestep. Has been added as a column of 'param_df'
-
-    """
-
-    def __init__(self):
-        """
-        load results tables from the main project from parquet files whose paths are
-        given as a json file. store the tables as a member dict.
-        """
-
-        in_basepath = (
-            "/Users/jonathan/hplc-py/tests/jonathan_tests/main_asschrom_results"
-        )
-        paths_json_inpath = os.path.join(in_basepath, "filepaths.json")
-
-        with open(paths_json_inpath, "r") as f:
-            self.paths_dict = json.load(f)
-
-        self.tables = {}
-
-        # keys: ['peaks', 'unmixed', 'asschrom_param_tbl', 'mixed_signals', 'bcorr_dbug_tbl', 'window_df']
-        for name, path in self.paths_dict.items():
-            self.tables[name] = pd.read_parquet(path)
-        self.tables["adapted_param_tbl"] = self.adapt_param_df(
-            self.tables["asschrom_param_tbl"]
-        )
-
-        return None
-
-    def adapt_param_df(self, param_df):
-        """
-        adapt main param_df to be expressed as per the definition that `popt_factory` is expecting
-
-        """
-
-        self.timestep = self.tables["asschrom_param_tbl"].loc[0, "timestep"]
-
-        #
-        df: DataFrame = param_df.copy(deep=True)
-
-        # assign inbounds column
-        df["inbounds"] = df.apply(lambda x: in_bounds(x["p0"], x["lb"], x["ub"]), axis=1)  # type: ignore
-
-        # replace parameter values to match my labels
-        df["param"] = df["param"].replace(
-            {
-                "amplitude": "amp",
-                "location": "loc",
-                "scale": "whh",
-            }
-        )
-
-        # set param column as ordered categorical
-        df["param"] = pd.Categorical(
-            values=df["param"], categories=df["param"].unique(), ordered=True
-        )
-
-        # provide an ascending peak idx col irrespective of windows
-        pattern = np.asarray([0, 1, 2, 3], dtype=np.int64)
-        repeats = np.int64(len(df)/4)
-        df["peak_idx"] = np.repeat(pattern, repeats)
-
-        # remove the timestep col
-        df_: pd.DataFrame | None = df.drop(["timestep"], axis=1, errors='raise')
-
-        return df_
-
-    def get_results_paths(self):
-        out_basepath = (
-            "/Users/jonathan/hplc-py/tests/jonathan_tests/main_asschrom_results"
-        )
-
-        ptable_outpath = os.path.join(out_basepath, "asschrom_peak_table.parquet")
-        unmixed_outpath = os.path.join(out_basepath, "asschrom_unmixed.parquet")
-        param_df_outpath = os.path.join(out_basepath, "param_df.parquet")
-        mixed_signals_outpath = os.path.join(
-            out_basepath, "asschrom_mixedsignals.parquet"
-        )
-
-        return {
-            "param_outpath": param_df_outpath,
-            "ptable_outpath": ptable_outpath,
-            "unmixed_outpath": unmixed_outpath,
-            "mixed_outpath": mixed_signals_outpath,
-        }
-
-
-@pytest.fixture
-def acr():
-    acr = AssChromResults()
-    return acr
-
-
-@pytest.fixture
-def amp_raw_main(
-    acr: AssChromResults,
-):
-    amp_raw = acr.tables["mixed_signals"]["y"]
-
-    return amp_raw
-
-
-@pytest.fixture
-def target_window_df(acr):
-    return acr.tables["peaks"]
 
 
 @pytest.fixture
@@ -148,7 +43,6 @@ def datapath():
 
 
 @pytest.fixture
-@pa.check_types
 def in_signal(datapath: str) -> DataFrame[SignalDFInBase]:
     data = pd.read_csv(datapath)
 
@@ -157,7 +51,6 @@ def in_signal(datapath: str) -> DataFrame[SignalDFInBase]:
     return data
 
 
-@pa.check_types
 def test_in_signal_matches_schema(in_signal: DataFrame[SignalDFInBase]) -> None:
     "currently in signal is asschrom"
     SignalDFInAssChrom(in_signal)
@@ -171,7 +64,7 @@ def chm():
 
 @pytest.fixture
 def time(in_signal: DataFrame[SignalDFInBase]):
-    return Series(in_signal['time'], dtype=pd.Float64Dtype())
+    return Series(in_signal["time"], dtype=pd.Float64Dtype())
 
 
 @pytest.fixture
@@ -182,7 +75,6 @@ def ts():
 
 @pytest.fixture
 def timestep(ts: TimeStep, time: FloatArray) -> np.float64:
-    
     timestep: np.float64 = ts.compute_timestep(Series(time, dtype=pd.Float64Dtype()))
 
     return timestep
@@ -256,11 +148,11 @@ def bcorred_cb(
 
     return loaded_cb
 
+
 @pytest.fixture
-def bcorred_signal_df(bcorred_cb: CorrectBaseline)->DataFrame[SignalDFBCorr]:
-    
+def bcorred_signal_df(bcorred_cb: CorrectBaseline) -> DataFrame[SignalDFBCorr]:
     bcorred_signal_df = DataFrame[SignalDFBCorr](bcorred_cb._signal_df)
-    
+
     return bcorred_signal_df
 
 
@@ -280,23 +172,6 @@ def background(bcorrected_signal_df, background_colname):
 
 
 @pytest.fixture
-def amp_cn(
-    chm: Chromatogram, amp_bcorr: FloatArray
-) -> FloatArray:
-    """
-    ``int_cn` has the base data as the first element of the namespace then the process
-    in order. i.e. intensity: [corrected, normalized]
-    """
-    int_cn = chm._ms.normalize_series(amp_bcorr)
-
-    assert any(int_cn)
-    assert isArrayLike(int_cn)
-    assert np.min(int_cn >= 0)
-    assert np.max(int_cn <= 1)
-
-    return int_cn
-
-@pytest.fixture
 def time_colname():
     return "time"
 
@@ -304,6 +179,7 @@ def time_colname():
 @pytest.fixture
 def amp_colname():
     return "amp_raw"
+
 
 @pytest.fixture
 def mp():
@@ -316,83 +192,39 @@ def dp():
     dp = DataPrepper()
     return dp
 
+
 @pytest.fixture
 def int_col():
     return "amp_corrected"
 
 
 @pytest.fixture
-def xdata(
-    signal_df,
-):
-    return signal_df["time"]
-
-
-@pytest.fixture
-def unmixed_df(
+def psignals(
     chm: Chromatogram,
-    xdata: FloatArray,
+    time: FloatArray,
     stored_popt: DataFrame[Popt],
 ):
-    unmixed_df = chm._deconvolve._reconstruct_peak_signal(xdata, stored_popt)
+    psignals = chm._deconvolve._construct_peak_signals(time, stored_popt)
 
-    return unmixed_df
+    return psignals
 
 
 @pytest.fixture
 def peak_report(
-    chm: Chromatogram,
+    dc: PeakDeconvolver,
     stored_popt: DataFrame[Popt],
-    unmixed_df: DataFrame[Recon],
+    psignals: DataFrame[PSignals],
     timestep: np.float64,
-) -> OutPeakReportBase:
-    peak_report = chm._deconvolve._get_peak_report(
+) -> PReport:
+    peak_report = dc._get_peak_report(
         stored_popt,
-        unmixed_df,
+        psignals,
         timestep,
     )
-    return peak_report.pipe(DataFrame[OutPeakReportBase])  # type: ignore
 
+    peak_report = PReport.validate(peak_report, lazy=True)
 
-@pytest.fixture
-def windowed_signal_df(
-    chm: Chromatogram,
-    signal_df,
-    window_df,
-):
-    windowed_signal = chm._deconvolve.dataprepper._window_signal_df(
-        signal_df, window_df
-    )
-
-    return windowed_signal
-
-
-@pa.check_types
-@pytest.fixture
-def my_param_df(
-    chm: Chromatogram,
-    p0_df: DataFrame[P0],
-    default_bounds: DataFrame[Bounds],
-) -> DataFrame[Params]:
-    params = chm._deconvolve.dataprepper._param_df_factory(
-        p0_df,
-        default_bounds,
-    )
-
-    return params
-
-
-@pytest.fixture
-def popt_df(
-    chm: Chromatogram,
-    windowed_signal_df,
-    my_param_df,
-):
-    popt_df = chm._deconvolve._popt_factory(
-        windowed_signal_df,
-        my_param_df,
-    )
-    return popt_df
+    return peak_report  # type: i
 
 
 @pytest.fixture
@@ -411,15 +243,411 @@ def stored_popt(popt_parqpath):
     return pd.read_parquet(popt_parqpath)
 
 
-@pytest.fixture
-def fitted_chm(
-    chm: Chromatogram,
-    signal_df: DataFrame[SignalDFInBase],
-):
-    chm.set_signal_df(signal_df)
+from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PeakDeconvolver
 
-    chm.fit_peaks(
-        True,
+from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_windows import MapWindows, WindowedSignal
+
+
+@pytest.fixture
+def left_bases(
+    pm: DataFrame[PeakMap],
+) -> Series[pd.Int64Dtype]:
+    left_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
+        pm[PeakMap.pb_left], dtype=pd.Int64Dtype()
+    )
+    return left_bases
+
+
+@pytest.fixture
+def right_bases(
+    pm: DataFrame[PeakMap],
+) -> Series[pd.Int64Dtype]:
+    right_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
+        pm[PeakMap.pb_right], dtype=pd.Int64Dtype()
+    )
+    return right_bases
+
+
+@pytest.fixture
+def amp(
+    amp_bcorr: FloatArray,
+) -> Series[pd.Float64Dtype]:
+    amp: Series[pd.Float64Dtype] = Series(
+        amp_bcorr, name="amp", dtype=pd.Float64Dtype()
+    )
+    return amp
+
+
+from hplc_py.map_signals.map_windows import MapWindows, WindowedSignal
+
+
+@pytest.fixture
+def mw() -> MapWindows:
+    mw = MapWindows()
+    return mw
+
+
+@pytest.fixture
+def pm(
+    mp: MapPeaks,
+    amp: Series[pd.Float64Dtype],
+    time: Series[pd.Float64Dtype],
+) -> DataFrame[PeakMap]:
+    pm = mp.map_peaks(
+        amp,
+        time,
+    )
+    return pm
+
+
+@pytest.fixture
+def ws(
+    mw: MapWindows,
+    time: Series[pd.Float64Dtype],
+    amp: Series[pd.Float64Dtype],
+    left_bases: Series[pd.Float64Dtype],
+    right_bases: Series[pd.Float64Dtype],
+) -> DataFrame[WindowedSignal]:
+    ws = mw.window_signal(
+        left_bases,
+        right_bases,
+        time,
+        amp,
+    )
+    return ws
+
+
+@pytest.fixture
+def main_chm_asschrom_loaded(
+    in_signal: DataFrame,
+):
+    main_chm = hplc.quant.Chromatogram(
+        pd.DataFrame(
+            in_signal.rename(
+                columns={
+                    "amp_raw": "signal",
+                }
+            )
+        )
     )
 
-    return chm
+    return main_chm
+
+
+@pytest.fixture
+def main_chm_asschrom_fitted(
+    main_chm_asschrom_loaded: hplc.quant.Chromatogram,
+):
+    verbose = False
+    main_chm_asschrom_loaded.fit_peaks(verbose=verbose)
+    main_chm_asschrom_loaded.assess_fit(verbose=verbose)
+
+    return main_chm_asschrom_loaded
+
+
+@pytest.fixture
+def main_chm_asschrom_score(
+    main_chm_asschrom_fitted: hplc.quant.Chromatogram,
+):
+    main_chm_asschrom_fitted.assess_fit()
+
+    return main_chm_asschrom_fitted.scores
+
+
+@pytest.fixture
+def main_chm_asschrom_fitted_pkpth():
+    return "/Users/jonathan/hplc-py/tests/jonathan_tests/main_chm_asschrom_fitted.pk"
+
+
+@pytest.fixture
+def main_chm_asschrom_fitted_pk(
+    main_chm_asschrom_fitted_pkpth: str,
+):
+    import pickle
+
+    return pickle.load(open(main_chm_asschrom_fitted_pkpth, "rb"))
+
+@pytest.fixture
+def main_params(main_chm_asschrom_fitted_pk):
+    """
+    Returns the main asschrom curve fit parameters in long form.
+
+    columns: ['w_idx','p_idx','param','bng','val']
+    """
+    params = main_chm_asschrom_fitted_pk.params_jono
+
+    params: pl.DataFrame = pl.from_pandas(params).melt(
+        id_vars=["w_idx", "p_idx", "param"],
+        value_vars=["lb", "p0", "ub"],
+        variable_name="bng",
+        value_name="val",
+    )
+
+    return params
+
+@pytest.fixture
+def main_peak_report(main_chm_asschrom_fitted_pk):
+    peaks = (
+        pl.DataFrame(main_chm_asschrom_fitted_pk.peaks)
+        .drop("peak_id")
+        .with_row_index("p_idx")
+    )
+
+@pytest.fixture
+def main_scores(main_chm_asschrom_fitted_pk):
+    scores = pl.LazyFrame(
+        main_chm_asschrom_fitted_pk.scores.reset_index(drop=True)
+    ).with_columns(window_id=pl.col("window_id") - 1)
+
+    scores = scores.select([
+                "window_type",
+                "window_id",
+                "time_start",
+                "time_end",
+                "signal_area",
+                "inferred_area",
+                "signal_variance",
+                "signal_mean",
+                "signal_fano_factor",
+                "reconstruction_score",
+            ])
+
+    return scores
+
+@pytest.fixture
+def main_window_props_windowed_signal(main_chm_asschrom_fitted_pk: Any):
+    """
+    Extracts the main asschrom window properties and windowed input signals.
+    """
+    w_props_ = []
+    w_sigs_ = []
+    for w_idx, props in main_chm_asschrom_fitted_pk.window_props.items():
+        w_idx = int(w_idx) - 1
+
+        long_vars = ["time_range", "signal"]
+
+        w_prop = (
+            pl.DataFrame(
+                {
+                    "w_idx": w_idx,
+                    **{k: v for k, v in props.items() if k not in long_vars},
+                }
+            )
+            .with_row_index("p_idx")
+            .select(["w_idx", "p_idx", "amplitude", "location", "width"])
+        )
+
+        w_props_.append(w_prop)
+
+        w_sig = pl.DataFrame(
+            {"w_idx": w_idx, **{k: v for k, v in props.items() if k in long_vars}}
+        ).with_row_index("time_idx")
+
+        w_sigs_.append(w_sig)
+
+    w_props = pl.concat(w_props_)
+    w_sigs = pl.concat(w_sigs_)
+
+    return w_props, w_sigs
+
+@pytest.fixture
+def main_window_props(main_window_props_windowed_signal: tuple[Any, Any]):
+    """
+    The window properties of the main package asschrom signal as measured by `_assign_windows`
+    """
+    return main_window_props_windowed_signal[0]
+
+@pytest.fixture
+def main_windowed_peak_signals(
+    main_window_props_windowed_signal: tuple[Any, Any]
+):
+    """
+    The main package asschrom windowed input signal, not the reconstruction.
+
+    columns: 'time_idx','w_idx','time_range','signal'
+    """
+    return main_window_props_windowed_signal[1]
+
+@pytest.fixture
+def main_window_df(main_chm_asschrom_fitted_pk: Any):
+    window_df = (
+        pl.DataFrame(main_chm_asschrom_fitted_pk.window_df)
+        .select(
+            [
+                "window_type",
+                "window_id",
+                "time_idx",
+                "time",
+                "signal",
+                "signal_corrected",
+                "estimated_background",
+            ]
+        )
+        .with_columns(window_id=pl.col("window_id") - 1)
+    )
+    return window_df
+
+@pytest.fixture
+def main_unmixed_signals(main_chm_asschrom_fitted_pk: Any):
+    unmixed_signals = (
+        pl.DataFrame(main_chm_asschrom_fitted_pk.unmixed_chromatograms)
+        .with_row_index("time_idx")
+        .melt(id_vars="time_idx", value_name="amp_unmixed", variable_name="p_idx")
+        .with_columns(
+            p_idx=pl.col("p_idx").str.replace("column_", "").cast(pl.UInt32),
+        )
+    )
+    return unmixed_signals
+
+@pytest.fixture
+def main_extract_popt_and_peak_window_recon_signal(
+    main_chm_asschrom_fitted_pk: Any
+):
+    """
+    Extracts the peak properties and window reconstructed signals.
+
+    Args:
+        peak_props (dict): A dictionary containing the window peak properties.
+
+    Returns:
+        tuple: A tuple containing two pandas DataFrames - `popt` and `w_recon`.
+            - `popt`: DataFrame containing the extracted peak properties.
+            - `w_recon`: DataFrame containing the reconstructed signals of each peak in each window. these signals are reconstructed from the time interval between window [0] and window [n], rather than the whole time series.
+    """
+
+    popts = []
+    w_recons = []
+
+    long_cols = ["t_range", "reconstructed_signal"]
+    for w_idx, peaks in main_chm_asschrom_fitted_pk._peak_props.items():
+        w_idx = int(w_idx) - 1
+        for p_idx, props in peaks.items():
+            p_idx = int(p_idx.split("_")[1]) - 1
+
+            popts.append(
+                pl.DataFrame(
+                    {
+                        "w_idx": w_idx,
+                        "p_idx": p_idx,
+                        **{k: v for k, v in props.items() if k not in long_cols},
+                    }
+                )
+            )
+
+            w_recons.append(
+                pl.DataFrame(
+                    {
+                        "w_idx": w_idx,
+                        "p_idx": p_idx,
+                        **{k: v for k, v in props.items() if k in long_cols},
+                    }
+                )
+                .with_columns(
+                    time_idx=(pl.col("t_range") * 100).cast(pl.UInt32),
+                )
+                .rename({"t_range": "time"})
+            )
+
+    popt = (
+        pl.concat(popts)
+        .drop("p_idx")
+        .with_row_index("p_idx")
+        .select(
+            [
+                "w_idx",
+                "p_idx",
+                "amplitude",
+                "retention_time",
+                "scale",
+                "alpha",
+                "area",
+            ]
+        )
+    )
+    w_recon = pl.concat(w_recons)
+
+    return popt, w_recon
+
+@pytest.fixture
+def main_popt(
+    main_extract_popt_and_peak_window_recon_signal: tuple[Any, Any]
+):
+    """
+    Main package asschrom popt table.
+
+    present in wide form with columns: ['w_idx','p_idx','amplitude','retention_time', 'scale','alpha','area']
+    """
+    return main_extract_popt_and_peak_window_recon_signal[0]
+
+@pytest.fixture
+def main_peak_window_recon_signal(
+    main_extract_popt_and_peak_window_recon_signal: tuple[Any, Any],
+):
+    """
+    Main package asschrom windowed signal reconstructions.
+
+    These are the signals used to calculate the window area in the reconstruction scoring.
+
+    Present with columns: ['time_idx','w_idx','p_idx','w_recon_sig']
+    """
+
+    return main_extract_popt_and_peak_window_recon_signal[1]
+
+@pytest.fixture
+def main_peak_map(
+    main_chm_asschrom_fitted_pk
+):
+    """
+    Main pakcage asschrom peak map
+    
+    The data gathered from scipy peak widths
+    """
+    peak_map = main_chm_asschrom_fitted_pk._peak_map_jono
+    return peak_map
+
+@pytest.fixture
+def main_peak_widths_amp_input(
+    main_chm_asschrom_fitted_pk
+):
+    """
+    The amplitude series inputted into scipy peak widths by main. May or may not be the
+    same as the output of `correct_baseline`, I have not confirmed that.
+    """
+    amp_input = main_chm_asschrom_fitted_pk._jono_assign_window_intensity
+    return amp_input
+
+@pytest.fixture
+def __main_bcorr_interms_extract(
+    main_chm_asschrom_fitted_pk,
+):
+    
+    interms = main_chm_asschrom_fitted_pk._jono_bcorr_interms
+    
+    interm_signals = pl.DataFrame({k: v for k, v in interms.items() if k not in ['shift','n_iter']})
+    interm_params = pl.DataFrame({k: v for k, v in interms.items() if k in ['shift','n_iter']})
+    
+    return interm_signals, interm_params
+    
+@pytest.fixture
+def main_bcorr_interm_signals(
+    __main_bcorr_interms_extract
+):
+    """
+    Contains the intermediate calculations of the main baseline correctino for asschrom.
+    
+    columns: ['signal','tfrom_new','inv_tform','bcorr_not_rounded','bcorr_rounded']
+    """
+    return __main_bcorr_interms_extract[0]
+
+@pytest.fixture
+def main_bcorr_interm_params(
+    __main_bcorr_interms_extract
+):
+    """
+    contains the intermediate parameters calculated during main baseline correction of asschrom.
+    
+    dict keys: ['shift','n_iter']
+    """
+    return __main_bcorr_interms_extract[1]
+

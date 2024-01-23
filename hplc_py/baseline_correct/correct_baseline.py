@@ -88,10 +88,22 @@ class CorrectBaseline(TimeStep, LoadData):
         if amp_raw.ndim != 1:
             raise ValueError("amp has too many dimensions, please enter a 1D array")
 
-        amp_clipped = self.shift_and_clip_amp(amp_raw)
+        has_negatives = self.check_for_negatives(amp_raw)
+
+        if has_negatives:
+            # Clip the signal if the median value is negative
+            shift = self.compute_shift(amp_raw)
+        else:
+            shift=0
+        
+        # dont know why we do this    
+        amp_shifted, shift = self.shift_amp(amp_raw, shift)
+        
+        # dont know why we do this
+        amp_shifted_clipped = self.clip_amp(amp_shifted)
 
         # compute the LLS operator to reduce signal dynamic range
-        s_compressed = self.compute_compressed_signal(amp_clipped)
+        s_compressed = self.compute_compressed_signal(amp_shifted_clipped)
 
         # calculate the number of iterations for the minimization
 
@@ -106,9 +118,9 @@ class CorrectBaseline(TimeStep, LoadData):
 
         inv_tform = self.compute_inv_tform(s_compressed_prime)
 
-        amp_bcorr = self.transform_and_subtract(amp_raw, inv_tform, shift)
-
         background = self.compute_background(inv_tform, shift)
+        
+        amp_bcorr = amp_raw - background
 
         self._bg_corrected = True
 
@@ -134,28 +146,26 @@ class CorrectBaseline(TimeStep, LoadData):
 
         self._signal_df["background"] = pd.Series(background, dtype=pd.Float64Dtype())
 
-        return self._signal_df
-
-    def shift_and_clip_amp(
+        return self._signal_df        
+    
+    def shift_amp(
         self,
         amp: FloatArray,
-    ) -> FloatArray:
-        # Look at the relative magnitudes of the maximum and minimum values
-        # And raise a warning if there are appreciable negative peaks.
-        has_negatives = self.check_for_negatives(amp)
-
-        if has_negatives:
-            # Clip the signal if the median value is negative
-            shift = self.compute_shift(amp)
-        else:
-            shift = 0
-
+        shift,
+    ):
         amp_shifted = amp - shift
+        return amp_shifted, shift
+    
+    def clip_amp(
+        self,
+        amp,
+    ):
 
-        heaviside_sf = np.heaviside(amp_shifted, 0)
+        heaviside_sf = np.heaviside(amp, 0)
 
-        amp_clipped = amp_shifted * heaviside_sf
+        amp_clipped = amp * heaviside_sf
         return amp_clipped
+        
 
     def compute_n_iter(self, window_size, timestep):
         return int(((window_size / timestep) - 1) / 2)
@@ -173,13 +183,13 @@ class CorrectBaseline(TimeStep, LoadData):
         inv_tform = (np.exp(np.exp(tform) - 1) - 1) ** 2 - 1
         return inv_tform.astype(np.float64)
 
-    def transform_and_subtract(
+    def _subtract_background(
         self,
         signal: FloatArray,
         inv_tform: FloatArray,
         shift: np.float64,
     ) -> FloatArray:
-        transformed_signal = signal - inv_tform  # - shift
+        transformed_signal = signal -shift - inv_tform
 
         return transformed_signal.astype(np.float64)
 
@@ -266,7 +276,7 @@ class CorrectBaseline(TimeStep, LoadData):
     def compute_background(
         self,
         inv_tform: FloatArray,
-        shift: np.float64 = np.float64(0),
+        shift: np.float64,
     ) -> FloatArray:
         background = inv_tform + shift
 
