@@ -1,3 +1,13 @@
+from holoviews import opts
+import holoviews as hv
+
+import polars as pl
+
+pl.Config(
+    set_tbl_rows=50,
+    set_tbl_cols=20,
+    )
+
 AMPRAW='amp_raw'
 AMPCORR='amp_corrected'
 
@@ -9,8 +19,6 @@ P0SKEW='skew'
 
 # hvplot defaults
 
-from holoviews import opts
-import holoviews as hv
 
 hv.extension('bokeh')
 opts.defaults(

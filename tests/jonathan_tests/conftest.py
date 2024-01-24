@@ -192,6 +192,10 @@ def dp():
     dp = DataPrepper()
     return dp
 
+@pytest.fixture
+def dc() -> PeakDeconvolver:
+    dc = PeakDeconvolver()
+    return dc
 
 @pytest.fixture
 def int_col():
@@ -200,11 +204,11 @@ def int_col():
 
 @pytest.fixture
 def psignals(
-    chm: Chromatogram,
+    dc: PeakDeconvolver,
     time: FloatArray,
     stored_popt: DataFrame[Popt],
 ):
-    psignals = chm._deconvolve._construct_peak_signals(time, stored_popt)
+    psignals = dc._construct_peak_signals(time, stored_popt)
 
     return psignals
 
@@ -399,6 +403,8 @@ def main_scores(main_chm_asschrom_fitted_pk):
     scores = pl.LazyFrame(
         main_chm_asschrom_fitted_pk.scores.reset_index(drop=True)
     ).with_columns(window_id=pl.col("window_id") - 1)
+    
+    breakpoint()
 
     scores = scores.select([
                 "window_type",
@@ -471,6 +477,11 @@ def main_windowed_peak_signals(
 
 @pytest.fixture
 def main_window_df(main_chm_asschrom_fitted_pk: Any):
+    """
+    Main asschrom windowed signal - input and corrected, with background.
+    
+    Columns: ['window_type', 'window_id', 'time_idx', 'time', 'signal', 'signal_corrected', 'estimated_background']
+    """
     window_df = (
         pl.DataFrame(main_chm_asschrom_fitted_pk.window_df)
         .select(

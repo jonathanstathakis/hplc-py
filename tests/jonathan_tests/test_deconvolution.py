@@ -144,12 +144,7 @@ class TestDataPrepper(TestDataPrepFix):
 
 
 class TestDeconvolverFix:
-    @pytest.fixture
-    def dc(
-        self,
-    ) -> PeakDeconvolver:
-        dc = PeakDeconvolver()
-        return dc
+    
 
     @pytest.fixture
     def optimizer_jax(

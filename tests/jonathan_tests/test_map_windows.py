@@ -236,6 +236,53 @@ class TestMapWindows(TestMapWindowsFix):
         
         WindowedSignal(ws)
         
+    def test_compare_window_dfs(
+        self,
+        ws,
+        main_window_df,
+    ):
+        """
+        Compare windowing of the signal between the main and my implementation.
+        """
+        import polars as pl
+        
+        main_window_df = main_window_df.drop(["signal", "estimated_background"]).rename(
+            {"window_type": "w_type", "window_id": "w_idx", "signal_corrected": "amp"}
+        )
+        ws = pl.from_pandas(ws)
+
+        wdws = pl.concat(
+            [
+                ws.select(["w_type", "w_idx", "time_idx"]).with_columns(
+                    source=pl.lit("mine")
+                ),
+                main_window_df.select(["w_type", "w_idx", "time_idx"]).with_columns(
+                    source=pl.lit("main")
+                ),
+            ]
+        )
+
+        wdw_compare = (
+            wdws.groupby(["source", "w_type", "w_idx"])
+            .agg(start=pl.col("time_idx").first(), end=pl.col("time_idx").last())
+            .sort(["start", "source"])
+        )
+
+        wdw_compare_diff = wdw_compare.pivot(
+            columns="source", values=["start", "end"], index=["w_type", "w_idx"]
+        ).with_columns(
+            start_diff=pl.col("start_source_main")
+            .sub(pl.col("start_source_mine"))
+            .abs(),
+            end_diff=pl.col("end_source_main").sub(pl.col("end_source_mine")).abs(),
+        )
+
+        breakpoint()
+        import polars.testing as polt
+
+        polt.assert_frame_equal(main_window_df.drop("estimated_background"), ws)
+        breakpoint()
+        
 class TestMapWindowPlots(TestMapWindowsFix):
     @pytest.fixture
     def mwp(
