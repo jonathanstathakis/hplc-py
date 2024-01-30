@@ -39,7 +39,7 @@ for i, sig in enumerate(scales):
         _peaks = pd.DataFrame(np.array([locs, _areas, _scales, _skews, _amps, np.arange(len(locs)) + 1]).T,
                               columns=['retention_time', 'area', 'scale', 'skew', 'amplitude', 'peak_idx'])
         _peaks['iter'] = _iter
-        _peaks['peak_idx'] = np.int_(_peaks['peak_idx'])
+        _peaks['peak_idx'] = np.int64(_peaks['peak_idx'])
         _chrom = pd.DataFrame(np.array([x, signal]).T, columns=['x', 'y'])
         _chrom['iter'] = _iter
         peaks = pd.concat([peaks, _peaks], sort=False)

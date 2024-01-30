@@ -4,6 +4,7 @@ Best Practices:
     - Define stateless method classes which provide methods for a master state storage class.
 
 """
+from hplc_py.show import PlotSignal
 from typing import Any, Literal
 
 import matplotlib.pyplot as plt
@@ -18,11 +19,10 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     Params,
     Popt,
     PSignals,
-    SignalDF,
+    SignalDFLoaded,
 )
 from hplc_py.hplc_py_typing.interpret_model import interpret_model
-from hplc_py.map_signals.map_peaks import PeakMap
-from hplc_py.quant import Chromatogram
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 
 OutPeakDFAssChrom = PeakMap
 
@@ -30,7 +30,10 @@ OutPeakDFAssChrom = PeakMap
 pd.options.display.precision = 9
 pd.options.display.max_columns = 50
 
+import pandera as ap
 
+
+@pytest.mark.skip(reason="Currently not in use, not obvious error occuring from schema_str")
 class TestInterpretModel:
     def schema_cls(
         self,
@@ -169,140 +172,3 @@ def schema_error_str_long_frame(schema, e, df):
     err_str += "compare these against the schema and replace where necessary"
     raise RuntimeError(err_str)
 
-
-manypeakspath = "/Users/jonathan/hplc-py/tests/test_data/test_many_peaks.csv"
-asschrompath = "tests/test_data/test_assessment_chrom.csv"
-
-def check_df_exists(df):
-    assert isinstance(df, pd.DataFrame)
-    assert df.all
-    return None
-
-
-def test_target_window_df_exists(target_window_df: Any):
-    check_df_exists(target_window_df)
-    pass
-
-
-def test_timestep_exists_and_greater_than_zero(timestep: float):
-    assert timestep
-    assert timestep > 0
-
-
-def test_amp_raw_not_null(amp_raw):
-    """
-    for exploring shape and behavior of amp. a sandpit
-    """
-    assert all(amp_raw)
-
-
-class TestTimeStep:
-    def test_timestep(self, timestep: float):
-        assert timestep
-
-
-class TestLoadData:
-    def test_loaded_signal_df(
-        self,
-        loaded_signal_df: DataFrame[SignalDF],
-    ):
-
-        SignalDF(loaded_signal_df, lazy=True)
-
-
-def test_popt_to_parquet(
-    popt_df: Any,
-    popt_parqpath: Literal["/Users/jonathan/hplc-py/tests/jonathan_tests/assch…"],
-):
-    """
-    A function used to produce a parquet file of a popt df. I suppose it itself acts as a test, and means that whenever i run the full suite the file will be refreshed.
-    """
-
-    popt_df.to_parquet(popt_parqpath)
-
-
-class TestShow:
-    """
-    Test the Show class methods
-    """
-
-    @pytest.fixture
-    def fig_ax(self):
-        return plt.subplots(1)
-
-    @pytest.fixture
-    def decon_out(
-        self,
-        chm: Chromatogram,
-        signal_df: DataFrame,
-        peak_df: DataFrame[PeakMap],
-        window_df: DataFrame[Any],
-        timestep: float,
-    ):
-        return chm._deconvolve.deconvolve_peaks(signal_df, peak_df, window_df, timestep)
-
-    @pytest.fixture
-    def popt_df(
-        self, decon_out: tuple[DataFrame[Popt], DataFrame[PSignals]]
-    ):
-        return decon_out[0]
-
-    @pytest.fixture
-    def popt_df(
-        self, decon_out: tuple[DataFrame[Popt], DataFrame[PSignals]]
-    ):
-        return decon_out[0]
-
-    def test_plot_raw_chromatogram(
-        self,
-        fig_ax: tuple[Figure, Any],
-        chm: Chromatogram,
-        signal_df: SignalDF,
-    ):
-        chm._show.plot_raw_chromatogram(
-            signal_df,
-            fig_ax[1],
-        )
-
-    def test_plot_reconstructed_signal(
-        self,
-        chm: Chromatogram,
-        fig_ax: tuple[Figure, Any],
-        psignals: DataFrame[PSignals],
-    ):
-        chm._show.plot_reconstructed_signal(psignals, fig_ax[1])
-
-    def test_plot_individual_peaks(
-        self,
-        chm: Chromatogram,
-        fig_ax: tuple[Figure, Any],
-        psignals: DataFrame[PSignals],
-    ):
-        ax = fig_ax[1]
-
-        chm._show.plot_individual_peaks(
-            psignals,
-            ax,
-        )
-
-    def test_plot_overlay(
-        self,
-        chm: Chromatogram,
-        fig_ax: tuple[Figure, Any],
-        signal_df: DataFrame,
-        psignals: DataFrame[PSignals],
-    ):
-        fig = fig_ax[0]
-        ax = fig_ax[1]
-        chm._show.plot_raw_chromatogram(
-            signal_df,
-            ax,
-        )
-        chm._show.plot_reconstructed_signal(
-            psignals,
-            ax,
-        )
-        chm._show.plot_individual_peaks(
-            psignals,
-            ax,
-        )

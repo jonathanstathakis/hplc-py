@@ -13,6 +13,8 @@ Notes:
 - reconstruction score defined as unmixed_signal_AUC+1 divided by mixed_signal_AUC+1. 
 
 """
+from hplc_py.io_validation import check_input_is_float
+from hplc_py.hplc_py_typing.hplc_py_typing import FitAssessScores, WindowedSignal, PSignals
 
 import pandas as pd
 
@@ -46,10 +48,11 @@ class WindowedUnmixed(pa.DataFrameModel):
 
 @dataclass
 class FitAssessment:
+    @pa.check_types
     def assess_fit(
         self,
-        ws,
-        psignals,
+        ws: DataFrame[WindowedSignal],
+        psignals: DataFrame[PSignals],
         rtol: float = 1e-2,
         ftol: float = 1e-2,
     ):
@@ -58,15 +61,19 @@ class FitAssessment:
         self.print_report_card(score_df)
         return score_df
 
+    @pa.check_types
     def calc_wdw_aggs(
         self,
-        ws: DataFrame,
-        psignals: DataFrame,
+        ws: DataFrame[WindowedSignal],
+        psignals: DataFrame[PSignals],
         rtol: float,
         ftol: float,
-    ):
+    )->DataFrame[FitAssessScores]:
+        
+        check_input_is_float(rtol)
+        check_input_is_float(ftol)
+        
         import polars as pl
-        import hvplot
 
         rs_: pl.DataFrame = pl.from_pandas(psignals)
         ws_: pl.DataFrame = pl.from_pandas(ws)
@@ -90,7 +97,7 @@ class FitAssessment:
 
         rtol_decimals = int(np.abs(np.ceil(np.log10(rtol))))
 
-        aggs = (
+        aggs_ = (
             wrs.group_by(w_grps)
             .agg(
                 time_start=pl.first("time"),
@@ -133,7 +140,10 @@ class FitAssessment:
             )
             .sort("w_type", "w_idx")
         )
+        aggs__ = aggs_.to_pandas()        
+        FitAssessScores.validate(aggs__, lazy=True)
 
+        aggs = DataFrame[FitAssessScores](aggs__)
         return aggs
 
     def print_report_card(
@@ -212,7 +222,7 @@ class FitAssessment:
         report_str += "=======================\n\n"
 
         c_report_strs = scores.groupby(["w_type", "w_idx"]).apply(
-            gen_report_str,
+            gen_report_str, #type: ignore
             grading=grading,
             grading_colors=grading_colors,
             warnings=warnings,
@@ -224,7 +234,7 @@ class FitAssessment:
             "t_start_col": "time_start",
             "t_end_col": "time_end",
              },
-        )
+        ) #type: ignore
         c_report_strs.name = "report_strs"
 
         # join the peak strings followed by a interpeak subheader then the interpeak strings

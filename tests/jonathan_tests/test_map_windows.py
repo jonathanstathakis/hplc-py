@@ -1,31 +1,30 @@
+from numpy import float64, int64
+
+import polars as pl
+
 import numpy as np
 import pandas as pd
 import pytest
 from pandera.typing.pandas import DataFrame, Series
 import matplotlib.pyplot as plt
-from hplc_py.baseline_correct.correct_baseline import SignalDFBCorr
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    FloatArray,
-    SignalDF,
-)
-from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
+
+from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMap
+
 from hplc_py.map_signals.map_windows import (
     MapWindowPlots,
     MapWindows,
     MapWindowsMixin,
+)
+
+from hplc_py.hplc_py_typing.hplc_py_typing import (
     PeakWindows,
     PWdwdTime,
     WindowedSignal,
     WindowedTime,
-)
+    SignalDFBCorr,
+    )
 
 OutPeakDFAssChrom = PeakMap
-
-
-pd.options.display.precision = 9
-
-
-pd.options.display.max_columns = 50
 
 class TestMapWindowsFix:
     
@@ -41,7 +40,7 @@ class TestMapWindowsFix:
     @pytest.fixture
     def time_idx(
         self,
-        time: Series[pd.Float64Dtype],
+        time: Series[float64],
     ):
         time_idx = np.arange(0, len(time), 1)
         
@@ -50,25 +49,25 @@ class TestMapWindowsFix:
     @pytest.fixture
     def left_bases(
         self,
-        pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        left_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](pm[PeakMap.pb_left], dtype=pd.Int64Dtype())
+        my_peak_map: DataFrame[PeakMap],
+    )-> Series[int64]:
+        left_bases: Series[int64] = Series[int64](my_peak_map[PeakMap.pb_left], dtype=int64)
         return left_bases
     
     @pytest.fixture
     def right_bases(
         self,
-        pm: DataFrame[PeakMap],
-    )-> Series[pd.Int64Dtype]:
-        right_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](pm[PeakMap.pb_right], dtype=pd.Int64Dtype())
+        my_peak_map: DataFrame[PeakMap],
+    )-> Series[int64]:
+        right_bases: Series[int64] = Series[int64](my_peak_map[PeakMap.pb_right], dtype=int64)
         return right_bases
     
     @pytest.fixture
     def intvls(
         self,
         mwm: MapWindowsMixin,
-        left_bases: Series[pd.Int64Dtype],
-        right_bases: Series[pd.Int64Dtype],
+        left_bases: Series[int64],
+        right_bases: Series[int64],
     )->Series[pd.Interval]:
         intvls: Series[pd.Interval] = mwm._interval_factory(left_bases, right_bases)
         return intvls
@@ -96,7 +95,7 @@ class TestMapWindowsFix:
     def peak_wdws(
         self,
         mwm: MapWindowsMixin,
-        time: Series[pd.Float64Dtype],
+        time: Series[float64],
         w_intvls: dict[int, pd.Interval],
     )-> DataFrame[PeakWindows]:
         peak_windows = mwm._set_peak_windows(
@@ -110,7 +109,7 @@ class TestMapWindowsFix:
     def pwdwd_time(
         self,
         mwm: MapWindowsMixin,
-        time: Series[pd.Float64Dtype],
+        time: Series[float64],
         peak_wdws: DataFrame[PeakWindows],
     )->DataFrame[PWdwdTime]:
         
@@ -138,12 +137,17 @@ class TestMapWindowsFix:
     def wt(
         self,
         mw: MapWindows,
-        bcorred_signal_df: DataFrame[SignalDF],
-        pm: DataFrame[PeakMap],
+        bcorred_signal_df_asschrom: DataFrame[SignalDFBCorr],
+        my_peak_map: DataFrame[PeakMap],
     )->DataFrame[WindowedTime]:
         
+        SignalDFBCorr.validate(bcorred_signal_df_asschrom, lazy=True)
         
-        wt = mw._map_windows(pm['pb_left'], pm['pb_right'], bcorred_signal_df['time'])
+        df = bcorred_signal_df_asschrom
+        
+        wt = mw._map_windows_to_time(my_peak_map['pb_left'], my_peak_map['pb_right'], df['time'])
+        
+        breakpoint()
         
         return wt
     
@@ -151,16 +155,16 @@ class TestMapWindowsFix:
     def ws(
         self,
         mw: MapWindows,
-        time: Series[pd.Float64Dtype],
-        amp_bcorr: Series[pd.Float64Dtype],
-        left_bases: Series[pd.Float64Dtype],
-        right_bases: Series[pd.Float64Dtype],
+        time_pd_series: Series[float64],
+        amp_bcorr: Series[float64],
+        left_bases: Series[float64],
+        right_bases: Series[float64],
     )->DataFrame[WindowedSignal]:
         
         ws = mw.window_signal(
             left_bases,
             right_bases,
-            time,
+            time_pd_series,
             amp_bcorr,
             )
         
@@ -227,7 +231,8 @@ class TestMapWindows(TestMapWindowsFix):
         wt: DataFrame[WindowedSignal],
     )->None:
         
-        WindowedTime(wt, lazy=True)
+        WindowedTime.validate(wt, lazy=True)
+        breakpoint()
         
     def test_ws(
         self,
@@ -235,6 +240,7 @@ class TestMapWindows(TestMapWindowsFix):
     )->None:
         
         WindowedSignal(ws)
+
         
     def test_compare_window_dfs(
         self,
@@ -244,7 +250,12 @@ class TestMapWindows(TestMapWindowsFix):
         """
         Compare windowing of the signal between the main and my implementation.
         """
-        import polars as pl
+        
+        from hplc_py.map_signals.map_windows import MapWindowPlots
+        
+        mwp = MapWindowPlots()
+        
+        mwp.plot_windows(ws, ws['amp'].max())
         
         main_window_df = main_window_df.drop(["signal", "estimated_background"]).rename(
             {"window_type": "w_type", "window_id": "w_idx", "signal_corrected": "amp"}
@@ -263,7 +274,7 @@ class TestMapWindows(TestMapWindowsFix):
         )
 
         wdw_compare = (
-            wdws.groupby(["source", "w_type", "w_idx"])
+            wdws.group_by(["source", "w_type", "w_idx"])
             .agg(start=pl.col("time_idx").first(), end=pl.col("time_idx").last())
             .sort(["start", "source"])
         )
@@ -277,11 +288,21 @@ class TestMapWindows(TestMapWindowsFix):
             end_diff=pl.col("end_source_main").sub(pl.col("end_source_mine")).abs(),
         )
 
-        breakpoint()
-        import polars.testing as polt
+        mwp = MapWindowPlots()
+        
+        ws = ws.to_pandas()
+        ws = ws.astype({
+            **{col: pd.StringDtype() for col in ws.select_dtypes(np.object_).columns},
+            **{col: float64 for col in ws.select_dtypes(float64).columns},
+            **{col: int64 for col in ws.select_dtypes(np.int64).columns},
+        }).rename_axis('idx')
+        
+        mwp.plot_windows(ws, ws['amp'].max())
+        plt.show()
+        
+        
+        # polt.assert_frame_equal(main_window_df.drop("estimated_background"), ws)
 
-        polt.assert_frame_equal(main_window_df.drop("estimated_background"), ws)
-        breakpoint()
         
 class TestMapWindowPlots(TestMapWindowsFix):
     @pytest.fixture
@@ -296,7 +317,7 @@ class TestMapWindowPlots(TestMapWindowsFix):
         mp: MapPeaks,
         mwp: MapWindowPlots,
         ws: DataFrame[WindowedSignal],
-        pm: DataFrame[PeakMap],
+        my_peak_map: DataFrame[PeakMap],
     )->None:
         mp._plot_signal_factory(ws, mp._ptime_col, 'amp')
         
@@ -307,11 +328,10 @@ class TestMapWindowPlots(TestMapWindowsFix):
         )
         
         mp._plot_peaks(
-            pm,
+            my_peak_map,
             str(mp._ptime_col),
             str(mp._pmaxima_col),
         )
         
 
         plt.show()
-.

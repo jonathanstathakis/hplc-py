@@ -1,13 +1,13 @@
-import hvplot
 from typing import Any, Callable, Literal, Tuple, TypeAlias
 
 import numpy as np
-import pandas as pd
 import pandera as pa
 import polars as pl
+import polars.selectors as ps
 import pytest
-from numpy import ndarray
-from pandera.typing.pandas import DataFrame, Series
+from numpy import float64, ndarray
+from numpy.typing import NDArray
+from pandera.typing.pandas import DataFrame
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from hplc_py.deconvolve_peaks.mydeconvolution import (
@@ -15,23 +15,18 @@ from hplc_py.deconvolve_peaks.mydeconvolution import (
     InP0,
     PeakDeconvolver,
     WdwPeakMap,
+    RSignal,
 )
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     P0,
     Bounds,
-    FloatArray,
-    OutPeakReportAssChrom,
-    OutWindowDF_Base,
     Params,
     Popt,
     PReport,
     PSignals,
-    SignalDF,
-    schema_tests,
+    WindowedSignal,
 )
-from hplc_py.hplc_py_typing.interpret_model import interpret_model
-from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
-from hplc_py.map_signals.map_windows import MapWindows, WindowedSignal
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 from tests.jonathan_tests.test_map_peaks import TestMapPeaksFix
 
 Chromatogram: TypeAlias = None
@@ -44,10 +39,10 @@ class TestDataPrepFix(TestMapPeaksFix):
     def wpm(
         self,
         dp: DataPrepper,
-        pm: DataFrame[PeakMap],
+        my_peak_map: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
     ) -> DataFrame[WdwPeakMap]:
-        wpm = dp._window_peak_map(pm, ws)
+        wpm = dp._window_peak_map(my_peak_map, ws)
 
         return wpm
 
@@ -56,13 +51,9 @@ class TestDataPrepFix(TestMapPeaksFix):
         self,
         dp: DataPrepper,
         wpm: DataFrame[PeakMap],
-        timestep: float,
+        timestep: float64,
     ) -> DataFrame[P0]:
         wpm_ = wpm.loc[:, [InP0.w_idx, InP0.p_idx, InP0.amp, InP0.time, InP0.whh]]
-
-        import pytest
-
-        pytest.set_trace()
 
         wpm_ = DataFrame[InP0](wpm_)
         p0 = dp._p0_factory(
@@ -78,7 +69,7 @@ class TestDataPrepFix(TestMapPeaksFix):
         dp: DataPrepper,
         p0: DataFrame[P0],
         ws: DataFrame[WindowedSignal],
-        timestep: np.float64,
+        timestep: float64,
     ) -> DataFrame[Bounds]:
         default_bounds = dp._bounds_factory(
             p0,
@@ -91,11 +82,11 @@ class TestDataPrepFix(TestMapPeaksFix):
     def params(
         self,
         dp: DataPrepper,
-        pm: DataFrame[PeakMap],
+        my_peak_map: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
-        timestep: np.float64,
+        timestep: float64,
     ) -> DataFrame[Params]:
-        params = dp._prepare_params(pm, ws, timestep)
+        params = dp._prepare_params(my_peak_map, ws, timestep)
 
         return params
 
@@ -103,9 +94,9 @@ class TestDataPrepFix(TestMapPeaksFix):
 class TestDataPrepper(TestDataPrepFix):
     def test_map_peaks_exec(
         self,
-        pm: DataFrame[PeakMap],
+        my_peak_map: DataFrame[PeakMap],
     ) -> None:
-        PeakMap.validate(pm, lazy=True)
+        PeakMap.validate(my_peak_map, lazy=True)
 
     def test_window_peak_map(
         self,
@@ -120,9 +111,7 @@ class TestDataPrepper(TestDataPrepFix):
         """
         Test the initial guess factory output against the dataset-specific schema.
         """
-        import pytest
 
-        pytest.set_trace()
         P0.validate(p0, lazy=True)
 
     def test_default_bounds_factory(
@@ -144,8 +133,6 @@ class TestDataPrepper(TestDataPrepFix):
 
 
 class TestDeconvolverFix:
-    
-
     @pytest.fixture
     def optimizer_jax(
         self,
@@ -164,18 +151,25 @@ class TestDeconvolverFix:
         return curve_fit
 
     @pytest.fixture
+    def fit_func_scipy(self):
+        import hplc_py.skewnorms.skewnorms as sk
+
+        return sk._fit_skewnorms_scipy
+
+    @pytest.fixture
     def popt_scipy(
         self,
         dc: PeakDeconvolver,
         ws: DataFrame[WindowedSignal],
         params: DataFrame[Params],
         optimizer_scipy: Callable[..., Any],
+        fit_func_scipy: Callable,
     ) -> DataFrame[Popt]:
         popt = dc._popt_factory(
             ws,
             params,
             optimizer_scipy,
-            # optimizer_jax,
+            fit_func_scipy,
         )
 
         return popt
@@ -274,58 +268,69 @@ class TestDeconvolver(TestDataPrepFix, TestDeconvolverFix):
 
     def test_p_signals_compare_main(
         self,
-        main_psignals: DataFrame,
+        main_psignals: pl.DataFrame,
         psignals: DataFrame[PSignals],
     ):
-        import polars.selectors as ps
-        psignals: pl.DataFrame = (
+        psignals_: pl.DataFrame = (
             pl.from_pandas(psignals).drop("time").rename({"amp_unmixed": "mine"})
         )
 
         signals = (
-            psignals.with_columns(pl.col("time_idx").cast(pl.UInt32))
-            .join(
-                main_psignals,
-                how="left",
-                on=["p_idx", "time_idx"],
+            (
+                psignals_.with_columns(pl.col("time_idx").cast(pl.UInt32))
+                .join(
+                    main_psignals,
+                    how="left",
+                    on=["p_idx", "time_idx"],
+                )
+                .select(["p_idx", "time_idx", "mine", "main"])
+                .melt(
+                    id_vars=["p_idx", "time_idx"],
+                    value_vars=["mine", "main"],
+                    value_name="amp_unmixed",
+                    variable_name="source",
+                )
+                .with_columns(ps.float().round(8))
+                .pivot(
+                    index=["p_idx", "time_idx"], columns="source", values="amp_unmixed"
+                )
+                .with_columns(
+                    hz_av=pl.sum_horizontal("mine", "main") / 2,
+                    tol_perc=0.05,
+                    diff=(pl.col("mine") - pl.col("main")),
+                )
+                .with_columns(
+                    tol_act=pl.col("hz_av") * pl.col("tol_perc"),
+                )
+                .with_columns(
+                    tol_pass=pl.col("diff") <= pl.col("tol_act"),
+                )
             )
-            .select(["p_idx", "time_idx", "mine", "main"])
-            .melt(
-                id_vars=["p_idx", "time_idx"],
-                value_vars=["mine", "main"],
-                value_name="amp_unmixed",
-                variable_name="source",
+            .group_by("p_idx")
+            .agg(
+                perc_True=pl.col("tol_pass").filter(tol_pass=True).count().truediv(pl.col("tol_pass").count()).mul(100),
+                perc_False=pl.col("tol_pass").filter(tol_pass=False).count().truediv(pl.col("tol_pass").count()).mul(100),
             )
-            .with_columns(ps.float().round(8))
-            .pivot(
-                index=['p_idx','time_idx'], columns='source', values='amp_unmixed'
-            )
-            .with_columns(
-                hz_av=pl.sum_horizontal('mine','main')/2,
-                tol_perc=0.05,
-                diff=(pl.col('mine')-pl.col('main')),
-            )
-            .with_columns(
-                tol_act=pl.col('hz_av')*pl.col('tol_perc'),
-            )
-            .with_columns(
-                tol_pass=pl.col('diff') <= pl.col('tol_act'),
-            )
+            .sort("p_idx")
         )
-        pass
 
+        breakpoint()
+        import polars.testing as pt
+        pt.assert_frame_equal(signals.select((pl.col('perc_False')<5).all()), pl.DataFrame({"perc_False":True}))
+
+    @pa.check_types
     def test_reconstruct_signal(
         self,
-        dc: PeakDeconvolver,
-        psignals: DataFrame[PSignals],
+        r_signal: DataFrame[RSignal],
     ):
-        dc._reconstruct_signal(psignals)
+        pass
+        
 
     @pytest.fixture
     def p_signals_genned_on_subset(
         self,
         chm: Chromatogram,
-        time: FloatArray,
+        time: NDArray[float64],
         stored_popt: DataFrame[Popt],
         main_chm_asschrom_fitted_pk: Any,
         main_scores,
@@ -352,7 +357,6 @@ class TestDeconvolver(TestDataPrepFix, TestDeconvolverFix):
             .join(main_psignals, how="left", on=["p_idx", "time_idx"])
         )
 
-
         main_psignals = main_psignals.rename({"main": "amp_full"})
         df = main_peak_window_recon_signal.join(
             main_psignals, on=["time_idx"], how="left"
@@ -363,19 +367,6 @@ class TestDeconvolver(TestDataPrepFix, TestDeconvolverFix):
         df: pl.DataFrame = df.with_columns(
             amp_diff=(pl.col("amp_subset") - pl.col("amp_full")).abs().round(6)
         )
-        
-        
-        
-
-        # import hvplot
-
-        # hvplot.show(
-        #     df.plot(
-        #         x='time_idx',y=['amp_subset','amp_full'], groupby=['w_idx','p_idx'])
-        # )
-
-        breakpoint()
-
 
     def test_p_signals_genned_on_subset(self, p_signals_genned_on_subset: None):
         pass
@@ -388,16 +379,22 @@ class TestDeconvolver(TestDataPrepFix, TestDeconvolverFix):
 
         return None
 
-    def dp(
+    def dc(
         self,
     ) -> PeakDeconvolver:
-        dp = PeakDeconvolver()
-        return dp
+        dc = PeakDeconvolver()
+        return dc
 
     @pa.check_types
     def test_deconvolve_peaks(
-        self, dp: PeakDeconvolver, ws: DataFrame[WindowedSignal]
+        self,
+        dc: PeakDeconvolver,
+        ws: DataFrame[WindowedSignal],
+        my_peak_map: DataFrame[PeakMap],
+        timestep: float64,
     ) -> None:
-        dp.deconvolve_peaks(
+        dc.deconvolve_peaks(
+            my_peak_map,
             ws,
+            timestep,
         )

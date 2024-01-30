@@ -37,52 +37,53 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Type
+from typing import Literal, Type
 
 import numpy as np
 import pandas as pd
 import pandera as pa
-import pandera.typing as pt
 import tqdm
-from pandera.typing import DataFrame
-from scipy import optimize
-from hplc_py.skewnorms.skewnorms import _compute_skewnorm
+from numpy import float64, int64
+from pandera.api.pandas.model_config import BaseConfig
+from pandera.typing import DataFrame, Series
 
 from hplc_py import P0AMP, P0SKEW, P0TIME, P0WIDTH
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     P0,
     BaseDF,
     Bounds,
-    FloatArray,
-    PReport,
-    OutWindowDF_Base,
     Params,
     Popt,
+    PReport,
     PSignals,
-    SignalDF,
+    RSignal,
+    WindowedSignal,
 )
-from hplc_py.map_signals.map_peaks import PeakMap
-from hplc_py.map_signals.map_windows import WindowedSignal
-from hplc_py.hplc_py_typing.hplc_py_typing import RSignal
+from hplc_py.io_validation import IOValid
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
+from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
+
+from hplc_py.pandera_helpers import PanderaSchemaMethods
+
+WhichOpt = Literal["jax", "scipy"]
+WhichFitFunc = Literal["jax", "scipy"]
+
 
 class WdwPeakMap(PeakMap):
     w_type: pd.StringDtype
-    w_idx: pd.Int64Dtype
+    w_idx: int64
 
     class Config:
         ordered = False
         strict = True
 
 
-from pandera.api.pandas.model_config import BaseConfig
-
-
 class InP0(BaseDF):
-    w_idx: pd.Int64Dtype
-    p_idx: pd.Int64Dtype
-    amp: pd.Float64Dtype
-    time: pd.Float64Dtype
-    whh: pd.Float64Dtype = pa.Field(alias="whh_width")
+    w_idx: int64
+    p_idx: int64
+    amp: float64
+    time: float64
+    whh: float64 = pa.Field(alias="whh_width")
 
     class Config(BaseConfig):
         name = "in_p0"
@@ -189,25 +190,20 @@ class DataPrepper(PanderaMixin):
     def _p0_factory(
         self,
         wpm: DataFrame[InP0],
-        timestep: float,
-    ) -> pt.DataFrame[P0]:
+        timestep: float64,
+    ) -> DataFrame[P0]:
         """
-        Build a table of initial guesses for each peak in each window following the format:
-
-        | # |     table_name   | window | p_idx | amplitude | location | width | skew |
-        | 0 |  initial guesses |   1    |   1  |     70    |    200   |   10  |   0  |
-
-        The initial guess for each peak is simply its maximal amplitude, the time idx of the maximal amplitude, estimated width divided by 2, and a skew of zero.
+        Build a table of initial guesses for each peak in each window.
         """
         # window the peak map
 
         p0_ = wpm.copy(deep=True)
 
         # assign skew as zero as per definition
-        p0_[P0SKEW] = pd.Series([0.0] * len(p0_), dtype=pd.Float64Dtype())
+        p0_[P0SKEW] = pd.Series([0.0] * len(p0_), dtype=float64)
 
         # assign whh as half peak whh as per definition, in time units
-        p0_[P0WIDTH] = p0_.pop(str(self.inp0_sc.whh)).div(2) * timestep
+        p0_[P0WIDTH] = p0_.pop(str(self.inp0_sc.whh)).div(2).mul(float(timestep))
 
         # set index as idx, w_idx, p_idx
         p0_ = p0_.set_index(
@@ -250,10 +246,10 @@ class DataPrepper(PanderaMixin):
     @pa.check_types
     def _bounds_factory(
         self,
-        p0: pt.DataFrame[P0],
-        ws: pt.DataFrame[WindowedSignal],
-        timestep: np.float64,
-    ) -> pt.DataFrame[Bounds]:
+        p0: DataFrame[P0],
+        ws: DataFrame[WindowedSignal],
+        timestep: float64,
+    ) -> DataFrame[Bounds]:
         """
         Build a default bounds df from the `signal_df`, `peak_df`, and `window_df` in the following format:
 
@@ -281,27 +277,14 @@ class DataPrepper(PanderaMixin):
                 - skew: between negative and positive infinity
         """
 
-        timestep = np.float64(timestep)
-
-        # construct a container df for the bounds. needs to have the w_idx, peak_id, then bounds as [ub, lb]
-
-        # join the window and peak dfs on time_idx, left join on peak_df
-
-        """
-        |    |   w_idx |   p_idx | param   |   p0 |
-        |---:|------------:|-----------:|:--------|----------------:|
-        |  0 |           1 |          0 | amp     |        42.6901  |
-        |  4 |           1 |          1 | amp     |        19.9608  |
-        |  8 |           1 |          2 | amp     |         2.65962 |
-        | 12 |           2 |          3 | amp     |        39.8942  |
-        """
+        timestep = float64(timestep)
 
         bounds_ = pd.DataFrame(
             p0.loc[:, [self.p0_sc.w_idx, self.p0_sc.p_idx, self.p0_sc.param]],
             index=p0.index,
         )
-        bounds_[self.bds_sc.lb] = pd.Series([np.nan * len(p0)], dtype=pd.Float64Dtype())
-        bounds_[self.bds_sc.ub] = pd.Series([np.nan * len(p0)], dtype=pd.Float64Dtype())
+        bounds_[self.bds_sc.lb] = pd.Series([np.nan * len(p0)], dtype=float64)
+        bounds_[self.bds_sc.ub] = pd.Series([np.nan * len(p0)], dtype=float64)
 
         bounds_ = bounds_.set_index(
             [self.bds_sc.w_idx, self.bds_sc.p_idx, self.bds_sc.param]
@@ -311,7 +294,7 @@ class DataPrepper(PanderaMixin):
         amp = p0.set_index(["param"]).loc["amp"].reset_index()
         amp = (
             amp.groupby(["w_idx", "p_idx", "param"], observed=True)["p0"]
-            .agg([("lb", lambda x: x * 0.1), ("ub", lambda x: x * 10)])
+            .agg([("lb", lambda x: x * 0.1), ("ub", lambda x: x * 10)])  # type: ignore
             .dropna()
         )
         # loc
@@ -321,7 +304,7 @@ class DataPrepper(PanderaMixin):
         loc_b = (
             ws.loc[ws[self.ws_sc.w_type] == "peak"]
             .groupby(str(self.ws_sc.w_idx))[str(self.ws_sc.time)]
-            .agg([("lb", "min"), ("ub", "max")])
+            .agg([("lb", "min"), ("ub", "max")])  # type: ignore
             .reset_index()
             .assign(param=P0TIME)
             .set_index([str(self.bds_sc.w_idx), str(self.bds_sc.param)])
@@ -338,11 +321,11 @@ class DataPrepper(PanderaMixin):
         loc_b = loc_b.set_index(["w_idx", "p_idx", "param"])
         bounds_.loc[loc_b.index, [self.bds_sc.lb, self.bds_sc.ub]] = loc_b
 
-        bounds_.loc[pd.IndexSlice[:, :, P0WIDTH], str(self.bds_sc.lb)] = timestep
+        bounds_.loc[pd.IndexSlice[:, :, P0WIDTH], str(self.bds_sc.lb)] = timestep  # type: ignore
 
         width_ub = (
             ws.loc[ws[self.ws_sc.w_type] == "peak"]
-            .groupby(self.ws_sc.w_idx)[str(self.ws_sc.time)]
+            .groupby(str(self.ws_sc.w_idx))[str(self.ws_sc.time)]
             .agg(lambda x: (x.max() - x.min()) / 2)
             .rename(self.bds_sc.ub)
             .reset_index()
@@ -358,7 +341,7 @@ class DataPrepper(PanderaMixin):
             .set_index(["w_idx", "p_idx", "param"])
         )
 
-        bounds_.loc[width_ub.index, self.bds_sc.ub] = width_ub
+        bounds_.loc[width_ub.index, str(self.bds_sc.ub)] = width_ub
 
         # skew
 
@@ -366,7 +349,7 @@ class DataPrepper(PanderaMixin):
         bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.ub] = np.inf
 
         column_ordering = list(
-            self.bds_sc.get_metadata()[str(self.bds_sc)]["columns"].keys()
+            self.bds_sc.__schema__.columns.keys()  # type: ignore
         )
         column_ordering.remove("idx")
 
@@ -379,11 +362,12 @@ class DataPrepper(PanderaMixin):
 
         return self.bounds
 
+    @pa.check_types
     def _prepare_params(
         self,
         pm: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
-        timestep: float,
+        timestep: float64,
     ) -> DataFrame[Params]:
         wpm = self._window_peak_map(pm, ws)
 
@@ -391,7 +375,10 @@ class DataPrepper(PanderaMixin):
         in_p0_cols.remove(self.inp0_sc.idx)
 
         in_p0_ = wpm.copy(deep=True).loc[:, in_p0_cols]
-        in_p0 = self.inp0_sc.validate(in_p0_)
+
+        self.inp0_sc.validate(in_p0_)
+
+        in_p0 = DataFrame[self.inp0_sc](in_p0_)
 
         p0 = self._p0_factory(
             in_p0,
@@ -417,21 +404,104 @@ class DataPrepper(PanderaMixin):
         return self.params
 
 
+class OptFuncReg:
+    def __init__(
+        self,
+        optimizer: WhichOpt,
+    ):
+        self.opt_func = None
+        self.optimizer = optimizer
+
+        if optimizer == "jax":
+            from jaxfit import CurveFit
+
+            self.opt_func = CurveFit().curve_fit
+
+        elif optimizer == "scipy":
+            from scipy import optimize
+
+            self.optimizer = optimize.curve_fit
+
+        else:
+            raise ValueError(f"Please provide one of {WhichOpt}")
+
+
+class FitFuncReg:
+    """
+    Contains the fit functions for popt_factory
+    """
+
+    def __init__(
+        self,
+        fit_func: WhichFitFunc,
+    ):
+        self.fit_func = fit_func
+        self.ff = None
+
+        import hplc_py.skewnorms.skewnorms as sk
+
+        if fit_func == "jax":
+            self.ff = sk.fit_skewnorms_jax
+
+        elif fit_func == "scipy":
+            self.ff = sk._fit_skewnorms_scipy
+
+        else:
+            raise ValueError({f"Please provide one of: {WhichOpt}"})
+
+
 @dataclass
-class PeakDeconvolver(DataPrepper):
+class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
+    r_signal_sch = RSignal
+
+    def get_fit_func(self, fit_func: WhichFitFunc):
+        return FitFuncReg(fit_func).ff
+
+    def get_optimizer(self, optimizer: WhichOpt):
+        return OptFuncReg(optimizer).opt_func
+
     @pa.check_types
     def deconvolve_peaks(
         self,
-        params: DataFrame[Params],
-        timestep: np.float64,
-    ) -> tuple[pt.DataFrame[Popt], pt.DataFrame[PSignals]]:
+        pm: DataFrame[PeakMap],
+        ws: DataFrame[WindowedSignal],
+        timestep: float64,
+        which_opt: WhichOpt = "jax",
+        which_fit_func: WhichFitFunc = "jax",
+    ) -> tuple[DataFrame[Popt], DataFrame[PSignals]]:
+        """
+        :optimizer: string to decide which optimizer to use. Currently only 'jax' and 'scipy' are supported.
+        """
+
+        # checks
+
+        if which_opt not in WhichOpt.__args__:  # type: ignore
+            raise ValueError(f"Please provide one of {WhichOpt} to 'optimizer' kw")
+
+        if which_fit_func not in WhichFitFunc.__args__:  # type: ignore
+            raise ValueError(f"Please provide one of {WhichFitFunc} to 'optimizer' kw")
+
+        # atm only one scipy and one jax set of fit func / optimizers, ergo they need to be paired and not mixed. Intend to add more at a later date
+        if not which_opt == which_fit_func:
+            raise ValueError(
+                "Please pair the fit func with its corresponding optimizer"
+            )
+
         params = self._prepare_params(pm, ws, timestep)
 
-        popt_df: pd.DataFrame = self._popt_factory(windowed_signal_df, param_df)
+        optfunc = self.get_optimizer(which_opt)
+        fit_func = self.get_fit_func(which_fit_func)
 
-        recon_ = self._construct_peak_signals(
-            windowed_signal_df["time"].to_numpy(np.float64), popt_df
+        popt_df: pd.DataFrame = self._popt_factory(
+            ws,
+            params,
+            optfunc,
+            fit_func,
         )
+
+        time = Series[float64](ws[str(self.ws_sc.time)])
+
+        recon_ = self._construct_peak_signals(time, popt_df)
 
         popt_df = DataFrame[Popt](popt_df)
         recon = DataFrame[PSignals](recon_)
@@ -440,9 +510,9 @@ class PeakDeconvolver(DataPrepper):
 
     def _get_peak_report(
         self,
-        popt: pt.DataFrame[Popt],
-        unmixed_df: pt.DataFrame[PSignals],
-        timestep: np.float64,
+        popt: DataFrame[Popt],
+        unmixed_df: DataFrame[PSignals],
+        timestep: float64,
     ):
         """
         add peak area to popt_df. Peak area is defined as the sum of the amplitude arrays
@@ -469,7 +539,7 @@ class PeakDeconvolver(DataPrepper):
             .assign(retention_time=lambda df: df["time"])
             .astype(
                 {
-                    "retention_time": pd.Float64Dtype(),
+                    "retention_time": float64,
                 }
             )
             .loc[
@@ -488,10 +558,9 @@ class PeakDeconvolver(DataPrepper):
             ]
         )
 
-        import pytest
+        PReport.validate(peak_report_, lazy=True)
 
-        pytest.set_trace()
-        peak_report = PReport.validate(peak_report_, lazy=True)
+        peak_report = DataFrame[PReport](peak_report_)
 
         return peak_report
 
@@ -503,27 +572,26 @@ class PeakDeconvolver(DataPrepper):
         fit_func,
         optimizer_kwargs={},
         verbose=True,
-    ) -> pt.DataFrame[Popt]:
+    ) -> DataFrame[Popt]:
         popt_list = []
 
         import polars as pl
 
         ws_ = pl.from_pandas(ws)
-
-        # windows = ws.loc[lambda df: df[self.ws_sc.w_type] == "peak"][
-        #     self.ws_sc.w_idx
-        # ].unique()
         params_ = pl.from_pandas(params)
+
+        wdw_grpby = params_.partition_by(
+            "w_idx", maintain_order=True, as_dict=True
+        ).items()
+
         if verbose:
             windows_grpby = tqdm.tqdm(
-                params_.partition_by(
-                    "w_idx", maintain_order=True, as_dict=True
-                ).items(),
+                wdw_grpby,
                 desc="deconvolving windows",
             )
 
         else:
-            windows_grpby = windows
+            windows_grpby = wdw_grpby
 
         # ws_ = ws.set_index('w_idx')
 
@@ -565,10 +633,10 @@ class PeakDeconvolver(DataPrepper):
             columns="param", index=["w_idx", "p_idx"], values="values"
         )
 
-        popt_df = pt.DataFrame[Popt](
+        popt_df = DataFrame[Popt](
             popt_df_.with_row_index("idx")
             .to_pandas()
-            .astype({"idx": pd.Int64Dtype()})
+            .astype({"idx": int64})
             .set_index("idx")
         )
         return popt_df
@@ -576,28 +644,29 @@ class PeakDeconvolver(DataPrepper):
     # @pa.check_types
     def _construct_peak_signals(
         self,
-        time: FloatArray,
-        popt_df: pt.DataFrame[Popt],
-    ) -> pt.DataFrame[PSignals]:
+        time: Series[float64],
+        popt_df: DataFrame[Popt],
+    ) -> DataFrame[PSignals]:
         def construct_peak_signal(
-            popt_df: pt.DataFrame[Popt],
-            time: pt.Series,
+            popt_df: DataFrame[Popt],
+            time: Series[float64],
         ) -> pd.DataFrame:
+            
+            self.check_container_is_type(time, pd.Series, float64)
+
             params = popt_df.loc[
                 :, ["amp", "time", "whh_half", "skew"]
             ].values.flatten()
 
-            unmixed_signal = _compute_skewnorm(time.values, params)
+            unmixed_signal = _compute_skewnorm_scipy(time, params)
 
-            unmixed_signal_df = pd.merge(popt_df.loc[:, ["p_idx"]], time, how="cross")
+            # expect that time contains the same index columns as input popt_df
+            popt_ = popt_df.loc[:, ["p_idx"]]
 
+            unmixed_signal_df = pd.merge(popt_, time, how="cross")
             unmixed_signal_df = unmixed_signal_df.assign(amp_unmixed=unmixed_signal)
-
             unmixed_signal_df = unmixed_signal_df.reset_index(names="time_idx")
-            
-            unmixed_signal_df["time_idx"] = unmixed_signal_df["time_idx"].astype(
-                pd.Int64Dtype()
-            )
+            unmixed_signal_df["time_idx"] = unmixed_signal_df["time_idx"].astype(int64)
             unmixed_signal_df = unmixed_signal_df.loc[
                 :, ["p_idx", "time_idx", "time", "amp_unmixed"]
             ]
@@ -611,27 +680,24 @@ class PeakDeconvolver(DataPrepper):
         recon_ = popt_df.groupby(
             by=["p_idx"],
             group_keys=False,
-        ).apply(construct_peak_signal, *[time])
+        ).apply(construct_peak_signal, time)  # type: ignore
 
         peak_signals = recon_.reset_index(drop=True)
 
         return peak_signals
 
     def _reconstruct_signal(self, peak_signals: DataFrame[PSignals]):
-        import pytest
-
-        pytest.set_trace()
-
-        recon_ = (
-            peak_signals
-            .set_index(["p_idx", "time_idx", "time"])
-            .unstack(["p_idx"])
-            .sum(axis=1)
-            .reset_index(name="amp_recon")
+        r_signal_ = (
+            peak_signals.set_index(["p_idx", "time_idx", "time"])
+            .unstack("p_idx")
+            .sum(axis="columns")  # type: ignore
+            .reset_index(name="amp")
             .rename_axis(index="idx")
+            .assign(tform_state="recon")
+            .reindex(columns=self.get_schema_colorder(self.r_signal_sch)) #type: ignore
         )
 
-        recon = RSignal.validate(recon_, lazy=True)
-        
-        import pytest; pytest.set_trace()
+        RSignal.validate(r_signal_, lazy=True)
+        recon = DataFrame[RSignal](r_signal_)
+
         return recon

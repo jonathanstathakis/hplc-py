@@ -1,88 +1,34 @@
-from matplotlib.collections import PatchCollection
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from matplotlib.axes import Axes as Axes
+
 import numpy as np
 import pandas as pd
 import pandera as pa
+from matplotlib.axes import Axes as Axes
+from numpy import float64, int64
+from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 from scipy.ndimage import label  # type: ignore
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    IntArray,
-    SignalDF,
-    BaseDF,
+    PeakWindows,
+    PWdwdTime,
+    SignalDFBCorr,
+    WindowedSignal,
+    WindowedTime,
 )
-from hplc_py.map_signals.map_peaks import PeakMap
-from typing import Type
-
-from hplc_py import AMPRAW, AMPCORR
-
-class WindowedSignal(BaseDF):
-    w_type: pd.StringDtype
-    w_idx: pd.Int64Dtype
-    time_idx: pd.Int64Dtype
-    time: pd.Float64Dtype
-    amp: pd.Float64Dtype=pa.Field(regex=f"\b({AMPRAW}|{AMPCORR})\b")
-    
-
-class PeakWindows(BaseDF):
-    time_idx: pd.Int64Dtype
-    time: pd.Float64Dtype
-    w_idx: pd.Int64Dtype
-    w_type: pd.StringDtype
-
-    class Config:
-        strict = True
-
-
-class IPBounds(BaseDF):
-    ip_w_idx: pd.Int64Dtype
-    ip_bound: pd.StringDtype
-    time_idx: pd.Int64Dtype
-    ip_w_type: pd.StringDtype
-
-    @pa.check("ip_w_idx", name="check_w_idx_increasing")
-    def check_monotonic_increasing_w_idx(cls, s: Series[pd.Int64Dtype]) -> bool:
-        return s.is_monotonic_increasing
-
-    @pa.check("time_idx", name="check_time_idx_increasing")
-    def check_monotonic_increasing_t_idx(cls, s: Series[pd.Int64Dtype]) -> bool:
-        return s.is_monotonic_increasing
-
-    class Config:
-        strict = True
-
-
-class PWdwdTime(BaseDF):
-    """
-    peak windowed time dataframe, with NA's for nonpeak regions. An intermediate frame prior to full mapping
-    """
-
-    time_idx: pd.Int64Dtype
-    time: pd.Float64Dtype
-    w_idx: pd.Int64Dtype = pa.Field(nullable=True)
-    w_type: pd.StringDtype = pa.Field(nullable=True)
-
-    class Config:
-        strict = True
-
-
-class WindowedTime(PWdwdTime):
-    w_idx: pd.Int64Dtype
-    w_type: pd.StringDtype
+from hplc_py.io_validation import IOValid
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 
 
 @dataclass
 class MapWindowsMixin:
-    pm = PeakMap
-    sdf = SignalDF
+    pm_sc = PeakMap
+    sdf_sc = SignalDFBCorr
     pw_sc = PeakWindows
-    ipb_sc = IPBounds
     pwdt_sc = PWdwdTime
     wt_sc = WindowedTime
     ws_sc = WindowedSignal
+    w_type_interpeak_label:int = -999
 
     """
     - create the intervals
@@ -126,8 +72,8 @@ class MapWindowsMixin:
 
     def _interval_factory(
         self,
-        left_bases: Series[pd.Int64Dtype],
-        right_bases: Series[pd.Int64Dtype],
+        left_bases: Series[int64],
+        right_bases: Series[int64],
     ) -> Series[pd.Interval]:
         """
         Take the left an right base index arrays and convert them to pandas Intervals, returned as a frame. Assumes that the left and right base arrays are aligned in order
@@ -227,7 +173,7 @@ class MapWindowsMixin:
     def _set_peak_windows(
         self,
         w_intvls: dict[int, pd.Interval],
-        time: Series[pd.Float64Dtype],
+        time: Series[float64],
     ) -> DataFrame[PeakWindows]:
         """
         Given a dict of Interval objects, subset the time series by the bounds of the
@@ -237,7 +183,7 @@ class MapWindowsMixin:
         intvl_times = []
 
         for i, intvl in w_intvls.items():
-            time_idx: IntArray = np.arange(intvl.left, intvl.right, 1)
+            time_idx: NDArray[int64] = np.arange(intvl.left, intvl.right, 1)
 
             time_intvl: pd.DataFrame = pd.DataFrame(
                 {
@@ -251,9 +197,9 @@ class MapWindowsMixin:
 
             time_intvl = time_intvl.astype(
                 {
-                    "time_idx": pd.Int64Dtype(),
-                    "time": pd.Float64Dtype(),
-                    "w_idx": pd.Int64Dtype(),
+                    "time_idx": int64,
+                    "time": float64,
+                    "w_idx": int64,
                     "w_type": pd.StringDtype(),
                 }
             )
@@ -267,31 +213,32 @@ class MapWindowsMixin:
         intvl_df = DataFrame[PeakWindows](intvl_df_)
 
         return intvl_df
-
+    
+    @pa.check_types
     def _set_peak_wndwd_time(
         self,
-        time: Series[pd.Float64Dtype],
+        time: Series[float64],
         peak_wdws: DataFrame[PeakWindows],
     ) -> DataFrame[PWdwdTime]:
-        if time.dtype != pd.Float64Dtype():
-            raise TypeError(f"expected time to be NDArray of float, got {time.dtype}")
+        
+        check_input_is_pd_series_float64(time)
+        
         # constructs a time dataframe with time value and index
-        wdwd_time: pd.DataFrame = pd.DataFrame(
+        
+        wdwd_time_: pd.DataFrame = pd.DataFrame(
             {"time_idx": np.arange(0, len(time), 1), "time": time}
         )
 
         # joins the peak window intervals to the time index to generate a pattern of missing values
         wdwd_time = (
-            wdwd_time.set_index("time_idx")
+            wdwd_time_.set_index("time_idx")
             .join(peak_wdws.set_index("time_idx").drop("time", axis=1), how="left")
             .reset_index()
             .rename_axis(index="idx")
+            .assign(w_type=lambda df: df['w_type'].fillna('interpeak'))
+            .assign(w_idx=lambda df: df['w_idx'].fillna(self.w_type_interpeak_label))
         )
-
-        # label the peak windows
-        wdwd_time["w_type"] = wdwd_time["w_type"].where(
-            wdwd_time["w_type"] == "peak", np.nan
-        )
+        
         try:
             wdwd_time = DataFrame[PWdwdTime](wdwd_time)
         except pa.errors.SchemaErrors as e:
@@ -303,46 +250,64 @@ class MapWindowsMixin:
         self,
         pwdwd_time: DataFrame[PWdwdTime],
         w_idx_col: str,
-    ) -> IntArray:
+    ) -> NDArray[int64]:
+        
+        if not isinstance(w_idx_col, str):
+            raise TypeError(f"expected str, got {type(w_idx_col)}")
+        
         labels = []
-
-        labels, num_features = label(pwdwd_time[w_idx_col].isna())  # type: ignore
+        labels, num_features = label(pwdwd_time[w_idx_col]==self.w_type_interpeak_label)  # type: ignore
         labels = np.asarray(labels, dtype=np.int64)
         return labels
 
+    @pa.check_types
     def _label_interpeaks(
         self,
         pwdwd_time: DataFrame[PWdwdTime],
         w_idx_col: str,
     ) -> DataFrame[WindowedTime]:
+        
+        pwdwd_time_ = pwdwd_time.copy(deep=True)
+        
+        check_input_is_str(w_idx_col)
+        
         labels = self._get_na_labels(pwdwd_time, w_idx_col)
 
-        pwdwd_time["w_idx"] = pwdwd_time["w_idx"].mask(
-            pwdwd_time["w_idx"].isna(), Series(labels - 1)
-        )
-
-        pwdwd_time["w_type"] = pwdwd_time["w_type"].mask(
-            pwdwd_time["w_type"].isna(), "interpeak"
+        pwdwd_time_["w_idx"] = pwdwd_time_["w_idx"].mask(
+            pwdwd_time_["w_idx"]==self.w_type_interpeak_label, Series(labels - 1)
         )
 
         wdwd_time: DataFrame[WindowedTime] = DataFrame[WindowedTime](
-            pwdwd_time.copy(deep=True)
+            pwdwd_time_
         )
 
         return wdwd_time
 
-    def _join_sdf_wm(
+    @pa.check_types
+    def _join_ws_wt(
         self,
-        amp: Series[pd.Float64Dtype],
+        amp: Series[float64],
         wt: DataFrame[WindowedTime],
     ) -> DataFrame[WindowedSignal]:
         
+        check_input_is_pd_series_float64(amp)
+        
         ws = wt.copy(deep=True)
-        
-        ws['amp']=Series[pd.Float64Dtype](amp, dtype=pd.Float64Dtype())
 
-        ws = ws.set_index(['w_type','w_idx','time_idx','time',]).reset_index().rename_axis(index='idx')
-        
+        ws["amp"] = Series[float64](amp, dtype=float64)
+
+        ws = (
+            ws.set_index(
+                [
+                    "w_type",
+                    "w_idx",
+                    "time_idx",
+                    "time",
+                ]
+            )
+            .reset_index()
+            .rename_axis(index="idx")
+        )
         try:
             ws = DataFrame[WindowedSignal](ws)
         except pa.errors.SchemaError as e:
@@ -351,19 +316,33 @@ class MapWindowsMixin:
 
         return ws
 
-    def _map_windows(
+    @pa.check_types
+    def _map_windows_to_time(
         self,
-        left_bases: Series[pd.Float64Dtype],
-        right_bases: Series[pd.Float64Dtype],
-        time: Series[pd.Float64Dtype],
+        left_bases: Series[float64],
+        right_bases: Series[float64],
+        time: Series[float64],
     ) -> DataFrame[WindowedTime]:
-        # convert left and right_bases to int. At this point assuming that all ceiling will be acceptable
+        """
+        convert left and right_bases to int. At this point assuming that all ceiling will be acceptable
+        """
 
-        left_bases_: Series[pd.Int64Dtype] = Series(left_bases, dtype=pd.Int64Dtype())
-        right_bases_: Series[pd.Int64Dtype] = Series(right_bases, dtype=pd.Int64Dtype())
+        left_bases_: Series[int64] = Series(left_bases, dtype=int64)
+        right_bases_: Series[int64] = Series(right_bases, dtype=int64)
+
+        # sanity check: all left bases should be less than corresponding right base
+
+        base_check = pd.concat([left_bases_, right_bases_], axis=1)
+        # horizontal less
+        base_check = base_check.assign(
+            hz_less=lambda df: df["pb_left"] < df["pb_right"]
+        )
+        if not base_check["hz_less"].all():
+            raise ValueError(
+                f"expect left_base of each pair to be less than corresponding right.\n\n{base_check}"
+            )
 
         intvls = self._interval_factory(left_bases_, right_bases_)
-
         w_idxs: dict[int, list[int]] = self._label_windows(intvls)
         w_intvls: dict[int, pd.Interval] = self._combine_intvls(intvls, w_idxs)
         pw: DataFrame[PeakWindows] = self._set_peak_windows(w_intvls, time)
@@ -375,103 +354,22 @@ class MapWindowsMixin:
         return wt
 
 
-from hplc_py.map_signals.map_peaks import MapPeakPlots
-
-
-@dataclass
-class MapWindowPlots(MapPeakPlots):
-    ws_sch: Type[WindowedSignal] = WindowedSignal
-
-    def __post_init__(self):
-        super().__init__()
-    
-    def _rectangle_factory(
-        self,
-        xy: tuple[float, float],
-        width: float,
-        height: float,
-        angle: float=0.0,
-        rotation_point: str = 'xy',
-        rectangle_kwargs={},
-    )->Rectangle:
-        
-        rectangle = Rectangle(xy, width, height, angle=angle, rotation_point=rotation_point, **rectangle_kwargs)
-        
-        return rectangle
-    
-    def plot_windows(
-        self,
-        ws: DataFrame[WindowedSignal],
-        height: float,
-        ax: Axes = None,
-        rectangle_kwargs: dict={},
-    ):  
-        """
-        Plot each window as a Rectangle
-        
-        height is the maxima of the signal.
-        """
-        
-        if not ax:
-            ax=plt.gca()
-        
-        # rectangle definition: class matplotlib.patches.Rectangle(xy, width, height, *, angle=0.0, rotation_point='xy', **kwargs)
-        # rectangle usage: `ax.add_collection([Rectangles..])` or `ax.add_patch(Rectangle)``
-        
-        
-        
-        window_stats = ws.groupby([self.ws_sch.w_type, self.ws_sch.w_idx])[self.ws_sch.time].agg(['min','max'])
-        
-        rh = height*1.05
-        
-        # peak windows
-        rectangles = []
-        for k, g in window_stats.groupby([self.ws_sch.w_type,self.ws_sch.w_idx]):
-            x0 = g['min'].iat[0]
-            y0 = 0
-            width = g['max'].iat[0]-x0
-            
-            rectangle = self._rectangle_factory(
-                (x0, y0),
-                width,
-                rh,
-                rectangle_kwargs=rectangle_kwargs,
-            )
-        
-            rectangles.append(rectangle)        
-        
-        import matplotlib as mpl
-        
-        cmap = mpl.colormaps["Set1"].resampled(len(window_stats))
-        
-        pc = PatchCollection(
-            rectangles,
-            zorder=0,
-            alpha=0.25,
-            facecolors=cmap.colors,
-            )
-        ax.add_collection(pc)
-        
-        pass
-
-
 @dataclass
 class MapWindows(MapWindowsMixin):
     def window_signal(
         self,
-        left_bases: Series[pd.Float64Dtype],
-        right_bases: Series[pd.Float64Dtype],
-        time: Series[pd.Float64Dtype],
-        amp: Series[pd.Float64Dtype],
+        left_bases: Series[float64],
+        right_bases: Series[float64],
+        time: Series[float64],
+        amp: Series[float64],
     ) -> DataFrame[WindowedSignal]:
-
-        wt = self._map_windows(
+        wt = self._map_windows_to_time(
             left_bases,
             right_bases,
             time,
         )
 
-        wsdf = self._join_sdf_wm(
+        wsdf = self._join_ws_wt(
             amp,
             wt,
         )

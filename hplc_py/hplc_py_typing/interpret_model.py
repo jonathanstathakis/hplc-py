@@ -1,6 +1,5 @@
 import pandas as pd
 
-
 def interpret_model(
     df,
     schema_name: str = "",

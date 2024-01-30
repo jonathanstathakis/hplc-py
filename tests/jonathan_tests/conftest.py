@@ -1,40 +1,31 @@
-from typing import Any
-import polars as pl
-
-import pytest
-import hplc
-from pandera.typing import DataFrame
-import typing
-import pandas as pd
-from scipy.optimize._lsq.common import in_bounds  # type: ignore
 import os
+from typing import Any, Literal
 
-import pytest
-import pandera as pa
-from pandera.typing import Series, DataFrame
+import hplc
 import pandas as pd
+import polars as pl
+import pytest
+from numpy import float64, int64
+from numpy.typing import NDArray
+from pandera.typing import DataFrame, Series
 
-import numpy as np
-
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    SignalDFInBase,
-    SignalDFInAssChrom,
-    PReport,
-    P0,
-    Bounds,
-    PSignals,
-    Popt,
-    Params,
-    isArrayLike,
-    FloatArray,
-)
-
-from hplc_py.quant import Chromatogram
 from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
-from hplc_py.map_signals.map_peaks import MapPeaks
 from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PeakDeconvolver
-from hplc_py.misc.misc import TimeStep, LoadData
-import json
+from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b  # noqa: F401
+from hplc_py.hplc_py_typing.hplc_py_typing import (
+    Popt,
+    PReport,
+    PSignals,
+    SignalDFLoaded,
+    WindowedSignal,
+    RSignal
+)
+from hplc_py.io_validation import (
+    IOValid
+)
+from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_windows import MapWindows
+from hplc_py.misc.misc import compute_timestep
 
 
 @pytest.fixture
@@ -43,46 +34,36 @@ def datapath():
 
 
 @pytest.fixture
-def in_signal(datapath: str) -> DataFrame[SignalDFInBase]:
+def in_signal(
+    datapath: str,
+    amp_col: str,
+    time_col: str,
+    ) -> DataFrame[SignalDFLoaded]:
     data = pd.read_csv(datapath)
 
-    data = data.rename({"x": "time", "y": "amp_raw"}, axis=1, errors="raise")
-    data = DataFrame[SignalDFInBase](data)
+    data = data.rename({"x": time_col, "y": amp_col}, axis=1, errors="raise").reset_index(names='time_idx').rename_axis(index='idx')
+    data = DataFrame[SignalDFLoaded](data)
     return data
 
 
-def test_in_signal_matches_schema(in_signal: DataFrame[SignalDFInBase]) -> None:
-    "currently in signal is asschrom"
-    SignalDFInAssChrom(in_signal)
-    return None
+@pytest.fixture
+def time(in_signal: DataFrame[SignalDFLoaded])->Series[float64]:
+    return Series[float64](in_signal["time"])
 
 
 @pytest.fixture
-def chm():
-    return Chromatogram()
-
-
-@pytest.fixture
-def time(in_signal: DataFrame[SignalDFInBase]):
-    return Series(in_signal["time"], dtype=pd.Float64Dtype())
-
-
-@pytest.fixture
-def ts():
-    ts = TimeStep()
-    return ts
-
-
-@pytest.fixture
-def timestep(ts: TimeStep, time: FloatArray) -> np.float64:
-    timestep: np.float64 = ts.compute_timestep(Series(time, dtype=pd.Float64Dtype()))
-
+def timestep(time: NDArray[float64]) -> float:
+    timestep: float = compute_timestep(time)
     return timestep
 
 
 @pytest.fixture
-def amp_raw(in_signal: DataFrame[SignalDFInBase]):
-    amp = in_signal["amp_raw"].values
+def amp_raw(
+    in_signal: DataFrame[SignalDFLoaded],
+    amp_col: str,
+    )->Series[float64]:
+    
+    amp = Series[float64](in_signal[amp_col])
 
     return amp
 
@@ -94,35 +75,18 @@ def windowsize():
 
 @pytest.fixture
 def bcorr_colname(amp_col: str) -> str:
-    bcorr_col_str: str = amp_col.replace("raw", "corrected")
+    bcorr_col_str: str = amp_col+'_corrected'
     return bcorr_col_str
 
 
 @pytest.fixture
-def timecol():
+def time_col():
     return "time"
 
 
 @pytest.fixture
 def amp_col():
-    return "amp_raw"
-
-
-@pytest.fixture
-def ld():
-    ld = LoadData()
-    return ld
-
-
-@pytest.fixture
-def loaded_signal_df(
-    ld: LoadData,
-    in_signal_df: DataFrame[SignalDFInBase],
-):
-    lsd = ld.set_signal_df(in_signal_df)
-
-    return lsd
-
+    return "amp"
 
 @pytest.fixture
 def cb():
@@ -131,34 +95,27 @@ def cb():
 
 
 @pytest.fixture
-def loaded_cb(
+def bcorred_signal_df_asschrom(
     cb: CorrectBaseline,
-    in_signal: DataFrame[SignalDFInBase],
-):
-    cb.set_signal_df(in_signal)
-
-    return cb
-
-
-@pytest.fixture
-def bcorred_cb(
-    loaded_cb: CorrectBaseline,
-):
-    loaded_cb.correct_baseline()
-
-    return loaded_cb
-
-
-@pytest.fixture
-def bcorred_signal_df(bcorred_cb: CorrectBaseline) -> DataFrame[SignalDFBCorr]:
-    bcorred_signal_df = DataFrame[SignalDFBCorr](bcorred_cb._signal_df)
+    in_signal: DataFrame[SignalDFLoaded],
+    amp_col: str,
+    timestep: float,
+    windowsize: int,
+    ) -> DataFrame[SignalDFBCorr]:
+    
+    bcorred_signal_df = cb.fit_transform(
+        signal_df=in_signal,
+        amp_col=amp_col,
+        timestep=timestep,
+        windowsize=windowsize,
+    )
 
     return bcorred_signal_df
 
 
 @pytest.fixture
-def amp_bcorr(bcorred_signal_df: DataFrame, bcorr_colname: str):
-    return bcorred_signal_df[bcorr_colname].to_numpy(np.float64)
+def amp_bcorr(bcorred_signal_df_asschrom: DataFrame, bcorr_colname: str)->Series[float64]:
+    return Series[float64](bcorred_signal_df_asschrom[bcorr_colname])
 
 
 @pytest.fixture
@@ -169,16 +126,6 @@ def background_colname():
 @pytest.fixture
 def background(bcorrected_signal_df, background_colname):
     return bcorrected_signal_df[background_colname]
-
-
-@pytest.fixture
-def time_colname():
-    return "time"
-
-
-@pytest.fixture
-def amp_colname():
-    return "amp_raw"
 
 
 @pytest.fixture
@@ -203,12 +150,18 @@ def int_col():
 
 
 @pytest.fixture
+def time_pd_series(
+    time: NDArray[float64],
+)->Series[float64]:
+    return Series[float64](pd.Series(time, name='time'))
+
+@pytest.fixture
 def psignals(
     dc: PeakDeconvolver,
-    time: FloatArray,
+    time_pd_series: Series[float64],
     stored_popt: DataFrame[Popt],
 ):
-    psignals = dc._construct_peak_signals(time, stored_popt)
+    psignals = dc._construct_peak_signals(time_pd_series, stored_popt)
 
     return psignals
 
@@ -218,18 +171,15 @@ def peak_report(
     dc: PeakDeconvolver,
     stored_popt: DataFrame[Popt],
     psignals: DataFrame[PSignals],
-    timestep: np.float64,
-) -> PReport:
+    timestep: float64,
+) -> DataFrame[PReport]:
     peak_report = dc._get_peak_report(
         stored_popt,
         psignals,
         timestep,
     )
-
-    peak_report = PReport.validate(peak_report, lazy=True)
-
-    return peak_report  # type: i
-
+ 
+    return peak_report
 
 @pytest.fixture
 def popt_parqpath():
@@ -247,43 +197,25 @@ def stored_popt(popt_parqpath):
     return pd.read_parquet(popt_parqpath)
 
 
-from hplc_py.deconvolve_peaks.mydeconvolution import DataPrepper, PeakDeconvolver
-
-from hplc_py.map_signals.map_peaks import MapPeaks, PeakMap
-from hplc_py.map_signals.map_windows import MapWindows, WindowedSignal
-
 
 @pytest.fixture
 def left_bases(
-    pm: DataFrame[PeakMap],
-) -> Series[pd.Int64Dtype]:
-    left_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
-        pm[PeakMap.pb_left], dtype=pd.Int64Dtype()
+    my_peak_map: DataFrame[PeakMap],
+) -> Series[int64]:
+    left_bases: Series[int64] = Series[int64](
+        my_peak_map[PeakMap.pb_left], dtype=int64
     )
     return left_bases
 
 
 @pytest.fixture
 def right_bases(
-    pm: DataFrame[PeakMap],
-) -> Series[pd.Int64Dtype]:
-    right_bases: Series[pd.Int64Dtype] = Series[pd.Int64Dtype](
-        pm[PeakMap.pb_right], dtype=pd.Int64Dtype()
+    my_peak_map: DataFrame[PeakMap],
+) -> Series[int64]:
+    right_bases: Series[int64] = Series[int64](
+        my_peak_map[PeakMap.pb_right], dtype=int64
     )
     return right_bases
-
-
-@pytest.fixture
-def amp(
-    amp_bcorr: FloatArray,
-) -> Series[pd.Float64Dtype]:
-    amp: Series[pd.Float64Dtype] = Series(
-        amp_bcorr, name="amp", dtype=pd.Float64Dtype()
-    )
-    return amp
-
-
-from hplc_py.map_signals.map_windows import MapWindows, WindowedSignal
 
 
 @pytest.fixture
@@ -291,16 +223,25 @@ def mw() -> MapWindows:
     mw = MapWindows()
     return mw
 
+@pytest.fixture
+def prom()->float:
+    return 0.01
 
 @pytest.fixture
-def pm(
+def my_peak_map(
     mp: MapPeaks,
-    amp: Series[pd.Float64Dtype],
-    time: Series[pd.Float64Dtype],
+    amp_bcorr: Series[float64],
+    prom: float,
+    timestep: float,
+    time: Series[float64],
 ) -> DataFrame[PeakMap]:
     pm = mp.map_peaks(
-        amp,
-        time,
+        amp=amp_bcorr,
+        time=time,
+        timestep=timestep,
+        prominence=prom,
+        wlen=None,
+        find_peaks_kwargs={}
     )
     return pm
 
@@ -308,29 +249,38 @@ def pm(
 @pytest.fixture
 def ws(
     mw: MapWindows,
-    time: Series[pd.Float64Dtype],
-    amp: Series[pd.Float64Dtype],
-    left_bases: Series[pd.Float64Dtype],
-    right_bases: Series[pd.Float64Dtype],
+    time_pd_series: Series[float64],
+    amp_bcorr: Series[float64],
+    left_bases: Series[float64],
+    right_bases: Series[float64],
 ) -> DataFrame[WindowedSignal]:
+    
+    check_input_is_pd_series_float64(time_pd_series)    
+    check_input_is_pd_series_float64(amp_bcorr)    
+    check_input_is_pd_series_int64(left_bases)    
+    check_input_is_pd_series_int64(right_bases)    
+    
+    
     ws = mw.window_signal(
         left_bases,
         right_bases,
-        time,
-        amp,
+        time_pd_series,
+        amp_bcorr,
     )
+    
     return ws
 
 
 @pytest.fixture
 def main_chm_asschrom_loaded(
     in_signal: DataFrame,
+    amp_col: str,
 ):
     main_chm = hplc.quant.Chromatogram(
         pd.DataFrame(
             in_signal.rename(
                 columns={
-                    "amp_raw": "signal",
+                    amp_col: "signal",
                 }
             )
         )
@@ -361,13 +311,18 @@ def main_chm_asschrom_score(
 
 @pytest.fixture
 def main_chm_asschrom_fitted_pkpth():
-    return "/Users/jonathan/hplc-py/tests/jonathan_tests/main_chm_asschrom_fitted.pk"
+    pkpth = "/Users/jonathan/hplc-py/tests/jonathan_tests/main_chm_asschrom_fitted.pk"
+    
+    return pkpth
 
 
 @pytest.fixture
 def main_chm_asschrom_fitted_pk(
     main_chm_asschrom_fitted_pkpth: str,
-):
+)->hplc.quant.Chromatogram:
+    if not os.path.isfile("/Users/jonathan/hplc-py/tests/jonathan_tests/main_chm_asschrom_fitted.pk"):
+        raise RuntimeError("No main pickle file found. ./tests/jonathan_tests/test_main_asschrom.py::test_pk_main_chm_asschrom_fitted must be run first.")
+      
     import pickle
 
     return pickle.load(open(main_chm_asschrom_fitted_pkpth, "rb"))
@@ -379,9 +334,9 @@ def main_params(main_chm_asschrom_fitted_pk):
 
     columns: ['w_idx','p_idx','param','bng','val']
     """
-    params = main_chm_asschrom_fitted_pk.params_jono
+    params_: pd.DataFrame = main_chm_asschrom_fitted_pk.params_jono
 
-    params: pl.DataFrame = pl.from_pandas(params).melt(
+    params: pl.DataFrame = pl.from_pandas(params_).melt(
         id_vars=["w_idx", "p_idx", "param"],
         value_vars=["lb", "p0", "ub"],
         variable_name="bng",
@@ -397,6 +352,8 @@ def main_peak_report(main_chm_asschrom_fitted_pk):
         .drop("peak_id")
         .with_row_index("p_idx")
     )
+    
+    return peaks
 
 @pytest.fixture
 def main_scores(main_chm_asschrom_fitted_pk):
@@ -404,7 +361,7 @@ def main_scores(main_chm_asschrom_fitted_pk):
         main_chm_asschrom_fitted_pk.scores.reset_index(drop=True)
     ).with_columns(window_id=pl.col("window_id") - 1)
     
-    breakpoint()
+    
 
     scores = scores.select([
                 "window_type",
@@ -606,15 +563,16 @@ def main_peak_window_recon_signal(
     return main_extract_popt_and_peak_window_recon_signal[1]
 
 @pytest.fixture
-def main_peak_map(
+def main_pm_(
     main_chm_asschrom_fitted_pk
 ):
     """
-    Main pakcage asschrom peak map
+    Main package asschrom peak map
     
     The data gathered from scipy peak widths
     """
     peak_map = main_chm_asschrom_fitted_pk._peak_map_jono
+      
     return peak_map
 
 @pytest.fixture
@@ -662,3 +620,12 @@ def main_bcorr_interm_params(
     """
     return __main_bcorr_interms_extract[1]
 
+@pytest.fixture
+def r_signal(
+    dc: PeakDeconvolver,
+    psignals: DataFrame[PSignals],
+)-> DataFrame[RSignal]:
+    
+    r_signal = dc._reconstruct_signal(psignals)
+    
+    return r_signal

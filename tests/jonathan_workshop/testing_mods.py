@@ -1,10 +1,6 @@
-import os
 import pandas as pd
-from pandas import DataFrame, Series
-import numpy as np
-from hplc_py.quant import Chromatogram
+from pandas import Series
 import matplotlib.pyplot as plt
-import seaborn as sns
 from scipy import signal
 
 plt.rcParams['figure.dpi']=140
@@ -42,7 +38,7 @@ def main():
     # subplot title font size
     sptfs = 8
     
-    timesnapped_md = md.query(f"(time>=2)&(time<=4.5)")
+    timesnapped_md = md.query("(time>=2)&(time<=4.5)")
     axs[0][0].plot(timesnapped_md.time, timesnapped_md.signal, label='raw signal')
     axs[0][0].plot(timesnapped_md.time, timesnapped_md.sharpened, label='sharpened')
     axs[0][0].set_title("raw and sharpend t>=2 & t<=4.", fontsize=sptfs)

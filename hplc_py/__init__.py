@@ -2,12 +2,16 @@ from holoviews import opts
 import holoviews as hv
 
 import polars as pl
+import pandas as pd
+
+pd.options.display.max_columns = 50
 
 pl.Config(
     set_tbl_rows=50,
     set_tbl_cols=20,
     )
 
+AMP='amp'
 AMPRAW='amp_raw'
 AMPCORR='amp_corrected'
 
@@ -20,7 +24,8 @@ P0SKEW='skew'
 # hvplot defaults
 
 
-hv.extension('bokeh')
+hv.extension('bokeh') #type: ignore
+
 opts.defaults(
     opts.Curve(
         height=800,
