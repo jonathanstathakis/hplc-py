@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 class IOValid:
         
-    def check_scalar_is_type(
+    def _check_scalar_is_type(
         self,
         check_obj,
         type,

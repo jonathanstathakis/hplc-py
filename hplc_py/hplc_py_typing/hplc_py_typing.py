@@ -1,3 +1,5 @@
+from typing import Optional
+
 from numpy import float64, int64
 from pandera.api.pandas.model_config import BaseConfig
 
@@ -211,10 +213,9 @@ class PSignals(pa.DataFrameModel):
 
 
 class RSignal(BaseDF):
-    tform_state: str
     time_idx: int64
     time: float64
-    amp: float64
+    amp_unmixed: float64
     
     class Config(HPLCBaseConfig):
         strict = True
@@ -231,7 +232,7 @@ class PReport(Popt):
     
     class Config(HPLCBaseConfig):
         strict = True
-        ordered = True
+        ordered = False
         name = "PReport"
         coerce = True
 
@@ -241,7 +242,9 @@ class WindowedSignal(BaseDF):
     w_idx: int64
     time_idx: int64
     time: float64
-    amp: float64
+    amp: Optional[float64]
+    amp_corrected: Optional[float64]
+    amp_unmixed: Optional[float64]
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -333,6 +336,8 @@ class FitAssessScores(pa.DataFrameModel):
     fano_div: float64 = pa.Field()
     fanopass: bool = pa.Field()
     status: str = pa.Field()
+    grade: str = pa.Field()
+    color_tuple: str=pa.Field()
 
     class Config:
 

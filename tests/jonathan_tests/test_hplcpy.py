@@ -10,6 +10,7 @@ from numpy import float64, int64
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from pandera.typing import Series, DataFrame
 
 class TestHPLCPY:
     @pytest.fixture
@@ -24,9 +25,9 @@ class TestHPLCPY:
     def hpy_loaded(
         self,
         time:NDArray[float64],
-        amp: NDArray[float64],
+        amp_raw: Series[float64],
     )->HPLCPY:
-        return HPLCPY(time, amp)
+        return HPLCPY(time.to_numpy(float64), amp_raw.to_numpy(float64))
     
     def test_plot_signal(
      self,
@@ -34,5 +35,48 @@ class TestHPLCPY:
      test_hpy_ax: Axes,
     )->None:
         hpy_loaded.plot_signal()
+        
+    def test_correct_baseline(
+        self,
+        hpy_loaded: HPLCPY,
+    )->None:
+        
+        print(hpy_loaded.correct_baseline().chm)
+        
+    def test_map_peaks_no_correct(
+        self,
+        hpy_loaded: HPLCPY,
+    ):
+        hpy_loaded.map_peaks()
+
+    def test_map_peaks_correct(
+        self,
+        hpy_loaded: HPLCPY,
+    ):
+        hpy_loaded.correct_baseline().map_peaks()
+        
+    def test_map_windows(
+        self,
+        hpy_loaded: HPLCPY,
+    ):
+        hpy_loaded.correct_baseline().map_windows()
+        
+        breakpoint()
+      
+    def test_deconvolve(
+        self,
+        hpy_loaded: HPLCPY,
+    ):
+        hpy_loaded.correct_baseline().map_windows().deconvolve()
+    
+    def test_fit_assess(
+        self,
+        hpy_loaded: HPLCPY
+    ):
+        hpy_loaded.correct_baseline().map_windows().deconvolve().assess_fit()
+        
+        
+        
+        
         
         

@@ -11,6 +11,8 @@
 
 3. 2024-01-30 12:26:11 - The pipeline will be represented as as HPLCPY object. The pipeline will via composition apply the submodules to it, adding to the chromatogram object data as we go. Flags on the chromatogram will indicate its status.
 
+4. 2024-01-30 14:22:38 - I need to extract knowledge out of the submodules and move them towards a sklearn estimator/transformer format. Schemas should belong to the pipeline/chromatogram (probably pipeline), the submodules should simply transform 1D arrays or return tables. For example, baseline correction returns the corrected array + optional background. Windowing returns window type and window idx arrays, deconvolution returns optional individual peak signals and the reconstructed signal. Fit assessment returns the scores table and report card.
+
 ### DataFrame Schemas
 
 1. 2024-01-12 15:02:25 - Use Pandera schemas as frame models - gives you the column names. Can add them as components. Have to add the class definition as an object rather than an instance. Then we can use the internal class object for schema checks and the global for type annotation.

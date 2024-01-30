@@ -1,4 +1,3 @@
-
 import numpy as np
 from numpy.typing import NDArray
 from numpy import float64, int64
@@ -6,6 +5,10 @@ from .chromatogram import Chromatogram
 from .show import Show
 from typing import Self, Optional
 from .baseline_correct.correct_baseline import CorrectBaseline
+from .map_signals.map_peaks.map_peaks import MapPeaks
+from .map_signals.map_windows import MapWindows
+from .deconvolve_peaks.mydeconvolution import PeakDeconvolver
+
 
 class HPLCPY:
     """
@@ -13,22 +16,115 @@ class HPLCPY:
 
     Methods can be chained to produce pipelines, with the outcome of the pipelines stored in the chromatogram object. Post pipeline, the chromatogram object can be extracted for further processing or comparison.
     """
-    def __init__(self, time: NDArray[float64], amp: NDArray[float64]):    
+
+    def __init__(self, time: NDArray[float64], amp: NDArray[float64]):
         self.chm = Chromatogram(time, amp)
         self.show = Show()
-        
+
+    def deconv_pipeline(
+        self,
+    ):
+        """
+        Apply all the contained methods to baseline correct, deconvolve and assess the fit.
+        """
+
     def correct_baseline(
         self,
-        n_iter: Optional[int] = 0,
-        _bg_corrected = False,
-        _corrected_suffix: str = "_corrected",
-        _windowsize: tuple = (None,),
-        _verbose: bool = True,
-        _background_col: str = "background",
+        verbose: bool = True,
+        windowsize: int = 5,
     ):
-        CorrectBaseline(
-            corrected_suffix=_corrected_suffix,
-            windowsize=_windowsize,
-            verbose=_verbose,
-            background_colname=_background_col,
-                        ).fit_transform()
+        cb = CorrectBaseline(
+            windowsize=windowsize,
+            verbose=verbose,
+        )
+
+        amp = self.chm.data["amp"].to_numpy(float64)
+        timestep = self.chm.timestep
+        
+        bcorr = cb.fit(
+            amp=amp,
+            timestep=timestep,
+        ).transform().corrected
+
+        background = cb.background
+        
+        self.chm.data["amp" + "_corrected"] = bcorr
+        self.chm.data["background"] = background
+        
+        self.chm.bcorr_corrected = True
+        
+        return self
+
+    def map_peaks(
+        self,
+    )->Self:
+        
+        
+        amp = self.chm.amp
+        time = self.chm.data.time
+        timestep = self.chm.timestep
+        
+        pm = MapPeaks().map_peaks(amp=amp, time=time, timestep=timestep)
+        
+        self.chm.peakmap = pm
+        
+        return Self
+        
+    def map_windows(self) -> Self:
+        """
+        First map the peaks then windows, cant do one without the other. if the peaks are already mapped, skip that step
+        """
+        if not self.chm.peakmap:
+            self.map_peaks()
+            
+        left_bases = self.chm.peakmap['pb_left_idx']
+        right_bases = self.chm.peakmap['pb_right_idx']
+        time = self.chm.time
+        amp = self.chm.amp
+        
+        wm = MapWindows().window_signal(left_bases=left_bases, right_bases=right_bases, time=time, amp=amp)
+        
+        self.chm.data = self.chm.data.join(wm[['w_type','w_idx','time_idx']], on=['time_idx'], how='left', validate="1:1", rsuffix='_right').loc[:,lambda df: [col for col in df.columns if "_right" not in col]]
+        
+        return self
+
+    def deconvolve(self) -> Self:
+        """
+        Deconvolve based on windows assigned in map_windows
+        """
+        pm = self.chm.peakmap
+        ws = self.chm.ws
+        timestep = self.chm.timestep
+        pd = PeakDeconvolver(pm=pm, ws=ws, timestep=timestep)        
+        
+        pd.deconvolve_peaks()
+    
+        self.chm.popt = pd.popt_df
+        self.chm.psignals = pd.psignals
+        self.chm.data = pd.ws
+        self.chm.preport = pd.preport
+        
+        return self
+
+        
+
+    def assess_fit(self) -> Self:
+        
+        from .fit_assessment import FitAssessment
+        
+        ws = self.chm.ws
+        scores = FitAssessment().assess_fit(ws=ws)
+        
+        self.chm.scores = scores
+        
+        return self
+
+    def fit_transform(
+        self
+    )-> Self:
+        """
+        Implement the pipeline from end to end
+        """
+        self.correct_baseline().map_windows().deconvolve()
+        
+        return self

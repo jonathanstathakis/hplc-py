@@ -50,6 +50,68 @@ class MapPeaks(IOValid):
     _pb_w_col: Literal["pb_width"] = "pb_width"
     _pb_l_col: Literal["pb_left"] = "pb_left"
     _pb_r_col: Literal["pb_right"] = "pb_right"
+    
+    @pa.check_types()
+    def map_peaks(
+        self,
+        amp: Series[float64],
+        time: Series[float64],
+        timestep: float,
+        prominence: float = 0.01,
+        wlen: int = None,
+        find_peaks_kwargs: FindPeaksKwargs = {},
+    ) -> DataFrame[PeakMap]:
+        """
+        Map An input signal with peaks, providing peak height, prominence, and width data.
+        """
+
+        fp = self._set_findpeaks(
+            amp=amp,
+            time=time,
+            timestep=timestep,
+            prominence=prominence,
+            wlen=wlen,
+            find_peaks_kwargs=find_peaks_kwargs
+            )
+
+        peak_prom_data = self.get_peak_prom_data(
+            fp,
+            
+        )
+        
+        
+        peak_time_idx = fp[self._ptime_idx_col].to_numpy(np.int64)
+        
+        whh = self.width_df_factory(amp=amp,
+                                    peak_time_idx=peak_time_idx,
+                                    peak_prom_data=peak_prom_data,
+                                    rel_height=0.5,
+                                    timestep=timestep,
+                                    wlen=None,
+                                    prefix="whh")
+        
+        whh = DataFrame[WHH](whh)
+
+        pb = self.width_df_factory(
+                                amp=amp,
+                                peak_time_idx=peak_time_idx,
+                                peak_prom_data=peak_prom_data,
+                                rel_height=1,
+                                timestep=timestep,
+                                wlen=None,
+                                prefix='pb'
+                            )
+        
+        pb = DataFrame[PeakBases](pb)
+        
+        peak_map = self._set_peak_map(
+            fp,
+            whh,
+            pb,
+        )
+        
+        return DataFrame[PeakMap](peak_map)
+
 
     @pa.check_types
     def _set_findpeaks(
@@ -67,10 +129,10 @@ class MapPeaks(IOValid):
             self.check_container_is_type(s, pd.Series, float, n)
         
         for n, f in {'timestep':timestep, "prom":prominence}.items():
-            self.check_scalar_is_type(f, float, n)
+            self._check_scalar_is_type(f, float, n)
             
         if wlen:
-            self.check_scalar_is_type(wlen, int, 'wlen') 
+            self._check_scalar_is_type(wlen, int, 'wlen') 
         
         prom_ = prominence * amp.max()
 
@@ -206,65 +268,3 @@ class MapPeaks(IOValid):
             ]
             ) #type: ignore
         return peak_prom_data
-
-
-    @pa.check_types()
-    def map_peaks(
-        self,
-        amp: Series[float64],
-        time: Series[float64],
-        timestep: float,
-        prominence: float = 0.01,
-        wlen: Optional[int] = None,
-        find_peaks_kwargs: FindPeaksKwargs = {},
-    ) -> DataFrame[PeakMap]:
-        """
-        Map An input signal with peaks, providing peak height, prominence, and width data.
-        """
-
-        fp = self._set_findpeaks(
-            amp=amp,
-            time=time,
-            timestep=timestep,
-            prominence=prominence,
-            wlen=wlen,
-            find_peaks_kwargs=find_peaks_kwargs
-            )
-
-        peak_prom_data = self.get_peak_prom_data(
-            fp,
-            
-        )
-        
-        
-        peak_time_idx = fp[self._ptime_idx_col].to_numpy(np.int64)
-        
-        whh = self.width_df_factory(amp=amp,
-                                    peak_time_idx=peak_time_idx,
-                                    peak_prom_data=peak_prom_data,
-                                    rel_height=0.5,
-                                    timestep=timestep,
-                                    wlen=None,
-                                    prefix="whh")
-        
-        whh = DataFrame[WHH](whh)
-
-        pb = self.width_df_factory(
-                                amp=amp,
-                                peak_time_idx=peak_time_idx,
-                                peak_prom_data=peak_prom_data,
-                                rel_height=1,
-                                timestep=timestep,
-                                wlen=None,
-                                prefix='pb'
-                            )
-        
-        pb = DataFrame[PeakBases](pb)
-        
-        peak_map = self._set_peak_map(
-            fp,
-            whh,
-            pb,
-        )
-        
-        return DataFrame[PeakMap](peak_map)

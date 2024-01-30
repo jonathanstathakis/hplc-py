@@ -77,9 +77,9 @@ class TestCorrectBaseline:
 
     def test_correct_baseline_asschrom(
         self,
-        bcorred_signal_df_asschrom: DataFrame[SignalDFBCorr],
+        amp_bcorr: DataFrame[SignalDFBCorr],
     ):
-        SignalDFBCorr.validate(bcorred_signal_df_asschrom)
+        SignalDFBCorr.validate(amp_bcorr)
         pass
 
     def test_baseline_compare_main(

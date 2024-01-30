@@ -21,7 +21,7 @@ from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 
 
 @dataclass
-class MapWindowsMixin:
+class MapWindowsMixin(IOValid):
     pm_sc = PeakMap
     sdf_sc = SignalDFBCorr
     pw_sc = PeakWindows
@@ -83,9 +83,7 @@ class MapWindowsMixin:
         # check that s is a series
         # left and right base are int arrays
         for s in [left_bases, right_bases]:
-            self._is_a_series(s)
-            self._is_an_int_series(s)
-            self._is_not_empty(s)
+            self.check_container_is_type(s, pd.Series, int64)
 
         # to convert the left and right bases to series, need to zip them together then use each pair as the closed bounds.
 
@@ -221,7 +219,7 @@ class MapWindowsMixin:
         peak_wdws: DataFrame[PeakWindows],
     ) -> DataFrame[PWdwdTime]:
         
-        check_input_is_pd_series_float64(time)
+        self.check_container_is_type(time, pd.Series, float64)
         
         # constructs a time dataframe with time value and index
         
@@ -269,7 +267,7 @@ class MapWindowsMixin:
         
         pwdwd_time_ = pwdwd_time.copy(deep=True)
         
-        check_input_is_str(w_idx_col)
+        self._check_scalar_is_type(w_idx_col, str)
         
         labels = self._get_na_labels(pwdwd_time, w_idx_col)
 
@@ -290,7 +288,7 @@ class MapWindowsMixin:
         wt: DataFrame[WindowedTime],
     ) -> DataFrame[WindowedSignal]:
         
-        check_input_is_pd_series_float64(amp)
+        self.check_container_is_type(amp, pd.Series, float64)
         
         ws = wt.copy(deep=True)
 
@@ -334,8 +332,9 @@ class MapWindowsMixin:
 
         base_check = pd.concat([left_bases_, right_bases_], axis=1)
         # horizontal less
+
         base_check = base_check.assign(
-            hz_less=lambda df: df["pb_left"] < df["pb_right"]
+            hz_less=lambda df: df.iloc[:,0] < df.iloc[:,1]
         )
         if not base_check["hz_less"].all():
             raise ValueError(

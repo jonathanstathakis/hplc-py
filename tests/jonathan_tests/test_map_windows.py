@@ -137,13 +137,13 @@ class TestMapWindowsFix:
     def wt(
         self,
         mw: MapWindows,
-        bcorred_signal_df_asschrom: DataFrame[SignalDFBCorr],
+        amp_bcorr: DataFrame[SignalDFBCorr],
         my_peak_map: DataFrame[PeakMap],
     )->DataFrame[WindowedTime]:
         
-        SignalDFBCorr.validate(bcorred_signal_df_asschrom, lazy=True)
+        SignalDFBCorr.validate(amp_bcorr, lazy=True)
         
-        df = bcorred_signal_df_asschrom
+        df = amp_bcorr
         
         wt = mw._map_windows_to_time(my_peak_map['pb_left'], my_peak_map['pb_right'], df['time'])
         

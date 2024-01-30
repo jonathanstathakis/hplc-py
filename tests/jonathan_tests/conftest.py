@@ -95,28 +95,15 @@ def cb():
 
 
 @pytest.fixture
-def bcorred_signal_df_asschrom(
+def amp_bcorr(
     cb: CorrectBaseline,
-    in_signal: DataFrame[SignalDFLoaded],
-    amp_col: str,
+    amp_raw: str,
     timestep: float,
-    windowsize: int,
     ) -> DataFrame[SignalDFBCorr]:
     
-    bcorred_signal_df = cb.fit_transform(
-        signal_df=in_signal,
-        amp_col=amp_col,
-        timestep=timestep,
-        windowsize=windowsize,
-    )
+    bcorred_signal_df = cb.fit(amp_raw, timestep).transform().corrected
 
     return bcorred_signal_df
-
-
-@pytest.fixture
-def amp_bcorr(bcorred_signal_df_asschrom: DataFrame, bcorr_colname: str)->Series[float64]:
-    return Series[float64](bcorred_signal_df_asschrom[bcorr_colname])
-
 
 @pytest.fixture
 def background_colname():
@@ -140,8 +127,16 @@ def dp():
     return dp
 
 @pytest.fixture
-def dc() -> PeakDeconvolver:
-    dc = PeakDeconvolver()
+def dc(
+    my_peak_map: DataFrame[PeakMap],
+    ws: DataFrame[WindowedSignal],
+    timestep: float64,
+    ) -> PeakDeconvolver:
+    dc = PeakDeconvolver(
+        pm=my_peak_map,
+        ws=ws,
+        timestep=timestep,
+    )
     return dc
 
 @pytest.fixture
@@ -202,8 +197,9 @@ def stored_popt(popt_parqpath):
 def left_bases(
     my_peak_map: DataFrame[PeakMap],
 ) -> Series[int64]:
+    
     left_bases: Series[int64] = Series[int64](
-        my_peak_map[PeakMap.pb_left], dtype=int64
+        my_peak_map[PeakMap.pb_left_idx], dtype=int64
     )
     return left_bases
 
@@ -213,7 +209,7 @@ def right_bases(
     my_peak_map: DataFrame[PeakMap],
 ) -> Series[int64]:
     right_bases: Series[int64] = Series[int64](
-        my_peak_map[PeakMap.pb_right], dtype=int64
+        my_peak_map[PeakMap.pb_right_idx], dtype=int64
     )
     return right_bases
 
@@ -254,12 +250,6 @@ def ws(
     left_bases: Series[float64],
     right_bases: Series[float64],
 ) -> DataFrame[WindowedSignal]:
-    
-    check_input_is_pd_series_float64(time_pd_series)    
-    check_input_is_pd_series_float64(amp_bcorr)    
-    check_input_is_pd_series_int64(left_bases)    
-    check_input_is_pd_series_int64(right_bases)    
-    
     
     ws = mw.window_signal(
         left_bases,

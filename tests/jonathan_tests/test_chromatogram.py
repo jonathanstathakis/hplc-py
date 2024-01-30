@@ -11,6 +11,7 @@ from hplc_py.chromatogram import Chromatogram
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from hplc_py.hplcpy import HPLCPY
 
 
 class TestChromatogram:
@@ -56,4 +57,20 @@ class TestChromatogram:
         
         plt.show()
     
-    
+    @pytest.fixture
+    def chm_fitted(
+        time: Series[float64],
+        amp: Series[float64],
+        self,
+    ):
+        hpy = HPLCPY(time.to_numpy(float64), amp.to_numpy(float64))
+        
+        chm_fitted = hpy.fit_transform().chm
+        
+        return chm_fitted
+        
+    def test_chm_fitted(
+        self,
+        chm_fitted,
+    ):
+        breakpoint()

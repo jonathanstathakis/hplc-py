@@ -1,7 +1,6 @@
 import warnings
 from dataclasses import dataclass, field
 from typing import TypedDict, cast, Optional
-from typing import 
 import numpy as np
 import pandas as pd
 from pandera.typing import DataFrame
@@ -10,6 +9,7 @@ from hplc_py.io_validation import IOValid
 from hplc_py.hplc_py_typing.hplc_py_typing import SignalDFBCorr
 from numpy.typing import NDArray
 from numpy import float64
+from typing import Self
 
 class BlineKwargs(TypedDict, total=False):
     windowsize: int
@@ -19,54 +19,18 @@ class CorrectBaseline(IOValid):
     
     def __init__(
         self,
-        corrected_suffix: Optional[str] = "_corrected",
-        windowsize: Optional[tuple] = (None,),
+        windowsize: int = 5,
         verbose: Optional[bool] = True,
-        background_colname: Optional[str] = "background",
     ):
         
         self._windowsize = windowsize
         self.__verbose = verbose
-        self.__corrected_suffix = corrected_suffix
-        self.__background_colname = background_colname
-    
-    def fit_transform(
-        self,
-        signal_df: pd.DataFrame,
-        amp_col: str,
-        timestep,
-        verbose: bool = False,
-    ) -> DataFrame[SignalDFBCorr]:
-        """
-        Correct baseline and add corrected amplitude and background series to signal_df
-        """
+        self.background: NDArray[float64] = np.ndarray(0)
         
-        # extract the amplitude series
-        amp_raw = signal_df.loc[:, amp_col].to_numpy(float64)
-        timestep_ = float64(timestep)
-        
-        background = self.fit(
-            amp_raw=amp_raw,
-            timestep=timestep_,
-            windowsize=windowsize,
-            verbose=verbose,
-        )
-        
-        amp_bcorr =np.subtract(amp_raw, background)
-
-        signal_df[amp_col+self._corrected_suffix] = pd.Series(amp_bcorr, dtype=float64)
-
-        signal_df["background"] = pd.Series(background, dtype=float64)
-        
-        signal_df = DataFrame[SignalDFBCorr](signal_df)
-        return signal_df
-    
     def fit(
         self,
-        amp_raw: NDArray[float64],
+        amp: NDArray[float64],
         timestep: float64,
-        windowsize: int,
-        verbose: bool=False,
     ):
         """
         Fit the signal background using SNIP
@@ -82,9 +46,10 @@ class CorrectBaseline(IOValid):
         :return: the fitted signal background
         :rtype: NDArray[float64]
         """
+        self.amp_raw = amp
 
-        shift = self._compute_shift(amp_raw)
-        amp_shifted = self._shift_amp(amp_raw, shift)
+        shift = self._compute_shift(amp)
+        amp_shifted = self._shift_amp(amp, shift)
         amp_shifted_clipped = self._clip_amp(amp_shifted)
 
         # compute the LLS operator to reduce signal dynamic range
@@ -92,11 +57,11 @@ class CorrectBaseline(IOValid):
 
         # calculate the number of iterations for the minimization
 
-        n_iter = self._compute_n_iter(windowsize, timestep)
+        n_iter = self._compute_n_iter(self._windowsize, timestep)
 
         # iteratively filter the compressed signal
         s_compressed_prime = self._compute_s_compressed_minimum(
-            s_compressed, n_iter, verbose
+            s_compressed, n_iter
         )
 
         # Perform the inverse of the LLS transformation and subtract
@@ -105,7 +70,21 @@ class CorrectBaseline(IOValid):
         
         background = np.add(inv_tform,shift)
         
-        return background
+        self.background = background
+        
+        return self
+    
+    
+    def transform(
+        self,
+    ) -> Self:
+        """
+        Transform the input amplitude signal by subtracting the fitted background
+        """
+        
+        self.corrected = np.subtract(self.amp_raw, self.background)
+
+        return self
     
     def _shift_amp(
         self,
@@ -214,7 +193,6 @@ class CorrectBaseline(IOValid):
         self,
         s_compressed: NDArray[float64],
         n_iter: int,
-        verbose: bool = True,
     ) -> NDArray[float64]:
         """
         Apply the filter to find the minimum of s_compressed to approximate the baseline
@@ -230,7 +208,7 @@ class CorrectBaseline(IOValid):
         if _s_compressed.ndim != 1:
             raise ValueError(f"s_compressed must be 1D array, got {_s_compressed.ndim}")
 
-        if verbose:
+        if self.__verbose:
             self._bg_correction_progress_state = 1
             iterator = tqdm.tqdm(
                 self.compute_iterator(n_iter),

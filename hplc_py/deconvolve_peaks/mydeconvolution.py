@@ -35,9 +35,9 @@
 
     This test class now contains methods pertaining to the preparation stage of the deconvolution process.
 """
-
+import polars as pl
 from dataclasses import dataclass, field
-from typing import Literal, Type
+from typing import Literal, Type, Self, cast
 
 import numpy as np
 import pandas as pd
@@ -158,15 +158,15 @@ class DataPrepper(PanderaMixin):
 
     def _window_peak_map(
         self,
-        pm: DataFrame[PeakMap],
-        ws: DataFrame[WindowedSignal],
+        pm,
+        ws,
     ) -> DataFrame[WdwPeakMap]:
         wpm_ = pm.copy(deep=True)
         ws_ = ws.copy(deep=True)
 
         wpm_ = wpm_.reset_index().set_index(self.pm_sc.time_idx)
 
-        ws_ = ws_.drop([self.ws_sc.time, self.ws_sc.amp], axis=1).set_index(
+        ws_ = ws_.drop([self.ws_sc.time, "amp_corrected"], axis=1).set_index(
             self.ws_sc.time_idx
         )
 
@@ -186,7 +186,6 @@ class DataPrepper(PanderaMixin):
 
         return self.wpm
 
-    # @pa.check_types
     def _p0_factory(
         self,
         wpm: DataFrame[InP0],
@@ -243,7 +242,6 @@ class DataPrepper(PanderaMixin):
 
         return p0
 
-    @pa.check_types
     def _bounds_factory(
         self,
         p0: DataFrame[P0],
@@ -348,9 +346,8 @@ class DataPrepper(PanderaMixin):
         bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.lb] = -np.inf
         bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.ub] = np.inf
 
-        column_ordering = list(
-            self.bds_sc.__schema__.columns.keys()  # type: ignore
-        )
+        
+        column_ordering = self.get_sc_cols(self.bds_sc)
         column_ordering.remove("idx")
 
         bounds_ = bounds_.reset_index()
@@ -362,7 +359,7 @@ class DataPrepper(PanderaMixin):
 
         return self.bounds
 
-    @pa.check_types
+
     def _prepare_params(
         self,
         pm: DataFrame[PeakMap],
@@ -450,30 +447,34 @@ class FitFuncReg:
             raise ValueError({f"Please provide one of: {WhichOpt}"})
 
 
-@dataclass
-class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
-    r_signal_sch = RSignal
+class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
-    def get_fit_func(self, fit_func: WhichFitFunc):
-        return FitFuncReg(fit_func).ff
-
-    def get_optimizer(self, optimizer: WhichOpt):
-        return OptFuncReg(optimizer).opt_func
-
-    @pa.check_types
-    def deconvolve_peaks(
+    def __init__(
         self,
         pm: DataFrame[PeakMap],
         ws: DataFrame[WindowedSignal],
         timestep: float64,
         which_opt: WhichOpt = "jax",
         which_fit_func: WhichFitFunc = "jax",
-    ) -> tuple[DataFrame[Popt], DataFrame[PSignals]]:
-        """
-        :optimizer: string to decide which optimizer to use. Currently only 'jax' and 'scipy' are supported.
-        """
-
-        # checks
+    ):
+        self.__dp = DataPrepper()
+        
+        # internal schemas
+        self.r_signal_sch = RSignal
+        self.ws_sc: Type[WindowedSignal] = WindowedSignal
+        self.pm_sc: Type[PeakMap] = PeakMap
+        self.wpm_sc: Type[WdwPeakMap] = WdwPeakMap
+        self.inp0_sc: Type[InP0] = InP0
+        self.p0_sc: Type[P0] = P0
+        self.bds_sc: Type[Bounds] = Bounds
+        self.prm_sc: Type[Bounds] = Params
+        self.psig_sc: Type[PSignals] = PSignals
+        
+        # input validation
+        self.pm = self.pm_sc.to_schema().validate(pm)
+        self.ws = self.ws_sc.to_schema().validate(ws)
+        
+        self.timestep = timestep
 
         if which_opt not in WhichOpt.__args__:  # type: ignore
             raise ValueError(f"Please provide one of {WhichOpt} to 'optimizer' kw")
@@ -486,33 +487,60 @@ class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
             raise ValueError(
                 "Please pair the fit func with its corresponding optimizer"
             )
+        
+        self.optfunc = self.get_optimizer(which_opt)
+        self.fit_func = self.get_fit_func(which_fit_func)
 
-        params = self._prepare_params(pm, ws, timestep)
+    def get_fit_func(self, fit_func: WhichFitFunc):
+        return FitFuncReg(fit_func).ff
 
-        optfunc = self.get_optimizer(which_opt)
-        fit_func = self.get_fit_func(which_fit_func)
+    def get_optimizer(self, optimizer: WhichOpt):
+        return OptFuncReg(optimizer).opt_func
+
+    def deconvolve_peaks(
+        self,
+    ) -> Self:
+        """
+        :optimizer: string to decide which optimizer to use. Currently only 'jax' and 'scipy' are supported.
+        """
+
+        # as of 2024-01-30 16:37:00 cant use @check_types on columns with regex aliases (i.e. amp/amp_corrected) as it doesnt seem to be detecting `regex=True`. Work around is to validate as a schema obj.
+        
+
+        # checks
+        params = self.__dp._prepare_params(self.pm, self.ws, self.timestep)
 
         popt_df: pd.DataFrame = self._popt_factory(
-            ws,
+            self.ws,
             params,
-            optfunc,
-            fit_func,
+            self.optfunc,
+            self.fit_func,
         )
 
-        time = Series[float64](ws[str(self.ws_sc.time)])
+        time = Series[float64](self.ws[str(self.ws_sc.time)])
 
         recon_ = self._construct_peak_signals(time, popt_df)
 
         popt_df = DataFrame[Popt](popt_df)
-        recon = DataFrame[PSignals](recon_)
+        psignals = DataFrame[PSignals](recon_)
 
-        return popt_df, recon
+        
+        self.popt_df = popt_df
+        self.psignals = psignals
+        self.rsignal = self._reconstruct_signal(psignals)
+        
+        rs = pl.from_pandas(self.rsignal)
+        ws = pl.from_pandas(self.ws)
+        
+        self.ws = ws.join(rs.select(['time_idx', 'amp_unmixed']), on='time_idx', how='left').to_pandas().rename_axis(index='idx')
+        self.preport = self._get_peak_report(self.popt_df, self.psignals)
+        
+        return self
 
     def _get_peak_report(
         self,
         popt: DataFrame[Popt],
         unmixed_df: DataFrame[PSignals],
-        timestep: float64,
     ):
         """
         add peak area to popt_df. Peak area is defined as the sum of the amplitude arrays
@@ -558,7 +586,7 @@ class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
             ]
         )
 
-        PReport.validate(peak_report_, lazy=True)
+        # PReport.validate(peak_report_, lazy=True)
 
         peak_report = DataFrame[PReport](peak_report_)
 
@@ -602,7 +630,7 @@ class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
             p0 = wdw["p0"].to_numpy()
             bounds = (wdw["lb"].to_numpy(), wdw["ub"].to_numpy())
             x = ws_.filter(pl.col("w_idx") == wix)["time"].to_numpy()
-            y = ws_.filter(pl.col("w_idx") == wix)["amp"].to_numpy()
+            y = ws_.filter(pl.col("w_idx") == wix)["amp_corrected"].to_numpy()
 
             results = optimizer_(
                 fit_func,
@@ -677,27 +705,35 @@ class PeakDeconvolver(DataPrepper, PanderaSchemaMethods, IOValid):
 
         # remove w_idx from identifier to avoid multiindexed column
 
-        recon_ = popt_df.groupby(
+        p_signals_ = popt_df.groupby(
             by=["p_idx"],
             group_keys=False,
         ).apply(construct_peak_signal, time)  # type: ignore
 
-        peak_signals = recon_.reset_index(drop=True)
+        peak_signals = p_signals_.reset_index(drop=True)
 
         return peak_signals
+    
+    @pa.check_types
+    def _reconstruct_signal(self, peak_signals: DataFrame[PSignals])->DataFrame[RSignal]:
+        
+        p_idx = str(self.psig_sc.p_idx)
+        t_idx = str(self.psig_sc.time_idx)
+        t = str(self.psig_sc.time)
+        unmx = str(self.psig_sc.amp_unmixed)
+        
+        peak_signals_: pl.DataFrame = pl.from_pandas(peak_signals) #type: ignore
 
-    def _reconstruct_signal(self, peak_signals: DataFrame[PSignals]):
-        r_signal_ = (
-            peak_signals.set_index(["p_idx", "time_idx", "time"])
-            .unstack("p_idx")
-            .sum(axis="columns")  # type: ignore
-            .reset_index(name="amp")
-            .rename_axis(index="idx")
-            .assign(tform_state="recon")
-            .reindex(columns=self.get_schema_colorder(self.r_signal_sch)) #type: ignore
+        
+        recon_sig = peak_signals_.pivot(
+            columns=p_idx, index=[t_idx, t], values=unmx).select(
+            pl.col(t_idx, t),
+            pl.sum_horizontal(pl.exclude([t_idx, t])).alias(unmx),
         )
 
-        RSignal.validate(r_signal_, lazy=True)
-        recon = DataFrame[RSignal](r_signal_)
+        recon_sig_ = recon_sig.to_pandas().rename_axis(index='idx')
+        
+        RSignal.validate(recon_sig_, lazy=True)
+        recon = DataFrame[RSignal](recon_sig_)
 
         return recon

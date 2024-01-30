@@ -18,11 +18,11 @@ class DataMixin:
         else:
             raise TypeError(f"input must be a dataframe, got {type(df)}")    
     
-def compute_timestep(time_array: NDArray[float64])-> float:
+def compute_timestep(time_array: NDArray[float64])-> float64:
     # Define the average timestep in the chromatogram. This computes a mean
     # but values will typically be identical.
     
     dt = np.diff(time_array)
     mean_dt = np.mean(dt)
-    return mean_dt.astype(float)
+    return mean_dt.astype(float64)
 

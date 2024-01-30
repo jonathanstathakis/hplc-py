@@ -13,8 +13,12 @@ Notes:
 - reconstruction score defined as unmixed_signal_AUC+1 divided by mixed_signal_AUC+1. 
 
 """
-from hplc_py.io_validation import check_input_is_float
-from hplc_py.hplc_py_typing.hplc_py_typing import FitAssessScores, WindowedSignal, PSignals
+from hplc_py.io_validation import IOValid
+from hplc_py.hplc_py_typing.hplc_py_typing import (
+    FitAssessScores,
+    WindowedSignal,
+    PSignals,
+)
 
 import pandas as pd
 
@@ -34,113 +38,143 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 from typing import Callable
+import polars as pl
 
 import termcolor
 
 
-class WindowedMixed(pa.DataFrameModel):
-    pass
+class FitAssessment(IOValid):
+    def __init__(self):
+        self.grading = pl.DataFrame(
+            {
+                "status": ["valid", "invalid", "needs review"],
+                "grade": ["A+, success", "F, failed", "C-, needs review"],
+            }
+        )
+        self.grading_colors = pl.DataFrame(
+            {
+                "status": ["valid", "invalid", "needs review"],
+                "color_tuple": [
+                    "black, on_green",
+                    "black, on_red",
+                    "black, on_yellow",
+                ],
+            }
+        )
 
+        self.ws_sch = WindowedSignal
+        self.sc_sch = FitAssessScores
 
-class WindowedUnmixed(pa.DataFrameModel):
-    pass
-
-
-@dataclass
-class FitAssessment:
     @pa.check_types
     def assess_fit(
         self,
         ws: DataFrame[WindowedSignal],
-        psignals: DataFrame[PSignals],
         rtol: float = 1e-2,
         ftol: float = 1e-2,
     ):
-        score_df = self.calc_wdw_aggs(ws, psignals, rtol, ftol)
+        score_df = self.calc_wdw_aggs(ws, rtol, ftol)
 
-        self.print_report_card(score_df)
+        # self.print_report_card(score_df)
         return score_df
 
     @pa.check_types
     def calc_wdw_aggs(
         self,
         ws: DataFrame[WindowedSignal],
-        psignals: DataFrame[PSignals],
         rtol: float,
         ftol: float,
-    )->DataFrame[FitAssessScores]:
-        
-        check_input_is_float(rtol)
-        check_input_is_float(ftol)
-        
+    ) -> DataFrame[FitAssessScores]:
+        self._check_scalar_is_type(rtol, float)
+        self._check_scalar_is_type(rtol, float)
+
         import polars as pl
 
-        rs_: pl.DataFrame = pl.from_pandas(psignals)
         ws_: pl.DataFrame = pl.from_pandas(ws)
 
-        recon_sig = rs_.pivot(
-            columns="p_idx", index=["time_idx", "time"], values="amp_unmixed"
-        ).select(
-            pl.col("time_idx", "time"),
-            pl.sum_horizontal(pl.exclude(["time_idx", "time"])).alias("amp_unmixed"),
-        )
+        t_idx: str = str(self.ws_sch.time_idx)
+        
+        if "amp_corrected" in ws.columns:
+            mxd: str = str(self.ws_sch.amp_corrected)
+        else:
+            mxd: str = str(self.ws_sch.amp)
+        
+        # declare the column labels from the schemas to improve readability of following
+        # method chain. Allows final names to be declared in the Schema rather than locally.
+        t: str = str(self.ws_sch.time)
+        unmx: str = str(self.ws_sch.amp_unmixed)
+        w_type: str = str(self.ws_sch.w_type)
+        w_idx: str = str(self.ws_sch.w_idx)
 
-        wrs = recon_sig.join(
-            ws_.select(["w_type", "w_idx", "time_idx", "amp"]).rename(
-                {"amp": "amp_mixed"}
-            ),
-            on="time_idx",
-            how="left",
-        ).select(["w_type", "w_idx", "time_idx", "time", "amp_mixed", "amp_unmixed"])
+        mx_var: str = str(self.sc_sch.mixed_var)
+        ts: str = str(self.sc_sch.time_start)
+        ts: str = str(self.sc_sch.time_start)
+        te: str = str(self.sc_sch.time_end)
+        mx_u: str = str(self.sc_sch.mixed_mean)
+        unmx_a: str = str(self.sc_sch.inferred_area)
+        mx_a: str = str(self.sc_sch.signal_area)
+        rc_sc: str = str(self.sc_sch.recon_score)
+        rtol_l: str = str(self.sc_sch.rtol)
+        tolchk: str = str(self.sc_sch.tolcheck)
+        mx_fano: str = str(self.sc_sch.mixed_fano)
+        u_fano: str = str(self.sc_sch.u_peak_fano)
+        div_fano: str = str(self.sc_sch.fano_div)
+        div_fano: str = str(self.sc_sch.fano_div)
+        tolpass: str = str(self.sc_sch.tolpass)
+        fanopass: str = str(self.sc_sch.fanopass)
+        status: str = str(self.sc_sch.status)
 
-        w_grps = ["w_type", "w_idx"]
+        w_grps = [w_type, w_idx]
 
         rtol_decimals = int(np.abs(np.ceil(np.log10(rtol))))
-
+        
         aggs_ = (
-            wrs.group_by(w_grps)
+            ws_.group_by(w_grps)
             .agg(
-                time_start=pl.first("time"),
-                time_end=pl.last("time"),
-                signal_area=pl.col("amp_mixed").abs().sum() + 1,
-                inferred_area=pl.col("amp_unmixed").abs().sum() + 1,
-                mixed_var=pl.col("amp_mixed").abs().var(),
-                mixed_mean=pl.col("amp_mixed").abs().mean(),
+                **{
+                    ts: pl.first(t),
+                    te: pl.last(t),
+                    mx_a: pl.col(mxd).abs().sum() + 1,
+                    unmx_a: pl.col(unmx).abs().sum() + 1,
+                    mx_var: pl.col(mxd).abs().var(),
+                    mx_u: pl.col(mxd).abs().mean(),
+                }
             )
             .with_columns(
-                mixed_fano=pl.col("mixed_var") / pl.col("mixed_mean"),
-                recon_score=pl.col("inferred_area") / pl.col("signal_area"),
-                rtol=pl.lit(rtol),
+                **{
+                    mx_fano: pl.col(mx_var) / pl.col(mx_u),
+                    rc_sc: pl.col(unmx_a) / pl.col(mx_a),
+                    rtol_l: pl.lit(rtol),
+                }
+            )
+            .with_columns(**{tolchk: pl.col(rc_sc).sub(1).abs().round(rtol_decimals)})
+            .with_columns(
+                **{
+                    tolpass: pl.col(tolchk) <= pl.col("rtol"),
+                    u_fano: pl.col(mx_fano).filter(pl.col(w_type) == "peak").mean(),
+                }
             )
             .with_columns(
-                tolcheck=pl.col("recon_score").sub(1).abs().round(rtol_decimals)
+                **{div_fano:(pl.col(mx_fano) / pl.col(u_fano)).over(w_type),}
             )
             .with_columns(
-                tolpass=pl.col("tolcheck") <= pl.col("rtol"),
-                u_peak_fano=pl.col("mixed_fano")
-                .filter(pl.col("w_type") == "peak")
-                .mean(),
+                **{fanopass:pl.col(div_fano) <= ftol,}
             )
             .with_columns(
-                fano_div=(pl.col("mixed_fano") / pl.col("u_peak_fano")).over("w_type"),
-            )
-            .with_columns(
-                fanopass=pl.col("fano_div") <= ftol,
-            )
-            .with_columns(
-                status=pl.when(
-                    (pl.col("w_type") == "peak") & (pl.col("tolpass") == True)
-                )
+                **{status:pl.when((pl.col(w_type) == "peak") & (pl.col(tolpass) == True))
                 .then(pl.lit("valid"))
-                .when((pl.col("w_type") == "interpeak") & (pl.col("tolpass") == True))
+                .when((pl.col(w_type) == "interpeak") & (pl.col(tolpass) == True))
                 .then(pl.lit("valid"))
-                .when((pl.col("w_type") == "interpeak") & (pl.col("fanopass") == True))
+                .when((pl.col(w_type) == "interpeak") & (pl.col("fanopass") == True))
                 .then(pl.lit("needs review"))
                 .otherwise(pl.lit("invalid"))
+                }
             )
-            .sort("w_type", "w_idx")
+            .join(self.grading, how="left", on="status")
+            .join(self.grading_colors, how="left", on="status")
+            .sort(w_type, w_idx)
         )
-        aggs__ = aggs_.to_pandas()        
+        
+        aggs__ = aggs_.to_pandas()
         FitAssessScores.validate(aggs__, lazy=True)
 
         aggs = DataFrame[FitAssessScores](aggs__)
@@ -154,33 +188,6 @@ class FitAssessment:
         Assemble a series of strings for printing a final report
         """
 
-        grading = {
-            "valid": "A+ Success: ",
-            "invalid": "F, Failed: ",
-            "needs review": "C-, Needs Review: ",
-        }
-
-        grading_colors = {
-            "valid": ("black", "on_green"),
-            "invalid": ("black", "on_red"),
-            "needs review": ("black", "on_yellow"),
-        }
-
-        def review_warning(w_idx: int):
-            return f"Interpeak window {w_idx} is not well reconstructed by mixture, but has a small Fano factor compared to peak region(s). This is likely acceptable, but visually check this region.\n"
-
-        def invalid_warning(w_idx: int):
-            return f"Interpeak window {w_idx} is not well reconstructed by mixture and has an appreciable Fano factor compared to peak region(s). This suggests you have missed a peak in this region. Consider adding manual peak positioning by passing `known_peaks` to `fit_peaks()`"
-
-        def valid_warning(w_idx: int):
-            return ""
-
-        warnings = {
-            "valid": valid_warning,
-            "invalid": invalid_warning,
-            "needs review": review_warning,
-        }
-
         def gen_report_str(
             x: Series,
             recon_score_col: str,
@@ -192,26 +199,31 @@ class FitAssessment:
             t_end_col: str,
             grading: dict[str, str],
             grading_colors: dict[str, tuple[str]],
-            warnings: dict[str, Callable],
         ):
             columns = ["grading", "window", "time_range", "scores", "warning"]
 
             rs = pd.DataFrame(index=x.index, columns=columns)
 
-            rs["grading"] = grading[x.status.iloc[0]]
-            rs["window"] = f"{x[w_type_col].iloc[0]} window  {x[w_idx_col].iloc[0]}"
-            rs[
-                "time_range"
-            ] = f"(t: {x[t_start_col].iloc[0]} - {x[t_end_col].iloc[0]})"
-            rs[
-                "scores"
-            ] = f"R-score = {x[recon_score_col].iloc[0]} & Fano Ratio = {x[fano_factor_col].iloc[0]}\n"
-            rs["warning"] = warnings[x[status_col].iloc[0]](x[w_idx_col].iloc[0])
+            status = x.status.iloc[0]
+            w_type = x[w_type_col].iloc[0]
+            w_idx = x[w_idx_col].iloc[0]
+            time_start = x[t_start_col].iloc[0]
+            time_end = x[t_end_col].iloc[0]
+            recon_score = x[recon_score_col].iloc[0]
+            fano_factor = x[fano_factor_col].iloc[0]
+
+            rs["grading"] = grading[status]
+
+            rs["window"] = f"{w_type} window {w_idx}"
+            rs["time_range"] = f"(t: {time_start} - {time_end})"
+            rs["scores"] = f"R-score = {recon_score} & Fano Ratio = {fano_factor}\n"
+
+            rs["warning"] = self.get_warning(status, w_idx)
 
             rs_list = rs.iloc[0].astype(str).tolist()
             report_str = " ".join(rs_list)
             c_report_str = termcolor.colored(
-                report_str, *grading_colors[x[status_col].iloc[0]], attrs=["bold"]
+                report_str, *grading_colors[status], attrs=["bold"]
             )
 
             return c_report_str
@@ -221,26 +233,27 @@ class FitAssessment:
         report_str += "Reconstruction of Peaks\n"
         report_str += "=======================\n\n"
 
-        c_report_strs = scores.groupby(["w_type", "w_idx"]).apply(
-            gen_report_str, #type: ignore
-            grading=grading,
-            grading_colors=grading_colors,
+        c_report_strs = scores.groupby([self.ws_sch.w_type, self.ws_sch.w_idx]).apply(
+            gen_report_str,  # type: ignore
             warnings=warnings,
-            **{"recon_score_col": "recon_score",
-             "fano_factor_col": "mixed_fano",
-            "status_col": "status",
-            "w_type_col": "w_type",
-            "w_idx_col": "w_idx",
-            "t_start_col": "time_start",
-            "t_end_col": "time_end",
-             },
-        ) #type: ignore
+            **{
+                "recon_score_col": "recon_score",
+                "fano_factor_col": "mixed_fano",
+                "status_col": "status",
+                "w_type_col": self.ws_sch.w_type,
+                "w_idx_col": self.ws_sch.w_idx,
+                "t_start_col": "time_start",
+                "t_end_col": "time_end",
+            },
+        )  # type: ignore
         c_report_strs.name = "report_strs"
 
         # join the peak strings followed by a interpeak subheader then the interpeak strings
         c_report_strs = c_report_strs.reset_index()
         c_report_str = report_str + "\n".join(
-            c_report_strs.loc[c_report_strs["w_type"] == "peak", "report_strs"]
+            c_report_strs.loc[
+                c_report_strs[self.ws_sch.w_type] == "peak", "report_strs"
+            ]
         )
 
         c_report_str += "\n\n"
@@ -249,7 +262,9 @@ class FitAssessment:
         c_report_str += "=======================\n\n"
 
         c_report_str += "\n".join(
-            c_report_strs.loc[c_report_strs["w_type"] == "interpeak", "report_strs"]
+            c_report_strs.loc[
+                c_report_strs[self.ws_sch.w_type] == "interpeak", "report_strs"
+            ]
         )
 
         import os

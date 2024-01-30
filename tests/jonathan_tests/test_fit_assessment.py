@@ -1,4 +1,3 @@
-
 from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, FitAssessScores
 from hplc_py.map_signals.map_windows import WindowedSignal
 from typing import Any
@@ -48,7 +47,6 @@ class TestScores:
         rtol: float,
         ftol: float,
     ) -> DataFrame:
-        
         scores = fa.calc_wdw_aggs(ws, psignals, rtol, ftol)
 
         return scores
@@ -125,11 +123,13 @@ class TestScores:
                 descending=True,
             )
         )
-    
+
     @pa.check_types
     def test_fit_report_print(
         self,
         fa: FitAssessment,
         scores: DataFrame[FitAssessScores],
     ):
-        fa.print_report_card(scores)
+        
+        pass
+

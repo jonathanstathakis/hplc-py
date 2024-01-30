@@ -342,13 +342,13 @@ class TestPeakMapViz(TestMapPeaksFix):
     @pytest.fixture
     def plot_signal(
         self,
-        bcorred_signal_df_asschrom: DataFrame[SignalDFBCorr],
+        amp_bcorr: DataFrame[SignalDFBCorr],
         time_col: Literal["time"],
         bcorr_colname: Literal["amp_corrected"],
         test_peak_map_viz_ax: Axes,
     ):
         PlotSignal(
-            df=bcorred_signal_df_asschrom,
+            df=amp_bcorr,
             x_colname=time_col,
             y_colname=bcorr_colname,
             label=bcorr_colname,
