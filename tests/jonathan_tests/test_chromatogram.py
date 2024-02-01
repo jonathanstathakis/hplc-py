@@ -53,7 +53,7 @@ class TestChromatogram:
         chm_loaded: Chromatogram,
         test_chm_ax: Axes,
     )->None:
-        chm_loaded.plot_signal(test_chm_ax)
+        chm_loaded.plot_signal_corrected(test_chm_ax)
         
         plt.show()
     

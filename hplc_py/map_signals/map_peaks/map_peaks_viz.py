@@ -27,7 +27,7 @@ class PeakMapViz(IOValid):
     """
 
     df: DataFrame
-    x_colname: str
+    x_col: str
     ax: Optional[Axes]=None
 
     def __post_init__(
@@ -42,11 +42,16 @@ class PeakMapViz(IOValid):
         
         self._base_cmap: ListedColormap = mpl.colormaps["Set1"]
         self._cmap = self._base_cmap.resampled(len(self.df))
+        
+    def plot_peak_map(
+        self
+    ):
+        self._plot_peaks()
 
     def _plot_peaks(
         self,
-        y_colname: str,
-        label: Optional[str] = None,
+        pmax_col: str,
+        label: Optional[str] = "y",
         plot_kwargs: dict = {},
     ) -> Self:
         
@@ -54,25 +59,24 @@ class PeakMapViz(IOValid):
         Plot peaks from the peak map, x will refer to the time axis, y to amp.
         """
         
-        self._check_keys_in_index([self.x_colname, y_colname], self.df.columns)
+        self._check_keys_in_index([self.x_col, pmax_col], self.df.columns)
 
-        if not label:
-            label = "y"
-
+        breakpoint()
         for i, s in self.df.iterrows():
             label_ = f"{label}_{i}"
 
             color: rgba = self._cmap.colors[i]  # type: ignore
 
             self.ax = self._plot_peak_factory(
-                x=s[self.x_colname],
-                y=s[y_colname],
+                x=s[self.x_col],
+                y=s[pmax_col],
                 label=label_,
                 color=color,
                 ax=self.ax,
                 plot_kwargs=plot_kwargs,
             )
 
+        breakpoint()
         return self
 
     def _plot_peak_factory(
@@ -84,6 +88,9 @@ class PeakMapViz(IOValid):
         ax: Axes,
         plot_kwargs: dict[str, Any] = {},
     ) -> Axes:
+        """
+        plot each peak individually.
+        """
         ax.plot(
             x,
             y,

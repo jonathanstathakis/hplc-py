@@ -356,7 +356,6 @@ class DataPrepper(PanderaMixin):
 
         self.bounds = self.try_validate(bounds_, self.bds_sc)
 
-
         return self.bounds
 
 
@@ -366,28 +365,14 @@ class DataPrepper(PanderaMixin):
         ws: DataFrame[WindowedSignal],
         timestep: float64,
     ) -> DataFrame[Params]:
-        """
-        Prepare the parameter input to `optimize`, i.e. the lb, p0 and ub for each parameter
-        of the skewnorm model.
-
-        :param pm: peakmap table
-        :type pm: DataFrame[PeakMap]
-        :param ws: windowed signal table
-        :type ws: DataFrame[WindowedSignal]
-        :param timestep: the timestep
-        :type timestep: float64
-        :return: the parameter table in long form with the 4 parameters of each peak of
-        each window
-        :rtype: DataFrame[Params]
-        """
         wpm = self._window_peak_map(pm, ws)
-        
-        # the input to `p0_factory` is depicted in the In_p0 schema. Use it to subset
-        # the wpm then submit to to `p0_factory`
-        
+
         in_p0_cols = self.get_sch_colorder(self.inp0_sc)
-        in_p0_ = wpm.copy(deep=True).loc[:, in_p0_cols]        
+
+        in_p0_ = wpm.copy(deep=True).loc[:, in_p0_cols]
+
         self.inp0_sc.validate(in_p0_)
+
         in_p0 = DataFrame[self.inp0_sc](in_p0_)
 
         p0 = self._p0_factory(
@@ -401,8 +386,6 @@ class DataPrepper(PanderaMixin):
             timestep,
         )
 
-        # join the p0 and bounds tables
-        
         join_cols = [self.p0_sc.w_idx, self.p0_sc.p_idx, self.p0_sc.param]
 
         p0_ = p0.reset_index().set_index(join_cols)

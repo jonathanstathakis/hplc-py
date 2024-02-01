@@ -28,10 +28,13 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 from tests.jonathan_tests.test_map_peaks import TestMapPeaksFix
+from hplc_py.hplc_py_typing.interpret_model import Modelinterpreter
 
 Chromatogram: TypeAlias = None
 
 chm = None
+
+from hplc_py.hplc_py_typing.schema_io import CacheSchemaValidate
 
 
 class TestDataPrepFix(TestMapPeaksFix):
@@ -117,12 +120,25 @@ class TestDataPrepper(TestDataPrepFix):
     def test_default_bounds_factory(
         self,
         default_bounds: DataFrame[Bounds],
+        schema,
     ) -> None:
         """
         Define default bounds schemas
         """
-
-        Bounds.validate(default_bounds, lazy=True)
+        Modelinterpreter().interpret_model(default_bounds, "BoundsAssChrom", pandas_dtypes=False, clipboard=True)
+        schema.validate(default_bounds, lazy=True)
+        
+    def test_default_bounds_asschrom(
+        self,
+        default_bounds: DataFrame[Bounds],
+    ):
+        cacheval = CacheSchemaValidate()
+        
+        ac_sch = cacheval.get_cached_schema(default_bounds, dset_name='asschrom',schema_name='default_bounds')
+        
+        ac_sch.validate(default_bounds)
+        breakpoint()
+        return None
 
     def test_prepare_params(
         self,

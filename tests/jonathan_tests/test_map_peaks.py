@@ -377,7 +377,7 @@ class TestPeakMapViz(TestMapPeaksFix):
         amp_col: str,
     ) -> Axes:
 
-        loaded_pmv._plot_peaks(y_colname=amp_col)
+        loaded_pmv._plot_peaks(pmax_col=amp_col)
 
         return None
 

@@ -1,10 +1,14 @@
+from pandera.dtypes import String
+import os
+import warnings
+from hplc_py import SCHEMA_CACHE
 from typing import Optional
 
 from numpy import float64, int64
 from pandera.api.pandas.model_config import BaseConfig
 
 from hplc_py import P0AMP, P0TIME, P0WIDTH, P0SKEW, AMPRAW, AMPCORR, AMP
-
+from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b
 
 import pandas as pd
 import pandera as pa
@@ -41,6 +45,25 @@ class BaseDF(pa.DataFrameModel):
         name = "BaseDF"
         coerce = True
 
+class Data(pa.DataFrameModel):
+    """
+    The central datastorage table of the Chromatogram object
+    """
+    w_type: Optional[String]
+    w_idx: Optional[float64]
+    time_idx: int64
+    time: float64
+    amp: float64
+    amp_corrected: Optional[float64]
+    background: Optional[float64]
+    
+    class Config:
+        name="Data"
+        coerce=True
+        ordered=True
+        strict=True
+    
+    
 
 class SignalDFLoaded(BaseDF):
     """
@@ -146,8 +169,7 @@ class P0(BaseDF):
         ordered = True
         name = "P0"
         coerce = True
-
-
+    
 class Bounds(BaseDF):
     w_idx: int64
     p_idx: int64
@@ -160,7 +182,6 @@ class Bounds(BaseDF):
         ordered = True
         name = "Bounds"
         coerce = True
-
 
 class Params(Bounds, P0):
     pass

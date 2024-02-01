@@ -30,7 +30,7 @@ OutPeakDFAssChrom = PeakMap
 pd.options.display.precision = 9
 pd.options.display.max_columns = 50
 
-import pandera as ap
+import pandera as pa
 
 
 @pytest.mark.skip(reason="Currently not in use, not obvious error occuring from schema_str")

@@ -120,20 +120,51 @@ class MapWindowsMixin(IOValid):
         w_idxs = {}
 
         """
-
+        2024-02-01 23:35:12
+        
+        Modify this to iterate over the intervals with i, and an initial state with 
+        w_idx = 0, and current window interval equal to the 0th interval. also set up
+        a mapping dict with keys of w_idx and list values, initially with the 0 w_idx and a list
+        of 1 element, 0, indicating the first interval.
+        
+        For each iteration of i:
+        1. compare ith interval with the current w_idx interval.
+            1. if overlap:
+                1. set the current w_idx interval to include the rhs of the ith
+            interval.
+                2. assign the current interval idx (i) to the current w_idx.
+                3. move to next iteration of i.
+            2. if not overlap:
+                1. move w_idx up by one.
+                2. assign current i to new w_idx in mapping dict
+                3. set current w_idx bound.
+                4. move to next iteration of i.
         """
-        for i in range(0, len(intvls)):
-            # check current
-            mapped_vals = {x for v in w_idxs.values() for x in v}
-
-            if i in mapped_vals:
-                continue
-            w_idxs[w_idx] = [i]
-            for j in range(i + 1, len(intvls)):
-                if intvls[i].overlaps(intvls[j]):
-                    w_idxs[i].append(j)
-            w_idx += 1
-
+        
+        Intvls = sorted([Interval(intvl.left, intvl.right, i) for i, intvl in enumerate(intvls)])
+        
+        w_idx = 0
+        i_idx = np.arange(1, len(intvls))
+        w_idxs = {0: [Intvls[0].p_idx]}
+        w_idx_Intvl = Intvls[0]
+        
+        for i in i_idx:
+            does_overlap = w_idx_Intvl.overlaps(Intvls[i])
+            if does_overlap:
+                w_idx_Intvl += Intvls[i]
+                w_idxs[w_idx].append(Intvls[i].p_idx)
+            else:
+                w_idx += 1
+                w_idxs[w_idx] = [Intvls[i].p_idx]
+                w_idx_Intvl = Intvls[i]
+        
+        # sort each list
+        for k, v in w_idxs.items():
+            if len(v)>1:
+                w_idxs[k]=sorted(v)
+        
+        breakpoint()
+        
         return w_idxs
 
     def _combine_intvls(
@@ -374,3 +405,72 @@ class MapWindows(MapWindowsMixin):
         )
 
         return wsdf
+
+class Interval:
+    """
+    A simplistic class to handle comparision and addition of intervals. Assumes
+    closed intervals.
+    """
+    def __init__(self, left: int, right: int, p_idx: int):
+        """
+        assign the left, right and p_idx of the Interval object. the p_idx keeps track
+        of which peak this inteval belongs to. The left and right are the closed bounds
+        of the interval.
+
+        :param left: the left closed bound of the interval
+        :type left: int
+        :param right: the right closed bound of the interval
+        :type right: int
+        :param p_idx: the index of the peak the interval belongs to
+        :type p_idx: int
+        :param self: an interval object with comparision and extension through `__add__`
+        :type self: Interval
+        """
+        self.left = left
+        self.right = right
+        self.p_idx = p_idx
+        
+    def overlaps(
+        self,
+        other,
+    ):
+        """
+        Assess if two Interval abjects overlap by compring their left and right 
+        bounds. Assumes closed intervals.
+                    i1   i2                 i2   i1
+        case 1: |----\--|-----\   case 2: \---|---\----|
+        
+        in either case, sorting the interval objects so that we're always in the
+        frame of reference of case 1 then comparing i1 to i2. If right i1 is
+        greater than or equal to the left of i2, then they are deemed overlapping.
+        """
+        
+        
+        if not isinstance(other, Interval):
+            raise TypeError("can only compare Interval objects")
+        
+        i1, i2 = sorted([self, other])
+        
+        if i1.right >= i2.left:
+            return True
+        else:
+            return False
+        
+    def __add__(self, other):
+        if self.left < other.left:
+            new_left = self.left
+        else:
+            new_left = other.left
+        
+        if self.right < other.right:
+            new_right = other.right
+        else:
+            new_right = self.right
+            
+        return Interval(new_left, new_right, p_idx = self.p_idx)
+    
+    def __lt__(self, other):
+        return self.left < other.left
+
+    def __repr__(self):
+        return f"{self.p_idx}: [{self.left}, {self.right}]"

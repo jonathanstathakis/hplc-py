@@ -1,3 +1,6 @@
+import pandera as pa
+from typing import Type
+import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 import pandas as pd
 from hplc_py.io_validation import IOValid
@@ -5,11 +8,13 @@ import numpy as np
 from numpy import float64, int64
 from numpy.typing import NDArray
 from hplc_py.misc.misc import compute_timestep
-from .hplc_py_typing.hplc_py_typing import SignalDFLoaded, PeakMap
+from .hplc_py_typing.hplc_py_typing import SignalDFLoaded, PeakMap, Data
 from .show import Show, PlotSignal
 import polars as pl
 from typing import Self
 from pandera.typing import Series, DataFrame
+
+from hplc_py.hplc_py_typing.hplc_py_typing import WindowedTime
 
 class Chromatogram(IOValid):
     """
@@ -26,24 +31,61 @@ class Chromatogram(IOValid):
         """
         validate the input arrays  and use to intialize the internal data attribute
         """
-        self.peakmap = None
-        self._ws = None
         
+        self._sch_data: Type[Data] = Data
+        self._sch_peakmap: Type[Data] = PeakMap
         self.bcorr_corrected = False
         self.__sigld_sch = SignalDFLoaded
 
+                
+        self.timestep = compute_timestep(time)
+        self.load_df(time, amp)
+    
+    def load_df(
+        self,
+        time,
+        amp,
+    ):
+        """
+        validate the input time and amp arrays, construct a frame, validate it against the DFLoaded schema, then add as 'data'
+        """
         for n, s in {"time": time, "amp": amp}.items():
             self.check_container_is_type(s, np.ndarray, float64, n)
+            
+        data_ = pd.DataFrame({self.__sigld_sch.time: time, self.__sigld_sch.amp: amp}).reset_index(names=self.__sigld_sch.time_idx).rename_axis(index=self.__sigld_sch.idx)
 
-        self.data = DataFrame[SignalDFLoaded](
-                pd.DataFrame({self.__sigld_sch.time: time, self.__sigld_sch.amp: amp}
-                             )
-                .reset_index(names=self.__sigld_sch.time_idx)
-                .rename_axis(index=self.__sigld_sch.idx)
-        )
-
-        self.timestep = compute_timestep(time)
+        Data.validate(data_, lazy=True)
+        
+        self._data = DataFrame[Data](data_)
     
+    @property
+    def df_pl(
+        self,
+    ):
+        return pl.from_pandas(self._data)
+    
+    @df_pl.setter
+    @pa.check_types
+    def join_data_to_windowed_time(
+        self,
+        windowed_time: DataFrame[WindowedTime],
+    ):
+    
+        windowed_time = pl.from_pandas(windowed_time)
+            
+        df = self.df_pl.join(windowed_time, how='left', on='time_idx').to_pandas()
+        
+        self.df = df
+        
+        
+        breakpoint()
+    
+    @property
+    def df_pd(
+        self,
+    ):
+        return self._data
+
     @property
     def amp(
         self
@@ -53,21 +95,37 @@ class Chromatogram(IOValid):
         If True, returns 'amp_corrected', else returns 'amp'.
         """
         if self.bcorr_corrected:
-            return self.data['amp_corrected']
+            return self._data['amp_corrected']
         else:
-            return self.data['amp']
+            return self._data['amp']
         
+    @property
+    def peakmap(
+        self,
+    ):
+        return self._peakmap
+    
+    @peakmap.setter
+    def peakmap(
+        self,
+        value
+    ):
+        PeakMap.validate(value, lazy=True)
+        self._peakmap = value
+    
+    
     @property
     def time(
         self
     ):
-        return self.data['time']
+        return self._data['time']
     
     @property
     def ws(
         self,
     ):
         return self._ws
+        
     
     @ws.getter
     def ws(
@@ -81,15 +139,15 @@ class Chromatogram(IOValid):
         """ 
         
         ws_cols = ['w_type','w_idx','time_idx','time']
-        if "amp_corrected" in self.data.columns:
+        if "amp_corrected" in self._data.columns:
             ws_cols.append('amp_corrected')
         else:
             ws_cols.append("amp")
         
-        if "amp_unmixed" in self.data.columns:
+        if "amp_unmixed" in self._data.columns:
             ws_cols.append("amp_unmixed")
             
-        return self.data[ws_cols]
+        return self._data[ws_cols]
         
     @ws.setter
     def ws(
@@ -98,27 +156,75 @@ class Chromatogram(IOValid):
     ):
         self._ws = value
     
+    @property
+    def _data_idx_cols(
+        self
+    ):
+        """
+        A list of columns expected to be in Data, but possibly not present. Ideally this
+        would come from the schema but not sure how to implement ATM.
+        """
+        
+        return ['w_type','w_idx','time_idx','time']
     
-    def plot_signal(
+    @property
+    def _data_value_cols(
+        self
+    ):
+        """
+        A list of columns expected to be in Data but possibly not present for a given state.
+        Ideally this would come frmo the schema but not sure how to implement ATM.
+        """
+        
+        return ['amp','amp_corrected','amp_unmixed']
+    
+    @property
+    def _present_x_cols(
+        self
+    ):
+        """
+        Compare the `_data_idx_cols` with the current frame to identify which are actually present for plotting purposes
+        """
+        
+        return self.df_pd.columns[self.df_pd.columns.isin(self._data_idx_cols)]
+
+        
+    @property
+    def _present_y_cols(
+        self
+    ):
+        """
+        Only provide y column names that are currently present in the data as per the
+        data Schema. Use for plotting
+        """
+        
+        return list(self.df_pd.columns[self.df_pd.columns.isin(self._data_value_cols)])
+        
+        
+    def plot_signals(
         self,
-        ax,
     )->Self:
         
-        PlotSignal(self.data,
-                   str(self.__sigld_sch.time),
-                   str(self.__sigld_sch.amp),
-                   ax=ax,
-                   )._plot_signal_factory()
+        x = self._sch_data.time
+        
+        import matplotlib.pyplot as plt
+        
+        fig = plt.figure()
+        ax = fig.subplots()
+        
+        for y in self._present_y_cols:
+            
+            ax.plot(x, y, data=self.df_pl, label=self.df_pl[y].name)
+            
+        plt.legend()
+        plt.show()
         
         return self
-    
-    
-        
         
     def __repr__(
         self
     ):
-        return (f"DATA:\n{pl.from_pandas(self.data).__repr__()}\n"
+        return (f"DATA:\n{pl.from_pandas(self._data).__repr__()}\n"
                 "\n"
                 f"TIMESTEP:\n{self.timestep}\n"
                 

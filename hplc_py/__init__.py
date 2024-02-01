@@ -4,6 +4,11 @@ import holoviews as hv
 import polars as pl
 import pandas as pd
 
+import os
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SCHEMA_CACHE = os.path.join(ROOT, "schema_cache")
+
 pd.options.display.max_columns = 50
 
 pl.Config(
@@ -33,3 +38,4 @@ opts.defaults(
         # theme='dark_minimal'
     )
 )
+

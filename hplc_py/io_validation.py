@@ -82,6 +82,15 @@ class IOValid:
         else:
             raise TypeError(f"df expected to be Dataframe, got {type(check_obj)}\n{check_obj}")
 
+    def is_nonempty_df(
+        self,
+        check_obj,
+    )->bool:
+        if isinstance(check_obj, pd.DataFrame):
+            if not check_obj.empty:
+                return True
+        else:
+            return False
 
     def _check_keys_in_index(
             self,

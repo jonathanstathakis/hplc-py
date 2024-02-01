@@ -29,9 +29,10 @@
 
 ### Testing
 
-2024-01-16 15:34:22
+1. 2024-01-16 15:34:22 - The relationship between modules, files, test modules and test files should be restricted to one submodule per file, one test module per test file corresponding to one module. This is because pytest-cov coverage reports are restricted to a file granularity, but you can specify down to an individual test. Thus you cannot restrict coverage profiling to for example a class the test relates to.
 
-The relationship between modules, files, test modules and test files should be restricted to one submodule per file, one test module per test file corresponding to one module. This is because pytest-cov coverage reports are restricted to a file granularity, but you can specify down to an individual test. Thus you cannot restrict coverage profiling to for example a class the test relates to.
+2. 2024-01-31 10:01:55 - To automate dataset specific schema creation, I need to be able to read the current schema file, generate the schema to add, add the schema, and modify in place if necessary. so i need an IO module, a "sense" module and a generation module. The sense module will contain the rules within the schema file. the rules include: seperation of the file into schema 'regions' bound by lines, detection of schema, parsing of schema. Once the schema are generated I can then use them for type annotation. You could produce a diff module as well to warn if there is a diff between
+
 
 ### Visualisation
 

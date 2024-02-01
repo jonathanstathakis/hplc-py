@@ -66,15 +66,16 @@ class TestHPLCPY:
     def test_deconvolve(
         self,
         hpy_loaded: HPLCPY,
+        benchmark,
     ):
-        hpy_loaded.correct_baseline().map_windows().deconvolve()
+        benchmark(hpy_loaded.correct_baseline().map_windows().deconvolve)
     
     def test_fit_assess(
         self,
-        hpy_loaded: HPLCPY
-    ):
+        hpy_loaded: HPLCPY,
+    ):  
         hpy_loaded.correct_baseline().map_windows().deconvolve().assess_fit()
-        
+    
         
         
         
