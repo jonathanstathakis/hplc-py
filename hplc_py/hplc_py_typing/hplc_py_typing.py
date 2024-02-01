@@ -313,10 +313,10 @@ class PWdwdTime(BaseDF):
     peak windowed time dataframe, with NA's for nonpeak regions. An intermediate frame prior to full mapping
     """
 
-    time_idx: int64
-    time: float64
-    w_idx: int64
     w_type: pd.StringDtype = pa.Field(isin=['peak','interpeak'])
+    w_idx: int64
+    time_idx: int64
+    time: Optional[float64]
 
     class Config(HPLCBaseConfig):
         strict = True

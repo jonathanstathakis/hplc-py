@@ -64,27 +64,44 @@ class Chromatogram(IOValid):
     ):
         return pl.from_pandas(self._data)
     
-    @df_pl.setter
-    @pa.check_types
+    @pa.check_types(lazy=True)
     def join_data_to_windowed_time(
         self,
         windowed_time: DataFrame[WindowedTime],
     ):
-    
+        """
+        A convenience function wrapping the join between the data at the current state
+        and the windowed time columns. Wrapped because I want to be able to validate
+        the input and output to account for possible NAs from partial joins. Also
+        polars join is prettier than pandas join. 
+        """
+        
         windowed_time = pl.from_pandas(windowed_time)
             
-        df = self.df_pl.join(windowed_time, how='left', on='time_idx').to_pandas()
+        df = windowed_time.join(self.df_pl, how='left', on='time_idx').to_pandas().rename_axis('idx')
         
-        self.df = df
-        
-        
-        breakpoint()
+        self.df_pd = DataFrame[Data](df)
     
     @property
     def df_pd(
         self,
     ):
         return self._data
+    
+    @df_pd.setter
+    def df_pd(
+        self,
+        value,
+    ):
+        self._data = value
+        
+    @df_pd.getter
+    def df_pd(
+        self,
+    ):
+        return self._data
+        
+        
 
     @property
     def amp(

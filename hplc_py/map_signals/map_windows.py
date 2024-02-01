@@ -18,10 +18,11 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 from hplc_py.io_validation import IOValid
 from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
+from hplc_py.pandera_helpers import PanderaSchemaMethods
 
 
 @dataclass
-class MapWindowsMixin(IOValid):
+class MapWindowsMixin(IOValid, PanderaSchemaMethods):
     pm_sc = PeakMap
     sdf_sc = SignalDFBCorr
     pw_sc = PeakWindows
@@ -163,8 +164,6 @@ class MapWindowsMixin(IOValid):
             if len(v)>1:
                 w_idxs[k]=sorted(v)
         
-        breakpoint()
-        
         return w_idxs
 
     def _combine_intvls(
@@ -249,27 +248,48 @@ class MapWindowsMixin(IOValid):
         time: Series[float64],
         peak_wdws: DataFrame[PeakWindows],
     ) -> DataFrame[PWdwdTime]:
+        """
+        Broadcasts the identified peak windows to the length of the series time axis.
+        Any time without an assigned window is labeled as `self.w_type_interpeak_label`,
+        i.e. -999 to indicate 'missing'. The patterns of missing values are later computed
+        to label the interpeak windows.
+        
+        :param time: the signal time axis
+        :type time: Series[float64]
+        :param peak_wdws: A Frame with columns 'time_idx', 'time', 'w_idx', 'w_type' 
+        representing the spans of the peak window intervals.
+        :type peak_wdws: DataFrame[PWdwdTime]
+        """
         
         self.check_container_is_type(time, pd.Series, float64)
         
         # constructs a time dataframe with time value and index
         
-        wdwd_time_: pd.DataFrame = pd.DataFrame(
+        t_idx: pd.DataFrame = pd.DataFrame(
             {"time_idx": np.arange(0, len(time), 1), "time": time}
         )
 
         # joins the peak window intervals to the time index to generate a pattern of missing values
-        wdwd_time = (
-            wdwd_time_.set_index("time_idx")
-            .join(peak_wdws.set_index("time_idx").drop("time", axis=1), how="left")
-            .reset_index()
-            .rename_axis(index="idx")
-            .assign(w_type=lambda df: df['w_type'].fillna('interpeak'))
-            .assign(w_idx=lambda df: df['w_idx'].fillna(self.w_type_interpeak_label))
-        )
         
+        import polars as pl
+        
+        t_idx_ = pl.from_pandas(t_idx)
+        p_wdws_ = pl.from_pandas(peak_wdws)
+        
+        # left join time idx to peak windows and peak types, leaving na's to be filled
+        # with a placeholder and 'interpeak', respectively.
+        pw_time = (t_idx_
+                  .join(
+                      p_wdws_.select(pl.exclude('time')),
+                      on='time_idx', how='left')
+                  .with_columns(
+                      w_type=pl.col('w_type').fill_null("interpeak"),
+                      w_idx=pl.col('w_idx').fill_null(self.w_type_interpeak_label)
+                      )
+                  .select(self.get_schema_colorder(PWdwdTime))
+                  )
         try:
-            wdwd_time = DataFrame[PWdwdTime](wdwd_time)
+            wdwd_time = DataFrame[PWdwdTime](pw_time.to_pandas().rename_axis('idx'))
         except pa.errors.SchemaErrors as e:
             raise e
 
@@ -380,7 +400,7 @@ class MapWindowsMixin(IOValid):
         wt: DataFrame[WindowedTime] = self._label_interpeaks(
             pwt, str(self.pwdt_sc.w_idx)
         )
-
+        
         return wt
 
 

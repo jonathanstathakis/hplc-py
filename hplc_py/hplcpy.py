@@ -18,9 +18,17 @@ class HPLCPY(IOValid):
     """
 
     def __init__(self, time: NDArray[float64], amp: NDArray[float64]):
-        self.chm = Chromatogram(time, amp)
+        self._chm = Chromatogram(time, amp)
         self.show = Show()
 
+    @property
+    def chm(self):
+        return self._chm
+    
+    @chm.getter
+    def chm(self):
+        return self._chm
+    
     def deconv_pipeline(
         self,
     ):
@@ -90,9 +98,10 @@ class HPLCPY(IOValid):
             left_bases=left_bases, right_bases=right_bases, time=time, amp=amp
         )
 
-        windowed_time = wm[["w_type", "w_idx", "time_idx"]]
+        w_time_idx = wm[["w_type", "w_idx", "time_idx"]]
         
-        self.chm.join_data_to_windowed_time(windowed_time)
+        self.chm.join_data_to_windowed_time(w_time_idx)
+        
         return self
 
     def deconvolve(self) -> Self:
