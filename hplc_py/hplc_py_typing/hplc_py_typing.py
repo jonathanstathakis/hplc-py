@@ -50,7 +50,7 @@ class Data(pa.DataFrameModel):
     The central datastorage table of the Chromatogram object
     """
     w_type: Optional[String]
-    w_idx: Optional[float64]
+    w_idx: Optional[int64]
     time_idx: int64
     time: float64
     amp: float64
@@ -258,14 +258,12 @@ class PReport(Popt):
         coerce = True
 
 
-class WindowedSignal(BaseDF):
-    w_type: pd.StringDtype
+class WindowedSignal(Data):
+    """
+    Inherit from data, but w_type and w_idx are compulsory
+    """
+    w_type: String
     w_idx: int64
-    time_idx: int64
-    time: float64
-    amp: Optional[float64]
-    amp_corrected: Optional[float64]
-    amp_unmixed: Optional[float64]
 
     class Config(HPLCBaseConfig):
         strict = True
