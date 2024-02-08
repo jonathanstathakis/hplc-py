@@ -7,7 +7,7 @@ the same thing but via method chaining from the `loaded_pmv` object.
 
 Note: Uses time rather than t_idx as the x-axis units.
 """
-
+import pandera as pa
 import pytest
 import pandas as pd
 from matplotlib.axes import Axes
@@ -30,6 +30,7 @@ from hplc_py.map_signals.map_peaks.map_peaks_viz_schemas import (
 from hplc_py.map_signals.map_peaks.map_peaks_viz import (
     Pipe_Peak_Widths_To_Long,
     Pipeline_Join_Width_Maxima_Long,
+    Pipeline_Peak_Map_Interface
 )
 
 
@@ -210,27 +211,32 @@ def width_plotter(
 
 
 def test_width_plotter(plot_signal, width_plotter: WidthPlotter) -> None:
-    width_plotter.plot_widths(
+    width_plotter.plot_widths_vertices(
         y_colname=str(PeakMap.pb_height),
         left_x_colname=str(PeakMap.pb_left),
         right_x_colname=str(PeakMap.pb_right),
         marker="v",
     )
     plt.show()
-
-
-def test_peak_map(peak_map):
-    breakpoint()
-    pass
-
-
+    
 # @pytest.fixture
-# def pmi(peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema])->PeakMapInterface:
-#     pmi = PeakMapInterface(peak_map=peak_map, X=X)
-#     return pmi
+# def width_maxima_join(
+# ):
+#     pass
+    
+# def test_plot_widths_edges(
+#     width_maxima_join: DataFrame[Width_Maxima_Join]
+# )
 
 
-class TestPeakMapInterface:
+
+@pytest.fixture
+def pmi(peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema])->Pipeline_Peak_Map_Interface:
+    pmi = Pipeline_Peak_Map_Interface(peak_map=peak_map, X=X)
+    return pmi
+
+
+class TestPipeline_Peak_Map_Interface:
 
     @pytest.fixture
     def widths_long_xy(
@@ -291,3 +297,27 @@ class TestPeakMapInterface:
     ):
         Width_Maxima_Join.validate(width_maxima_join.to_pandas(), lazy=True)
         pass
+    
+    @pytest.fixture
+    @pa.check_types
+    def peak_map_plot_data(
+        self,
+        peak_map: DataFrame[PeakMap]
+    )->DataFrame[Width_Maxima_Join]:
+        
+        pipeline_peak_map_interface = Pipeline_Peak_Map_Interface()
+        peak_map_plot_data = (
+            pipeline_peak_map_interface
+            .load_pipeline(peak_map=peak_map)
+            .run_pipeline()
+            .peak_map_plot_data
+        )
+        return peak_map_plot_data
+    
+    def test_pipeline_peak_map_interface(
+        self,
+        peak_map_plot_data: DataFrame[Width_Maxima_Join]
+    ):
+        Width_Maxima_Join.validate(peak_map_plot_data.to_pandas(), lazy=True)
+        
+        

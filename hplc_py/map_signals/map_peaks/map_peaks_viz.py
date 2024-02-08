@@ -32,6 +32,10 @@ from .map_peaks_viz_schemas import (
 
 
 class PlotCore(IOValid):
+    """
+    Base Class of the peak map plots, containing style settings and common methods.
+    """
+
     def __init__(self, ax: Axes, df: pd.DataFrame):
         plt.style.use("ggplot")
 
@@ -124,7 +128,7 @@ class PeakMapViz(IOValid):
 
         wp = WidthPlotter(ax)
 
-        wp.plot_widths(
+        wp.plot_widths_vertices(
             df=self.df,
             y_colname=y_colname,
             left_x_colname=left_colname,
@@ -154,7 +158,7 @@ class PeakMapViz(IOValid):
         label = "bases"
         wp = WidthPlotter(ax)
 
-        wp.plot_widths(
+        wp.plot_widths_vertices(
             df=self.df,
             y_colname=y_colname,
             left_x_colname=left_colname,
@@ -239,7 +243,7 @@ class PeakPlotter(PlotCore):
 import abc
 
 
-class InterfacePipeline(metaclass=abc.ABCMeta):
+class Pipeline(metaclass=abc.ABCMeta):
     """
     A basic template for pipelines - objects that take one or more inputs and produce
     one output, with internal validation via Pandera DataFrameModel schemas.
@@ -275,30 +279,66 @@ class InterfacePipeline(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-# class PeakMapInterface(InterfacePipeline, IOValid):
-#     """
-#     Contains methods to organise the peak map data for plotting.
-#     """
+class Pipeline_Peak_Map_Interface(Pipeline, IOValid):
+    """
+    Combines several pipelines to produce a long frame indexed by the peak index
+    'p_idx', peak prop ('whh','pb') and geoprop ('left', 'right'). This format is
+    useful for visualising the left and right ips calculated by `scipy.peak_widths`
+    """
 
-#     @pa.check_types
-#     def __init__(self, peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema]):
-#         """
-#         Initialise peak map and X as polars if not already. Up to the user to ensure that nothing lost in transition. Preference is to pass a polars frame rather than pandas.
-#         """
-#         if not self._is_polars(peak_map):
-#             self.peak_map = pl.from_pandas(peak_map)
-#         else:
-#             self.peak_map = peak_map
-#         if not self._is_polars(X):
-#             self.X = pl.from_pandas(X)
-#         else:
-#             self.X = X
+    def __init__(self):
+        """
+        Initialise peak map and X as polars if not already. Up to the user to ensure that nothing lost in transition. Preference is to pass a polars frame rather than pandas.
+        """
+
+        self._peak_map = pl.DataFrame()
+        self.peak_map_plot_data = pl.DataFrame()
+
+        self._pipe_peak_widths_to_long = Pipe_Peak_Widths_To_Long()
+        self._pipe_peak_maxima_to_long = Pipe_Peak_Maxima_To_Long()
+        self._pipe_join_width_maxima_long = Pipeline_Join_Width_Maxima_Long()
+
+    @pa.check_types
+    def load_pipeline(self, peak_map: DataFrame[PeakMap]) -> Self:
+        if not self._is_polars(peak_map):
+            self.peak_map = pl.from_pandas(peak_map)
+        else:
+            self.peak_map = peak_map
+
+        return self
+
+    def run_pipeline(self) -> Self:
+
+        widths_long_xy = (
+            self._pipe_peak_widths_to_long.load_pipeline(self.peak_map.to_pandas().rename_axis(index='idx'))
+            .run_pipeline()
+            .widths_long_xy
+        )
+
+        maxima_x_y = (
+            self._pipe_peak_maxima_to_long.load_pipeline(self.peak_map.to_pandas().rename_axis(index='idx'))
+            .run_pipeline()
+            .maxima_x_y
+        )
+
+        self.peak_map_plot_data = (
+            self._pipe_join_width_maxima_long.load_pipeline(
+                widths_long_xy=widths_long_xy.to_pandas(), maxima_x_y=maxima_x_y.to_pandas()
+            )
+            .run_pipeline()
+            .width_maxima_join
+        )
+        return self
+
+    def _set_internal_schemas(self):
+        pass
+
+        return self
 
 
-class Pipe_Peak_Widths_To_Long(InterfacePipeline, IOValid):
+class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
     """
     Extract the peak width properties from `peak_map` and arrange them in long form.
-
 
     This pipe produces one output `widths_long_xy`.
     """
@@ -413,7 +453,7 @@ class Pipe_Peak_Widths_To_Long(InterfacePipeline, IOValid):
         self.__sch_pm_width_long_joined = PM_Width_Long_Joined
 
 
-class Pipe_Peak_Maxima_To_Long(InterfacePipeline, IOValid):
+class Pipe_Peak_Maxima_To_Long(Pipeline, IOValid):
     def __init__(self):
         self._set_internal_schemas()
 
@@ -465,7 +505,7 @@ class Pipe_Peak_Maxima_To_Long(InterfacePipeline, IOValid):
         self.__sch_maxima_x_y = Maxima_X_Y
 
 
-class Pipeline_Join_Width_Maxima_Long(InterfacePipeline, IOValid):
+class Pipeline_Join_Width_Maxima_Long(Pipeline, IOValid):
     """
     Produce a table for plotting a line between the base width ips and the maxima to
     describe the mapping of the peak. Each row needs an x1, y1, x2, y2, and will
@@ -533,12 +573,15 @@ class WidthPlotter(PlotCore):
     For handling all width plotting - WHH and bases. The core tenant is that we want to
     plot the widths peak by peak in such a way that it is clear which mark belongs to
     which peak, and which is left and which is right.
+
+    Provides an option for plotting markers at the ips `plot_widths_vertices`, and
+    lines connecting the ips to the maxima in `plot_widths_edges`
     """
 
     def __init__(self, ax: Axes, df: pd.DataFrame):
         super().__init__(ax, df)
 
-    def plot_widths(
+    def plot_widths_vertices(
         self,
         y_colname: str,
         left_x_colname: str,
@@ -548,7 +591,7 @@ class WidthPlotter(PlotCore):
         plot_kwargs: dict = {},
     ) -> Self:
         """
-        Main interface for plotting the widths. Wrap this in an outer function for specific measurements i.e. whh, bases
+        Main interface for plotting the width ips as points.
         """
         # shift the marker up enough to mark the location rather than occlude the signal
 
@@ -572,5 +615,11 @@ class WidthPlotter(PlotCore):
             )
 
         self.add_proxy_artist_to_legend(label=label, line_2d=self.ax.lines[-1])
+
+    def plot_widths_edges(
+        self,
+        width_maxima_join: DataFrame[Width_Maxima_Join],
+    ):
+        pass
 
         return self
