@@ -210,7 +210,7 @@ def test_peak_map(
 def pmi(peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema])->PeakMapInterface:
     pmi = PeakMapInterface(peak_map=peak_map, X=X)
     return pmi
-    
+
 
 class TestPeakMapInterface:
     def test_Pipe_Peak_Widths_To_Long(self,
@@ -225,3 +225,17 @@ class TestPeakMapInterface:
         )
         pipe_peak_widths_to_long.run_pipeline()
         breakpoint()
+        
+    def test_pipe_peak_maxima_to_long(
+        self,
+        peak_map: DataFrame[PeakMap]
+    )->None:
+        from hplc_py.map_signals.map_peaks.map_peaks_viz import Pipe_Peak_Maxima_To_Long
+        
+        pipe_peak_maxima_to_long = Pipe_Peak_Maxima_To_Long()
+        
+        (pipe_peak_maxima_to_long
+         .load_pipeline(peak_map)
+         .run_pipeline()
+         )
+        

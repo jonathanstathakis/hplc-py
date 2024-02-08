@@ -1,3 +1,4 @@
+from typing import Self
 import polars as pl
 import pandera as pa
 import distinctipy
@@ -232,6 +233,10 @@ class InterfacePipeline(metaclass=abc.ABCMeta):
     """
     A basic template for pipelines - objects that take one or more inputs and produce
     one output, with internal validation via Pandera DataFrameModel schemas.
+    
+    A sklearn inspired Pipeline object which is used by first running `load_pipeline`,
+    then `run_pipeline` and accessing the desired output. Integrates Pandera schemas
+    for input, intermediate and output validation.
     """
     
     @abc.abstractmethod
@@ -275,7 +280,13 @@ class PeakMapInterface(InterfacePipeline, IOValid):
             self.X = X
 
 
-class Pipe_Peak_Widths_To_Long(IOValid):
+class Pipe_Peak_Widths_To_Long(InterfacePipeline, IOValid):
+    """
+    Extract the peak width properties from `peak_map` and arrange them in long form.
+
+    
+    This pipe produces one output `widths_long_xy`.
+    """
     def __init__(self):
         self._set_schemas()
 
@@ -453,7 +464,77 @@ class Pipe_Peak_Widths_To_Long(IOValid):
 
         self.__sch_pm_width_long_joined = PM_Width_Long_Joined
 
+class Pipe_Peak_Maxima_To_Long(InterfacePipeline, IOValid):
+    def __init__(self):
+        self._set_schemas()
+    
+    @pa.check_types
+    def load_pipeline(
+        self,
+        peak_map: DataFrame[PeakMap],)->Self:
+        
+        if not self._is_polars(peak_map):
+            self.peak_map = pl.from_pandas(peak_map)
+        else:
+            self.peak_map = peak_map
+        
+        return self
+    
+    def run_pipeline(
+        self,
+        idx_colnames = ['p_idx'],
+        x_colname = 'X_idx',
+        y_colname = 'maxima'
+    )->Self:
+        """
+        A straight forward selection from the greater `peak_map`, selecting the 'p_idx',
+        and x and y of the peak maxima points as 'maxima_x', and 'maxima_y', 
+        respectively. Returns self, access attribute `maxima_x_y` to obtain the result
 
+        :param idx_colnames: the peak index column of `peak_map`, defaults to ['p_idx']
+        :type idx_colnames: [list['str'], optional]
+        :param x_colname: the name of the column containing the x values of the peak 
+        maxima, defaults to 'X_idx'
+        :type x_colname: str, optional
+        :param y_colname: the name of the column containing the y values of the peak 
+        maxima, defaults to 'maxima'
+        :type y_colname: str, optional
+        :return: self. access attribute `maxima_x_y` to obtain the result.
+        :rtype: Self
+        """
+        
+        
+        maxima_x_y = (
+            self.peak_map
+            .select(pl.col(idx_colnames+[x_colname, y_colname]))
+            .rename({x_colname:'maxima_x', y_colname: 'maxima_y'})
+        )
+        
+        self.__sch_maxima_x_y.validate(maxima_x_y.to_pandas(), lazy=True)
+        
+        self.maxima_x_y = maxima_x_y
+        return self
+    
+    def _set_schemas(
+        self
+    ):
+        
+        class Maxima_X_Y(pa.DataFrameModel):
+            """
+            Schema for a 3 column frame respresnting each peaks maxima x and y indexed
+            by peak index.
+            """
+            p_idx: int = pa.Field(ge=0)
+            maxima_x: int=pa.Field(gt=0)
+            maxima_y: float 
+            class Config:
+                name="Maxima_X_Y"
+                strict=True
+                
+        self.__sch_maxima_x_y = Maxima_X_Y
+        
+        
+    
 class WidthPlotter(PlotCore):
     """
     For handling all width plotting - WHH and bases. The core tenant is that we want to
