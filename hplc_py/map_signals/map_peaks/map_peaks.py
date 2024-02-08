@@ -1,7 +1,8 @@
+import polars as pl
 from numpy import float64, int64
 from numpy.typing import NDArray
 from dataclasses import dataclass
-from typing import Literal, Optional, TypeAlias
+from typing import Literal, Optional, TypeAlias, Self
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     FindPeaks,
     PeakBases,
     PeakMap,
+    X_Schema,
 )
 
 
@@ -24,160 +26,176 @@ from typing import Tuple
 
 from hplc_py.io_validation import IOValid
 
-
 PPD: TypeAlias = Tuple[NDArray[float64], NDArray[int64], NDArray[int64]]
 
-@dataclass
+
 class MapPeaks(IOValid):
-    """
-    Use to map peaks, i.e. locate maxima, whh, peak bases for a given set of user inputs. Includes plotting functionality inherited from MapPeakPlots
-    """
-    _idx_name: Literal["idx"] = "idx"
-    _pidx_col: Literal["p_idx"] = "p_idx"
-    _ptime_col: Literal["time"] = "time"
-    _ptime_idx_col: Literal["time_idx"] = "time_idx"
-    _pmaxima_col: Literal["amp"] = "amp"
-    _prom_col: Literal["prom"] = "prom"
-    _prom_lb_col: Literal["prom_left"] = "prom_left"
-    _prom_rb_col: Literal["prom_right"] = "prom_right"
-    _whh_rel_height_col: Literal["whh_rel_height"] = "whh_rel_height"
-    _whh_h_col: Literal["whh_height"] = "whh_height"
-    _whh_w_col: Literal["whh_width"] = "whh_width"
-    _whh_l_col: Literal["whh_left"] = "whh_left"
-    _whh_r_col: Literal["whh_right"] = "whh_right"
-    _pb_rel_height_col: Literal["pb_rel_height"] = "pb_rel_height"
-    _pb_h_col: Literal["pb_height"] = "pb_height"
-    _pb_w_col: Literal["pb_width"] = "pb_width"
-    _pb_l_col: Literal["pb_left"] = "pb_left"
-    _pb_r_col: Literal["pb_right"] = "pb_right"
-    
-    @pa.check_types()
-    def map_peaks(
+    def __init__(
         self,
-        amp: Series[float64],
-        time: Series[float64],
-        timestep: float,
         prominence: float = 0.01,
-        wlen: int = None,
+        wlen: Optional[int] = None,
         find_peaks_kwargs: FindPeaksKwargs = {},
-    ) -> DataFrame[PeakMap]:
+    ):
+        """
+        Use to map peaks, i.e. locate maxima, whh, peak bases for a given set of user inputs. Includes plotting functionality inherited from MapPeakPlots
+        """
+        self._prominence = prominence
+        self._wlen = wlen
+        self._find_peaks_kwargs = find_peaks_kwargs
+        
+        self._X_colname: str = "X"
+        
+        self._idx_name: Literal["idx"] = "idx"
+        self._p_idx_col: Literal["p_idx"] = "p_idx"
+        self._p_idx_colname: Literal["X_idx"] = "X_idx"
+        self._maxima_colname: Literal["maxima"] = "maxima"
+        self._prom_col: Literal["prom"] = "prom"
+        self._prom_lb_col: Literal["prom_left"] = "prom_left"
+        self._prom_rb_col: Literal["prom_right"] = "prom_right"
+        self._whh_rel_height_col: Literal["whh_rel_height"] = "whh_rel_height"
+        self._whh_h_col: Literal["whh_height"] = "whh_height"
+        self._whh_w_col: Literal["whh_width"] = "whh_width"
+        self._whh_l_col: Literal["whh_left"] = "whh_left"
+        self._whh_r_col: Literal["whh_right"] = "whh_right"
+        self._pb_rel_height_col: Literal["pb_rel_height"] = "pb_rel_height"
+        self._pb_h_col: Literal["pb_height"] = "pb_height"
+        self._pb_w_col: Literal["pb_width"] = "pb_width"
+        self._pb_l_col: Literal["pb_left"] = "pb_left"
+        self._pb_r_col: Literal["pb_right"] = "pb_right"
+
+    @pa.check_types()
+    def fit(
+        self,
+        X: DataFrame[X_Schema],
+        y=None,
+    )->Self:
+        """
+        In this case, simply stores X and the timestep
+        """
+        
+        self.X = X
+        
+        return self
+        
+    @pa.check_types()
+    def transform(
+        self,
+    ) -> Self:
         """
         Map An input signal with peaks, providing peak height, prominence, and width data.
+
+        From scipy.peak_widths docs:
+
+        <https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.peak_widths.html>
+
+        "wlen : int, optional A window length in samples passed to peak_prominences as an optional argument for internal calculation of prominence_data. This argument is ignored if prominence_data is given." - this is only used in the initial findpeaks
+        then the results are propagated to the other profilings.
         """
 
         fp = self._set_findpeaks(
-            amp=amp,
-            time=time,
-            timestep=timestep,
-            prominence=prominence,
-            wlen=wlen,
-            find_peaks_kwargs=find_peaks_kwargs
-            )
+            X=self.X,
+            prominence=self._prominence,
+            wlen=self._wlen,
+            find_peaks_kwargs=self._find_peaks_kwargs,
+        )
 
         peak_prom_data = self.get_peak_prom_data(
             fp,
-            
         )
-        
-        
-        peak_time_idx = fp[self._ptime_idx_col].to_numpy(np.int64)
-        
-        whh = self.width_df_factory(amp=amp,
-                                    peak_time_idx=peak_time_idx,
-                                    peak_prom_data=peak_prom_data,
-                                    rel_height=0.5,
-                                    timestep=timestep,
-                                    wlen=None,
-                                    prefix="whh")
-        
+
+        peak_t_idx = fp[self._p_idx_colname].to_numpy(np.int64)
+
+        whh = self.width_df_factory(
+            X=self.X,
+            peak_t_idx=peak_t_idx,
+            peak_prom_data=peak_prom_data,
+            rel_height=0.5,
+            prefix="whh",
+        )
+
         whh = DataFrame[WHH](whh)
 
         pb = self.width_df_factory(
-                                amp=amp,
-                                peak_time_idx=peak_time_idx,
-                                peak_prom_data=peak_prom_data,
-                                rel_height=1,
-                                timestep=timestep,
-                                wlen=None,
-                                prefix='pb'
-                            )
-        
-        pb = DataFrame[PeakBases](pb)
-        
-        peak_map = self._set_peak_map(
+            X=self.X,
+            peak_t_idx=peak_t_idx,
+            peak_prom_data=peak_prom_data,
+            rel_height=1,
+            prefix="pb",
+        )
+
+        # pb = DataFrame[PeakBases](pb)
+
+        self.peak_map = self._set_peak_map(
             fp,
             whh,
             pb,
         )
-        
-        return DataFrame[PeakMap](peak_map)
 
+        return self
 
     @pa.check_types
     def _set_findpeaks(
         self,
-        amp: Series[float64],
-        time: Series[float64],
-        timestep: float,
+        X: DataFrame[X_Schema],
         prominence: float,
         wlen: Optional[int] = None,
         find_peaks_kwargs: FindPeaksKwargs = {},
     ) -> DataFrame[FindPeaks]:
         # 'denormalize' the prominence input to put it on the scale of amp
-        
-        for n, s in {"amp":amp, "time": time}.items():
-            self.check_container_is_type(s, pd.Series, float, n)
-        
-        for n, f in {'timestep':timestep, "prom":prominence}.items():
-            self._check_scalar_is_type(f, float, n)
-            
-        if wlen:
-            self._check_scalar_is_type(wlen, int, 'wlen') 
-        
-        prom_ = prominence * amp.max()
 
+        if wlen:
+            self._check_scalar_is_type(wlen, int, "wlen")
+        
+        if not isinstance(prominence, float):
+            raise TypeError(f"expected prominance to be {float}")
+        
+        if (prominence < 0) | (prominence > 1):
+            raise ValueError("expect prominence to be a float between 0 and 1")
+        
+        if not isinstance(find_peaks_kwargs, dict):
+            raise TypeError("Expect find_peaks_kwargs to be a dict")
+        
+        prom_ = prominence * X.max().iat[0]
+        
         p_idx, _dict = signal.find_peaks(
-            amp,
+            X[self._X_colname],
             prominence=prom_,
             wlen=wlen,
             **find_peaks_kwargs,
         )
-
-        fp_: pd.DataFrame = (
-            pd.DataFrame(
-                {
-                    self._ptime_idx_col: p_idx,
-                    self._ptime_col: time[p_idx],
-                    self._pmaxima_col: amp[p_idx],
-                    **_dict,
+        
+        fp = DataFrame[FindPeaks](
+            X
+            .loc[p_idx]
+            .assign(
+                **{
+                    self._p_idx_colname: p_idx,
+                    **_dict
                 }
             )
             .reset_index(drop=True)
-            .reset_index(names=self._pidx_col)
+            .reset_index(names=self._p_idx_col)
             .rename_axis(index=self._idx_name)
-        )
-
-        fp_ = fp_.rename(
+            .rename(
             {
                 "prominences": self._prom_col,
                 "left_bases": self._prom_lb_col,
                 "right_bases": self._prom_rb_col,
+                self._X_colname: self._maxima_colname,
             },
             axis=1,
+            )
+            .loc[:, lambda df: df.columns.drop(self._maxima_colname).insert(2, self._maxima_colname)]
         )
 
-        fp = DataFrame[FindPeaks](fp_)
-        
         return fp
 
     def width_df_factory(
         self,
-        amp: Series[float64],
-        peak_time_idx: NDArray[int64],
+        X: DataFrame[X_Schema],
+        peak_t_idx: NDArray[int64],
         peak_prom_data: PPD,
         rel_height: float,
-        timestep: float,
-        wlen: Optional[int] = None,
         prefix: str = "width",
     ) -> pd.DataFrame:
         """
@@ -197,36 +215,28 @@ class MapPeaks(IOValid):
         rel_h_key = prefix + "_rel_height"
         w_key = prefix + "_width"
         h_key = prefix + "_height"
-        h_left_idx_key = prefix + "_left" + "_idx"
-        h_right_idx_key = prefix + "_right" + "_idx"
-        h_left_time_key = prefix + "_left" + "_time" 
-        h_right_time_key = prefix + "_right" + "_time"
+        left_ips_key = prefix + "_left"
+        right_ips_key = prefix + "_right"
         
-
         w, h, left_ips, right_ips = signal.peak_widths(
-            amp,
-            peak_time_idx,
+            X[self._X_colname],
+            peak_t_idx,
             rel_height,
             peak_prom_data,
-            wlen,
         )
 
         wdf_: pd.DataFrame = pd.DataFrame().rename_axis(index="idx")
 
-        wdf_[rel_h_key] = [rel_height] * len(peak_time_idx)
-
+        wdf_[rel_h_key] = [rel_height] * len(peak_t_idx)
         wdf_[w_key] = w
         wdf_[h_key] = h
-        wdf_[h_left_idx_key] = left_ips
-        wdf_[h_right_idx_key] = right_ips
-        wdf_[h_left_time_key] = left_ips * timestep
-        wdf_[h_right_time_key] = right_ips * timestep
+        wdf_[left_ips_key] = left_ips
+        wdf_[right_ips_key] = right_ips
 
-        
-        wdf: pd.DataFrame = wdf_.reset_index(names=self._pidx_col).rename_axis(
+        wdf: pd.DataFrame = wdf_.reset_index(names=self._p_idx_col).rename_axis(
             index=self._idx_name
         )
-        
+
         return wdf
 
     @pa.check_types
@@ -239,8 +249,8 @@ class MapPeaks(IOValid):
         pm_ = pd.concat(
             [
                 fp,
-                whh.drop([self._pidx_col], axis=1),
-                pb.drop([self._pidx_col], axis=1),
+                whh.drop([self._p_idx_col], axis=1),
+                pb.drop([self._p_idx_col], axis=1),
             ],
             axis=1,
         )
@@ -255,16 +265,16 @@ class MapPeaks(IOValid):
             pm: DataFrame[PeakMap] = DataFrame[PeakMap](pm_)
 
         return pm
-    
+
     def get_peak_prom_data(
-            self,
-            fp: DataFrame[FindPeaks],   
-        )->PPD:
+        self,
+        fp: DataFrame[FindPeaks],
+    ) -> PPD:
         peak_prom_data: PPD = tuple(
             [
                 fp[self._prom_col].to_numpy(float64),
                 fp[self._prom_lb_col].to_numpy(np.int64),
                 fp[self._prom_rb_col].to_numpy(np.int64),
             ]
-            ) #type: ignore
+        )  # type: ignore
         return peak_prom_data

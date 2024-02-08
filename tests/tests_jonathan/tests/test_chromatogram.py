@@ -53,24 +53,6 @@ class TestChromatogram:
         chm_loaded: Chromatogram,
         test_chm_ax: Axes,
     )->None:
-        chm_loaded.plot_signal_corrected(test_chm_ax)
+        chm_loaded.plot_signals(test_chm_ax)
         
         plt.show()
-    
-    @pytest.fixture
-    def chm_fitted(
-        time: Series[float64],
-        amp: Series[float64],
-        self,
-    ):
-        hpy = HPLCPY(time.to_numpy(float64), amp.to_numpy(float64))
-        
-        chm_fitted = hpy.fit_transform().chm
-        
-        return chm_fitted
-        
-    def test_chm_fitted(
-        self,
-        chm_fitted,
-    ):
-        breakpoint()

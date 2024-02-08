@@ -33,18 +33,18 @@ def find_peak_profiles(dfDataFrame, ):
     
     prominence = x.max()*0.01
     
-    time_idxs, _ = signal.find_peaks(x, prominence=prominence)
+    t_idxs, _ = signal.find_peaks(x, prominence=prominence)
     
-    peak_loc = df.iloc[time_idxs]['time']
-    peak_amps = x.iloc[time_idxs]
+    peak_loc = df.iloc[t_idxs]['time']
+    peak_amps = x.iloc[t_idxs]
     
-    peak_widths, width_heights, left_ips, right_ips =  signal.peak_widths(x, peaks=time_idxs, rel_height=1)
+    peak_widths, width_heights, left_ips, right_ips =  signal.peak_widths(x, peaks=t_idxs, rel_height=1)
     
     # find the closest times to the ips
     
     peaks_df = pd.DataFrame(
         dict(
-            time_idx = time_idxs,
+            t_idx = t_idxs,
             peak_loc = peak_loc,
             peak_amp = peak_amps,
             peak_widths=peak_widths*timestep,

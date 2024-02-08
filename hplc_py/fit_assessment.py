@@ -91,7 +91,7 @@ class FitAssessment(IOValid):
 
         ws_: pl.DataFrame = pl.from_pandas(ws)
 
-        t_idx: str = str(self.ws_sch.time_idx)
+        t_idx: str = str(self.ws_sch.t_idx)
         
         if "amp_corrected" in ws.columns:
             mxd: str = str(self.ws_sch.amp_corrected)
@@ -101,7 +101,7 @@ class FitAssessment(IOValid):
         # declare the column labels from the schemas to improve readability of following
         # method chain. Allows final names to be declared in the Schema rather than locally.
         t: str = str(self.ws_sch.time)
-        unmx: str = str(self.ws_sch.amp_unmixed)
+        unmx: str = str(self.ws_sch.amp)
         w_type: str = str(self.ws_sch.w_type)
         w_idx: str = str(self.ws_sch.w_idx)
 

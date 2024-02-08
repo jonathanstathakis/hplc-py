@@ -1,0 +1,10 @@
+w_type,w_idx,start,end
+interpeak,0,0,686
+peak,0,687,1721
+interpeak,1,1722,1757
+peak,1,1758,2374
+interpeak,2,2375,7493
+peak,2,7494,10734
+interpeak,3,10735,10738
+peak,3,10739,11272
+interpeak,4,11273,14999

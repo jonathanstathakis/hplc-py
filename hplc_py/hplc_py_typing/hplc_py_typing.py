@@ -51,10 +51,10 @@ class Data(pa.DataFrameModel):
     """
     w_type: Optional[String]
     w_idx: Optional[int64]
-    time_idx: int64
+    t_idx: int64
     time: float64
     amp: float64
-    amp_corrected: Optional[float64]
+    amp_raw: Optional[float64]
     background: Optional[float64]
     
     class Config:
@@ -63,13 +63,13 @@ class Data(pa.DataFrameModel):
         ordered=True
         strict=True
     
-    
 
-class SignalDFLoaded(BaseDF):
+
+class RawData(BaseDF):
     """
     The base signal, with time and amplitude directions
     """
-    time_idx: int64
+    t_idx: int64
     time: float64
     amp: float64
 
@@ -81,11 +81,9 @@ class SignalDFLoaded(BaseDF):
         
 
 
-class SignalDFBCorr(pa.DataFrameModel):
-    time: float64
+class SignalDFBCorr(Data):
+    amp_raw: float64
     amp: float64
-    amp_corrected: float64
-    background: float64
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -96,9 +94,8 @@ class SignalDFBCorr(pa.DataFrameModel):
 
 class FindPeaks(BaseDF):
     p_idx: int64
-    time_idx: int64
-    time: float64
-    amp: float64
+    X_idx: int64
+    maxima: float64
     prom: float64
     prom_left: int64
     prom_right: int64
@@ -115,10 +112,8 @@ class WHH(BaseDF):
     whh_rel_height: pd.Float64Dtype
     whh_width: float64
     whh_height: float64
-    whh_left_idx: float64
-    whh_right_idx: float64
-    whh_left_time: float64
-    whh_right_time: float64
+    whh_left: float64
+    whh_right: float64
     
     class Config(HPLCBaseConfig):
         strict = True
@@ -132,10 +127,8 @@ class PeakBases(BaseDF):
     pb_rel_height: float64
     pb_width: float64
     pb_height: float64
-    pb_left_idx: float64
-    pb_right_idx: float64
-    pb_left_time: float64
-    pb_right_time: float64
+    pb_left: float64
+    pb_right: float64
     
     class Config(HPLCBaseConfig):
         strict = True
@@ -222,7 +215,7 @@ class PSignals(pa.DataFrameModel):
     """
 
     p_idx: int64 = pa.Field()
-    time_idx: int64 = pa.Field()
+    t_idx: int64 = pa.Field()
     time: float64 = pa.Field()
     amp_unmixed: float64 = pa.Field()
 
@@ -234,7 +227,7 @@ class PSignals(pa.DataFrameModel):
 
 
 class RSignal(BaseDF):
-    time_idx: int64
+    t_idx: int64
     time: float64
     amp_unmixed: float64
     
@@ -258,12 +251,13 @@ class PReport(Popt):
         coerce = True
 
 
-class WindowedSignal(Data):
+class WindowedSignal(pa.DataFrameModel):
     """
     Inherit from data, but w_type and w_idx are compulsory
     """
     w_type: String
     w_idx: int64
+    X: float64
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -273,10 +267,9 @@ class WindowedSignal(Data):
 
 
 class PeakWindows(BaseDF):
-    time_idx: pd.Int64Dtype
-    time: pd.Float64Dtype
-    w_idx: pd.Int64Dtype
     w_type: pd.StringDtype
+    w_idx: pd.Int64Dtype
+    X_idx: pd.Int64Dtype
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -288,14 +281,14 @@ class PeakWindows(BaseDF):
 class IPBounds(BaseDF):
     ip_w_idx: int64
     ip_bound: pd.StringDtype
-    time_idx: int64
+    t_idx: int64
     ip_w_type: pd.StringDtype
 
     @pa.check("ip_w_idx", name="check_w_idx_increasing")
     def check_monotonic_increasing_w_idx(cls, s: Series[int64]) -> bool:
         return s.is_monotonic_increasing
 
-    @pa.check("time_idx", name="check_time_idx_increasing")
+    @pa.check("t_idx", name="check_t_idx_increasing")
     def check_monotonic_increasing_t_idx(cls, s: Series[int64]) -> bool:
         return s.is_monotonic_increasing
 
@@ -306,30 +299,29 @@ class IPBounds(BaseDF):
         coerce = True
 
 
-class PWdwdTime(BaseDF):
+class X_PeakWindowed(BaseDF):
     """
-    peak windowed time dataframe, with NA's for nonpeak regions. An intermediate frame prior to full mapping
+    peak windowed time dataframe, with placeholders for nonpeak regions. An intermediate frame prior to full mapping
     """
 
-    w_type: pd.StringDtype = pa.Field(isin=['peak','interpeak'])
+    w_type: String = pa.Field(isin=['peak','interpeak'])
     w_idx: int64
-    time_idx: int64
-    time: Optional[float64]
+    X: float64
 
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
-        name = "PWdedTime"
+        name = "X_PeakWindowed"
         coerce = True
         
 
-class WindowedTime(PWdwdTime):
+class X_Windowed(X_PeakWindowed):
     w_idx: int64 = pa.Field(gt=-1)
     
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
-        name = "WindowedTime"
+        name = "X_Windowed"
         coerce = True
         
 
@@ -352,7 +344,7 @@ class FitAssessScores(pa.DataFrameModel):
     tolcheck: float64 = pa.Field()
     tolpass: bool = pa.Field()
     u_peak_fano: float64 = pa.Field()
-    fano_div: float64 = pa.Field()
+    fano_div: float64 = pa.Field() 
     fanopass: bool = pa.Field()
     status: str = pa.Field()
     grade: str = pa.Field()
@@ -364,3 +356,33 @@ class FitAssessScores(pa.DataFrameModel):
         ordered=True
         coerce=True
         strict=True
+        
+class X_Schema(pa.DataFrameModel):
+    X: float64
+    
+    class Config:
+        strict=True
+        description="A simplistic container for the signal array"
+        
+
+
+class WdwPeakMap(PeakMap):
+    w_type: pd.StringDtype
+    w_idx: int64
+
+    class Config:
+        ordered = False
+        strict = True
+
+
+class InP0(pa.DataFrameModel):
+    w_idx: int64
+    p_idx: int64
+    amp: float64
+    time: float64
+    whh: float64 = pa.Field(alias="whh_width")
+
+    class Config(BaseConfig):
+        name = "in_p0"
+        ordered = False
+        strict = True

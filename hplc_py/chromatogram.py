@@ -1,3 +1,4 @@
+from matplotlib.axes import Axes
 import pandera as pa
 from typing import Type
 import matplotlib.pyplot as plt
@@ -8,13 +9,13 @@ import numpy as np
 from numpy import float64, int64
 from numpy.typing import NDArray
 from hplc_py.misc.misc import compute_timestep
-from .hplc_py_typing.hplc_py_typing import SignalDFLoaded, PeakMap, Data
-from .show import Show, PlotSignal
+from .hplc_py_typing.hplc_py_typing import RawData, PeakMap, Data
+from .show import Show, SignalPlotter
 import polars as pl
 from typing import Self
 from pandera.typing import Series, DataFrame
 
-from hplc_py.hplc_py_typing.hplc_py_typing import WindowedTime
+from hplc_py.hplc_py_typing.hplc_py_typing import X_Windowed
 
 class Chromatogram(IOValid):
     """
@@ -34,25 +35,31 @@ class Chromatogram(IOValid):
         
         self._sch_data: Type[Data] = Data
         self._sch_peakmap: Type[Data] = PeakMap
+        self.__sigld_sch = RawData
+        
         self.bcorr_corrected = False
-        self.__sigld_sch = SignalDFLoaded
-
                 
         self.timestep = compute_timestep(time)
+        self._data = pd.DataFrame()
+        
         self.load_df(time, amp)
     
+    @pa.check_types
     def load_df(
         self,
         time,
         amp,
     ):
         """
-        validate the input time and amp arrays, construct a frame, validate it against the DFLoaded schema, then add as 'data'
+        validate the input time and amp arrays, construct a frame, validate it against the DFLoaded schema, then add as 'data'.
+        
+        Takes numpy array input to remove any complication from inputs. Later on will
+        add paths for different array input
         """
         for n, s in {"time": time, "amp": amp}.items():
             self.check_container_is_type(s, np.ndarray, float64, n)
             
-        data_ = pd.DataFrame({self.__sigld_sch.time: time, self.__sigld_sch.amp: amp}).reset_index(names=self.__sigld_sch.time_idx).rename_axis(index=self.__sigld_sch.idx)
+        data_ = pd.DataFrame({self.__sigld_sch.time: time, self.__sigld_sch.amp: amp}).reset_index(names=self.__sigld_sch.t_idx).rename_axis(index=self.__sigld_sch.idx)
 
         Data.validate(data_, lazy=True)
         
@@ -67,7 +74,7 @@ class Chromatogram(IOValid):
     @pa.check_types(lazy=True)
     def join_data_to_windowed_time(
         self,
-        windowed_time: DataFrame[WindowedTime],
+        windowed_time: DataFrame[X_Windowed],
     ):
         """
         A convenience function wrapping the join between the data at the current state
@@ -78,8 +85,8 @@ class Chromatogram(IOValid):
         
         windowed_time = pl.from_pandas(windowed_time)
             
-        df = windowed_time.join(self.df_pl, how='left', on='time_idx').to_pandas().rename_axis('idx')
-        
+        df = windowed_time.join(self.df_pl, how='left', on='t_idx').to_pandas().rename_axis('idx')
+        Data.validate(df, lazy=True)
         self.df_pd = DataFrame[Data](df)
     
     @property
@@ -101,20 +108,16 @@ class Chromatogram(IOValid):
     ):
         return self._data
         
-        
-
     @property
     def amp(
         self
     ):
         """
-        Returns different column from data depending on whether 'bcorr_corrected' flag is True or False.
-        If True, returns 'amp_corrected', else returns 'amp'.
+        A convenience function for returning the amp column. If the baseline correction
+        module has been run, this will be the corrected amplitude, otherwise it will be
+        the raw.
         """
-        if self.bcorr_corrected:
-            return self._data['amp_corrected']
-        else:
-            return self._data['amp']
+        return self._data['amp']
         
     @property
     def peakmap(
@@ -155,7 +158,7 @@ class Chromatogram(IOValid):
         if "amp_unmixed" is in `data`, return that as well.
         """ 
         
-        ws_cols = ['w_type','w_idx','time_idx','time']
+        ws_cols = ['w_type','w_idx','t_idx','time']
         if "amp_corrected" in self._data.columns:
             ws_cols.append('amp_corrected')
         else:
@@ -182,7 +185,7 @@ class Chromatogram(IOValid):
         would come from the schema but not sure how to implement ATM.
         """
         
-        return ['w_type','w_idx','time_idx','time']
+        return ['w_type','w_idx','t_idx','time']
     
     @property
     def _data_value_cols(
@@ -220,21 +223,14 @@ class Chromatogram(IOValid):
         
     def plot_signals(
         self,
+        ax: Axes,
     )->Self:
         
         x = self._sch_data.time
         
-        import matplotlib.pyplot as plt
-        
-        fig = plt.figure()
-        ax = fig.subplots()
-        
         for y in self._present_y_cols:
             
             ax.plot(x, y, data=self.df_pl, label=self.df_pl[y].name)
-            
-        plt.legend()
-        plt.show()
         
         return self
         

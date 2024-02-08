@@ -5,7 +5,7 @@
         1. Iterating through each peak:
             1. build initial guesses as:
                 - amplitude: the peak maxima,
-                - location: peak time_idx,
+                - location: peak t_idx,
                 - width: peak width,
                 - skew: 0
             2. build default bounds as:
@@ -168,7 +168,7 @@ class DataPrepper(PanderaMixin):
         ws_ = ws.copy(deep=True)
         
         t = str(self.ws_sc.time)
-        t_idx = str(self.ws_sc.time_idx)
+        t_idx = str(self.ws_sc.t_idx)
         w_type = str(self.ws_sc.w_type)
         w_idx = str(self.ws_sc.w_idx)
         
@@ -530,7 +530,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         rs = pl.from_pandas(self.rsignal)
         ws = pl.from_pandas(self.ws)
         
-        self.ws = ws.join(rs.select(['time_idx', 'amp_unmixed']), on='time_idx', how='left').to_pandas().rename_axis(index='idx')
+        self.ws = ws.join(rs.select(['t_idx', 'amp_unmixed']), on='t_idx', how='left').to_pandas().rename_axis(index='idx')
         self.preport = self._get_peak_report(self.popt_df, self.psignals)
         
         return self
@@ -691,10 +691,10 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
             unmixed_signal_df = pd.merge(popt_, time, how="cross")
             unmixed_signal_df = unmixed_signal_df.assign(amp_unmixed=unmixed_signal)
-            unmixed_signal_df = unmixed_signal_df.reset_index(names="time_idx")
-            unmixed_signal_df["time_idx"] = unmixed_signal_df["time_idx"].astype(int64)
+            unmixed_signal_df = unmixed_signal_df.reset_index(names="t_idx")
+            unmixed_signal_df["t_idx"] = unmixed_signal_df["t_idx"].astype(int64)
             unmixed_signal_df = unmixed_signal_df.loc[
-                :, ["p_idx", "time_idx", "time", "amp_unmixed"]
+                :, ["p_idx", "t_idx", "time", "amp_unmixed"]
             ]
 
             unmixed_signal_df = unmixed_signal_df.reset_index(drop=True)
@@ -716,7 +716,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
     def _reconstruct_signal(self, peak_signals: DataFrame[PSignals])->DataFrame[RSignal]:
         
         p_idx = str(self.psig_sc.p_idx)
-        t_idx = str(self.psig_sc.time_idx)
+        t_idx = str(self.psig_sc.t_idx)
         t = str(self.psig_sc.time)
         unmx = str(self.psig_sc.amp_unmixed)
         

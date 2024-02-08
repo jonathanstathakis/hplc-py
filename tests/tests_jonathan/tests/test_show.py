@@ -8,8 +8,8 @@ import pytest
 from matplotlib.figure import Figure
 from pandera.typing import DataFrame
 
-from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, SignalDFLoaded, RSignal
-from hplc_py.show import Show, PlotSignal
+from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, RawData, RSignal
+from hplc_py.show import Show, SignalPlotter
 
 from matplotlib.axes import Axes as Axes
 
@@ -36,11 +36,11 @@ class TestShow:
     def test_plot_raw_signal(
         self,
         ax: Axes,
-        in_signal: DataFrame[SignalDFLoaded],
-        time_col,
+        raw_signal_df: DataFrame[RawData],
+        time_colname,
         amp_col,
     ):
-        PlotSignal(df=in_signal, x_colname=time_col, y_colname=amp_col, label=amp_col, ax=ax)._plot_signal_factory(
+        SignalPlotter(df=raw_signal_df, x_colname=time_colname, y_colname=amp_col, label=amp_col, ax=ax).plot_signal(
             
         )
         
@@ -50,13 +50,13 @@ class TestShow:
         self,
         ax: Axes,
         r_signal: DataFrame[RSignal],
-        time_col,
+        time_colname,
         amp_col,
     ):
         
         breakpoint()
         
-        PlotSignal(df=r_signal, x_colname=time_col, y_colname=amp_col, label='recon',ax=ax)._plot_signal_factory(
+        SignalPlotter(df=r_signal, x_colname=time_colname, y_colname=amp_col, label='recon',ax=ax).plot_signal(
             
         )
         

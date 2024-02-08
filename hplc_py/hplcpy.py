@@ -69,13 +69,15 @@ class HPLCPY(IOValid):
 
     def map_peaks(
         self,
+        prominence: float=0.01,
+        wlen: int=None,
     ) -> Self:
         
         amp = self.chm.amp
         time = self.chm._data.time
         timestep = self.chm.timestep
         
-        pm = MapPeaks().map_peaks(amp=amp, time=time, timestep=timestep)
+        pm = MapPeaks().transform(X=amp, X=time, timestep=timestep, prominence=prominence,)
 
         self.chm.peakmap = pm
 
@@ -94,13 +96,13 @@ class HPLCPY(IOValid):
         time = self.chm.time
         amp = self.chm.amp
         
-        wm = MapWindows().window_signal(
+        wm = MapWindows().transform(
             left_bases=left_bases, right_bases=right_bases, time=time, amp=amp
         )
 
-        w_time_idx = wm[["w_type", "w_idx", "time_idx"]]
+        w_t_idx = wm[["w_type", "w_idx", "t_idx"]]
         
-        self.chm.join_data_to_windowed_time(w_time_idx)
+        self.chm.join_data_to_windowed_time(w_t_idx)
         
         return self
 

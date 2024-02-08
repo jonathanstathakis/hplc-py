@@ -5,10 +5,10 @@ import pandas as pd
 from numpy import float64
 from numpy import int64
 from pandera.typing import Series
-from typing import Any, Optional
+from typing import Any, Optional, Type
+
 
 class IOValid:
-        
     def _check_scalar_is_type(
         self,
         check_obj,
@@ -29,14 +29,16 @@ class IOValid:
         :raises TypeError: if `check_obj` is not an instance of `type`
         """
         if not isinstance(check_obj, type):
-            raise TypeError(f"Expected input {name} to be {type}, got {type(check_obj)}")
-        
+            raise TypeError(
+                f"Expected input {name} to be {type}, got {type(check_obj)}"
+            )
+
     def check_container_is_type(
         self,
-        check_obj,
-        array_type,
-        element_type,
-        name: Optional[str]="",
+        check_obj: Any,
+        array_type: Type,
+        element_type: Type,
+        name: Optional[str] = "",
     ):
         """
         Validation of containers and their element datatypes. Hasnt been tested thoroughly, but will work on numpy arrays, pandas Series and Polars Series. Anything that possesses a `.dtype` attribute that can be compared to the input `element_type`.
@@ -54,9 +56,9 @@ class IOValid:
         """
         if isinstance(check_obj, array_type):
             if not check_obj.dtype == element_type:
-                    raise TypeError(
-                        f"Expected input to be of type {element_type}, got {check_obj.dtype}"
-                    )
+                raise TypeError(
+                    f"Expected input to be of type {element_type}, got {check_obj.dtype}"
+                )
             else:
                 pass
         else:
@@ -64,7 +66,7 @@ class IOValid:
                 f"Expected input {name} to be of type {array_type}, got {type(check_obj)}"
             )
 
-    def _check_df(
+    def check_df_is_pd_not_empty(
         self,
         check_obj: pd.DataFrame,
     ) -> None:
@@ -80,23 +82,57 @@ class IOValid:
             if check_obj.empty:
                 raise ValueError("df is empty")
         else:
-            raise TypeError(f"df expected to be Dataframe, got {type(check_obj)}\n{check_obj}")
+            raise TypeError(
+                f"df expected to be Dataframe, got {type(check_obj)}\n{check_obj}"
+            )
 
     def is_nonempty_df(
         self,
         check_obj,
-    )->bool:
+    ) -> bool:
         if isinstance(check_obj, pd.DataFrame):
             if not check_obj.empty:
                 return True
         else:
             return False
 
-    def _check_keys_in_index(
-            self,
-            keys: list[Any],
-            index: pd.Index,
-        ) -> None:
+    def _is_polars(
+        self,
+        check_obj: Any,
+    ) -> bool:
+        """
+        checks if the check_obj is a polars Dataframe, and if so returns True
+
+        :param check_obj: any object expected to be a polars Dataframe
+        """
+        import polars as pl
+
+        if isinstance(check_obj, pl.DataFrame):
+            return True
+        else:
+            return False
+
+    def check_is_polars_df(
+        self,
+        check_obj: Any,
+    ) -> None:
+        """
+        Test whether the input check_obj is a polars DataFrame, raises an error if not.
+
+        :param check_obj: any object expected to be a polars DataFrame
+        :type check_obj: Any
+        :raises TypeError: if check_obj is not a polars DataFrame
+        """
+        if not self._is_polars(check_obj=check_obj):
+            raise TypeError(
+                f"expected check_obj to be a polars DataFrame, but got {type(check_obj)}"
+            )
+
+    def check_keys_in_index(
+        self,
+        keys: list[Any],
+        index: pd.Index,
+    ) -> None:
         """
         Check if a given list of keys are valid for a given Pandas index.
 
@@ -104,9 +140,9 @@ class IOValid:
         :type keys: list[Any]
         :param index: A pandas Series or DataFrame Index object, i.e. rows or columns in which we expect `keys` to be present
         :type index: pd.Index
-        :raises ValueError: if `keys` are not in `index`. 
+        :raises ValueError: if `keys` are not in `index`.
         """
-        keys_: Series[Any] = Series(keys) #type: ignore
+        keys_: Series[Any] = Series(keys)  # type: ignore
 
         if not (key_mask := keys_.isin(index)).any():
             raise ValueError(

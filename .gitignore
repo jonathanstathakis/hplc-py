@@ -184,3 +184,4 @@ tests/jonathan_tests/main_asschrom_results/scores.parquet
 tests/jonathan_tests/asschrompopt.parquet
 tests/jonathan_tests/asschrompopt.parquet
 tests/jonathan_tests/asschrompopt.parquet
+tests/tests_jonathan/tests_compare_with_main/main_chm_asschrom_fitted.pk

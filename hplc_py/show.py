@@ -1,3 +1,5 @@
+import matplotlib as mpl
+from hplc_py.hplc_py_typing.hplc_py_typing import Data
 from dataclasses import dataclass, field
 from typing import Literal, Optional, Type, Any
 
@@ -26,127 +28,84 @@ from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakMapViz
 Module for vizualisation, primarily the "Show" class
 """
 
+class SignalPlotter(IOValid):
 
-@dataclass
-class PlotSignal(IOValid):
-    df: pd.DataFrame
-    x_colname: str
-    y_colname: str
-    label: Optional[str] = None
-    ax: Axes = plt.axes()
-    line_kwargs: dict = field(default_factory=dict)
-    
-    def __post_init__(
+    def plot_signal(
         self,
+        ax: Axes,
+        df: pd.DataFrame,
+        x_colname: str,
+        y_colname: str,
+        label: Optional[str] = None,
+        line_kwargs: dict = {},
+    ) -> None:
+
+        self.check_df_is_pd_not_empty(df)
+        self.check_keys_in_index([x_colname, y_colname], df.columns)
+
+        sig_x = df[x_colname]
+        sig_y = df[y_colname]
+
+        ax.plot(sig_x, sig_y, label=label, **line_kwargs)
+        ax.legend()
+
+class DrawPeakWindows:
+    def __init__(self):
+        self._sch_data: Type[WindowedSignal] = WindowedSignal
+
+    @pa.check_types
+    def draw_peak_windows(
+        self,
+        ws: DataFrame[WindowedSignal],
+        ax: Axes,
+        vspan_kwargs: dict = {},
     ):
-        if not self.label:
-            self.label = self.y_colname
+        """
+        Plot each window as a Rectangle
 
-    def _plot_signal_factory(
-        self,
-    ) -> Axes:
-
-        self._check_df(self.df)
-        self._check_keys_in_index([self.x_colname, self.y_colname], self.df.columns)
-
-        sig_x = self.df[self.x_colname]
-        sig_y = self.df[self.y_colname]
-
-        self.ax.plot(sig_x, sig_y, label=self.label, **self.line_kwargs)
-        self.ax.legend()
-
-        return self.ax
-
-
-
-@dataclass
-class MapWindowPlots:
-    ws_sch: Type[WindowedSignal] = WindowedSignal
-
-    def __post_init__(self):
-        super().__init__()
-
-    def _rectangle_factory(
-        self,
-        xy: tuple[float, float],
-        width: float,
-        height: float,
-        angle: float = 0.0,
-        rotation_point: Literal["xy"] = "xy",
-        rectangle_kwargs={},
-    ) -> Rectangle:
-        rectangle = Rectangle(
-            xy,
-            width,
-            height,
-            angle=angle,
-            rotation_point=rotation_point,
-            **rectangle_kwargs,
+        height is the maxima of the signal.
+        
+        """
+        
+        ws_ = pl.from_pandas(ws)
+        
+        if not isinstance(ws_, pl.DataFrame):
+            raise TypeError("expected ws to be a polars dataframe")
+        
+        window_bounds = self._find_window_bounds(ws_)
+        
+        grpby_obj = window_bounds.filter(pl.col("w_type") == "peak").group_by([
+            str(self._sch_data.w_idx)], maintain_order=True
         )
+        
 
-        return rectangle
+        cmap = mpl.colormaps["Set1"].resampled(len(window_bounds))
+        
+        # handles, labels = ax.get_legend_handles_labels()
+
+        for label, grp in grpby_obj:
+            x0 = grp.item(0, "start")
+            x1 = grp.item(0, "end")
+            
+            # testing axvspan
+            
+            ax.axvspan(x0, x1, label=f"peak window {label}", color = cmap.colors[label], alpha=0.25, **vspan_kwargs)
 
 
-@pa.check_types
-def plot_windows(
-    self,
-    ws: DataFrame[WindowedSignal],
-    height: float,
-    ax: Optional[Axes] = None,
-    rectangle_kwargs: dict = {},
-):
-    """
-    Plot each window as a Rectangle
-
-    height is the maxima of the signal.
-    """
-    ws_ = pl.from_pandas(ws)
-    if not isinstance(ws_, pl.DataFrame):
-        raise TypeError("expected ws to be a polars dataframe")
-
-    if not ax:
-        ax = plt.gca()
-
-    # rectangle definition: class matplotlib.patches.Rectangle(xy, width, height, *, angle=0.0, rotation_point='xy', **kwargs)
-    # rectangle usage: `ax.add_collection([Rectangles..])` or `ax.add_patch(Rectangle)``
-
-    window_stats = ws_.group_by([self.ws_sch.w_type, self.ws_sch.w_idx]).agg(
-        start=pl.col(str(self.ws_sch.time)).first(),
-        end=pl.col(str(self.ws_sch.time)).last(),
-    )
-
-    rh = height * 1.05
-
-    # peak windows
-    rectangles = []
-    for k, g in window_stats.group_by([self.ws_sch.w_type, self.ws_sch.w_idx]):
-        x0 = g.item(0, "start")
-        y0 = 0
-        width = g.item(0, "end") - x0
-
-        rectangle = self._rectangle_factory(
-            (x0, y0),
-            width,
-            rh,
-            rectangle_kwargs=rectangle_kwargs,
+    def _find_window_bounds(self, ws_):
+        
+        window_bounds = (
+            ws_.group_by([self._sch_data.w_type, self._sch_data.w_idx])
+            .agg(
+                start=pl.col(str(self._sch_data.time)).first(),
+                end=pl.col(str(self._sch_data.time)).last(),
+            )
+            .sort("start")
         )
-
-        rectangles.append(rectangle)
-
-    import matplotlib as mpl
-
-    cmap = mpl.colormaps["Set1"].resampled(len(window_stats))
-
-    pc = PatchCollection(
-        rectangles,
-        zorder=0,
-        alpha=0.25,
-        facecolors=cmap.colors,
-    )
-    ax.add_collection(pc)
-
-    pass
-
+        
+        return window_bounds
+        
+        
 
 class Show(
     PeakMapViz,

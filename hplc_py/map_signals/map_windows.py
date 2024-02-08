@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import Literal, Optional, Self, TypeAlias
 
 import numpy as np
 import pandas as pd
 import pandera as pa
+import polars as pl
 from matplotlib.axes import Axes as Axes
 from numpy import float64, int64
 from numpy.typing import NDArray
@@ -11,36 +13,72 @@ from scipy.ndimage import label  # type: ignore
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     PeakWindows,
-    PWdwdTime,
     SignalDFBCorr,
     WindowedSignal,
-    WindowedTime,
+    X_Schema,
+    X_PeakWindowed,
+    X_Windowed,
 )
+from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
 from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 
+from .map_peaks.map_peaks import MapPeaks
 
-@dataclass
-class MapWindowsMixin(IOValid, PanderaSchemaMethods):
-    pm_sc = PeakMap
-    sdf_sc = SignalDFBCorr
-    pw_sc = PeakWindows
-    pwdt_sc = PWdwdTime
-    wt_sc = WindowedTime
-    ws_sc = WindowedSignal
-    w_type_interpeak_label:int = -999
 
-    """
-    - create the intervals
-    - note which intervals overlap
-        - create a table of intervals
-        - loop through from first to last in time order and check if they overlap with `.overlaps`
-            - if no overlap, move to next interval
-    - combine the intervals if they overlap
-    - mask the time index with the overlap index, unmasked intervals labeled as 'nonpeak'
-    outcome: two level index: w_type, window_num. w_type has two vals: 'peak', 'nonpeak'
-    """
+class MapWindows(IOValid):
+    def __init__(
+        self,
+        prominence: float = 0.01,
+        wlen: Optional[int] = None,
+        find_peaks_kwargs: FindPeaksKwargs = {},
+    ):
+        self._w_type_colname = "w_type"
+        self._w_idx_colname = "w_idx"
+        self._X_colname = "X"
+        self._X_idx_colname = "X_idx"
+
+        self.w_type_interpeak_label: int = -999
+        self.mp = MapPeaks(
+            prominence=prominence, wlen=wlen, find_peaks_kwargs=find_peaks_kwargs
+        )
+
+        self.X_w = pl.DataFrame()
+
+    def fit(self, X: DataFrame[X_Schema], timestep: float, y=None) -> Self:
+        
+        if isinstance(X, DataFrame):
+            self.X=pl.from_pandas(X)
+        else:
+            self.X = X
+            
+        self.timestep = timestep
+        self.mp.fit(X=X)
+
+        return self
+
+    def transform(
+        self,
+    ) -> Self:
+        """
+        Assign a peak and nonpeak window mapping to the signal based on peak overlap.
+        Access self.X_w to retreive the windowed signal.
+
+        :return: self
+        :rtype: Self
+        """
+        self.mp.transform()
+
+        left_bases = self.mp.peak_map.pb_left
+        right_bases = self.mp.peak_map.pb_right
+
+        peak_wdw_intvls = self._p_wdw_intvl_factory(left_bases, right_bases)
+        self.X_w: DataFrame[X_Windowed] = self._window_X(self.X, peak_wdw_intvls)
+
+        
+
+        return self
 
     def _is_not_empty(
         self,
@@ -71,7 +109,7 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
         if not isinstance(s.dtype, pd.IntervalDtype):
             raise TypeError(f"Expected {s.name} to be Interval dtype, got {s.dtype}")
 
-    def _interval_factory(
+    def _peak_base_intvl_factory(
         self,
         left_bases: Series[int64],
         right_bases: Series[int64],
@@ -95,18 +133,26 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
 
         return intvls  # type: ignore
 
-    def _label_windows(
+    def _map_wdws_to_peaks(
         self,
         intvls: Series[pd.Interval],
     ) -> dict[int, list[int]]:
         """
-        For a Series of closedpd.Interval objects, sort them into windows based on whether they overlap. Returns a dict of w_idx: interval list. for later combination.
+        Takes a Series of pd.Interval objects representing the mapped base width of each
+        peak and maps them to windows based on whether peaks overlap. Returns a dict of
+        the mapping as w_idx: list of peak_idx.
 
-        iterating through the intervals starting at zero, compare to the set of values
-        already assigned to window indexes (initally none), if the interval index is already
-        present, continue to the next interval, else set up a new w_idx list, and
-        if the i+1th interval overlaps with interval i, assign it to the current w_idx.
-        if no more intervals overlap, move to the next window index and the next interval iteration.
+        Note: the peak idxs are not in linear order, but rather left base time order.
+        The window assignment logic requires sorting the peak intervals by the time
+        of the left base, the order of which can differ from the peak_idx, because the
+        peak idx is assigned based on location of the maxima, rather than the the peak
+        base widths, which can be much further away, hence overlapping.
+
+        :param intvls: a pd.Series of pd.Interval objects of peak base widths.
+        :type intvls: Series[pd.Interval]
+        :returns: a dict whose keys are window_idx and whose values are lists of peak
+        indices mapped to the window.
+        :type returns: dict[int, list[int]]
         """
 
         # checks
@@ -118,16 +164,12 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
 
         w_idx = 0
 
-        w_idxs = {}
+        wdw_peak_mapping = {}
 
-        """
-        2024-02-01 23:35:12
-        
-        Modify this to iterate over the intervals with i, and an initial state with 
-        w_idx = 0, and current window interval equal to the 0th interval. also set up
-        a mapping dict with keys of w_idx and list values, initially with the 0 w_idx and a list
-        of 1 element, 0, indicating the first interval.
-        
+        """        
+        Works as follows:
+        1. take the interval objects and sort them. Sort behavior is defined by the __lt__
+        method, which in this case is defined on whether the left bound is greater or smaller.
         For each iteration of i:
         1. compare ith interval with the current w_idx interval.
             1. if overlap:
@@ -139,34 +181,45 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
                 1. move w_idx up by one.
                 2. assign current i to new w_idx in mapping dict
                 3. set current w_idx bound.
-                4. move to next iteration of i.
+                4. move to next iteration of i.      
         """
-        
-        Intvls = sorted([Interval(intvl.left, intvl.right, i) for i, intvl in enumerate(intvls)])
-        
+
+        #  we need to sort the intervals by time in order to check for overlap in a left
+        # to right fashion, otherwise locally non-overlapping peaks can disrupt the assignment.
+        # this way we compensate for later peaks whose overlap is not detected until later
+
+        Intvls = sorted(
+            [Interval(intvl.left, intvl.right, i) for i, intvl in enumerate(intvls)]
+        )
+
+        # setup the indices and default values
         w_idx = 0
         i_idx = np.arange(1, len(intvls))
-        w_idxs = {0: [Intvls[0].p_idx]}
+        wdw_peak_mapping = {0: [Intvls[0].p_idx]}
         w_idx_Intvl = Intvls[0]
-        
+
+        # The core logic. While iterating over the intervals, first check if the current
+        # window idx overlaps with the current peak idx. if so, assign that peak idx
+        # to the window and extend the window interval by that peak interval. If not,
+        # move to the next window idx, set the current peak interval as the current window
+        # interval, and assign the peak idx as the first peak idx of the current window idx in the mapping.
+
+        # note: could directly assign the window intervals to window idxs here, but in the
+        # interest of preserving transparency, I have chosen to separate that functionality.
+
         for i in i_idx:
             does_overlap = w_idx_Intvl.overlaps(Intvls[i])
             if does_overlap:
                 w_idx_Intvl += Intvls[i]
-                w_idxs[w_idx].append(Intvls[i].p_idx)
+                wdw_peak_mapping[w_idx].append(Intvls[i].p_idx)
             else:
                 w_idx += 1
-                w_idxs[w_idx] = [Intvls[i].p_idx]
+                wdw_peak_mapping[w_idx] = [Intvls[i].p_idx]
                 w_idx_Intvl = Intvls[i]
-        
-        # sort each list
-        for k, v in w_idxs.items():
-            if len(v)>1:
-                w_idxs[k]=sorted(v)
-        
-        return w_idxs
 
-    def _combine_intvls(
+        return wdw_peak_mapping
+
+    def _set_wdw_intvls_from_peak_intvls(
         self,
         intvls: Series[pd.Interval],
         w_idxs: dict[int, list[int]],
@@ -180,202 +233,195 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
 
         w_intvls = {}
 
-        for i, length in w_idxs.items():
-            if len(length) == 1:
-                w_intvls[i] = intvls[length[0]]
-            elif len(length) > 1:
-                left_bounds = intvls[length].apply(lambda x: x.left)  # type: ignore
-                right_bounds = intvls[length].apply(lambda x: x.right)  # type: ignore
+        # w_idxs is a dict whose keys are w_idxs and values are lists of p_idx belonging
+        # to the w_idx. This function iterates through the dictionary and constructs
+        # a pd.Interval object that represents each peak window.
 
-                w_min = left_bounds.min()
-                w_max = right_bounds.max()
-                w_intvl = pd.Interval(w_min, w_max, "both")
+        # if there is only 1 peak in the window, the window interval is equal to the
+        # peak interval, else if the length is greater than one, then the window interval
+        # is constructed from the first peak intervals left value, and the last peak
+        # intervals right value.
 
-                w_intvls[i] = w_intvl
+        # the constructed interval is then assigned to the w_intvls dict as the value
+        # whose key is the current w_idx.
+        for w_idx, wdws in w_idxs.items():
+            if len(wdws) == 1:
+                w_intvls[w_idx] = intvls[wdws[0]]
+            elif len(wdws) > 1:
+                w_intvl = pd.Interval(
+                    intvls[wdws[0]].left, intvls[wdws[-1]].right, "both"
+                )
+                w_intvls[w_idx] = w_intvl
 
             else:
                 raise ValueError("expected a value for every window")
 
         return w_intvls
 
-    def _set_peak_windows(
+    @pa.check_types
+    def _peak_intvls_as_frame(
         self,
-        w_intvls: dict[int, pd.Interval],
-        time: Series[float64],
+        peak_wdw_intvls: dict[int, pd.Interval],
     ) -> DataFrame[PeakWindows]:
         """
-        Given a dict of Interval objects, subset the time series by the bounds of the
+        Given a dict of Interval objects, subset the X series idx by the bounds of the
         Interval, then label the subset with the w_idx, also labeling window type.
         """
+        """
+        Iterate through the interval dict and assemble an w_idx column with corresponding w_type column. 
+        """
+        p_wdw_list = []
 
-        intvl_times = []
+        for i, intvl in peak_wdw_intvls.items():
+            p_wdw = self.intvl_as_frame(i, intvl)
+            p_wdw_list.append(p_wdw)
 
-        for i, intvl in w_intvls.items():
-            time_idx: NDArray[int64] = np.arange(intvl.left, intvl.right, 1)
+        p_wdws_ = pd.concat(p_wdw_list).reset_index(drop=True).rename_axis(index="idx")
 
-            time_intvl: pd.DataFrame = pd.DataFrame(
-                {
-                    "time_idx": time_idx,
-                    "time": time[intvl.left : intvl.right],
-                }
-            )
+        p_wdws = DataFrame[PeakWindows](p_wdws_)
 
-            time_intvl["w_idx"] = i
-            time_intvl["w_type"] = "peak"
+        return p_wdws
 
-            time_intvl = time_intvl.astype(
-                {
-                    "time_idx": int64,
-                    "time": float64,
-                    "w_idx": int64,
-                    "w_type": pd.StringDtype(),
-                }
-            )
+    def intvl_as_frame(self, i, intvl):
+        X_idx: NDArray[int64] = np.arange(intvl.left, intvl.right, 1)
 
-            intvl_times.append(time_intvl)
-
-        intvl_df_ = (
-            pd.concat(intvl_times).reset_index(drop=True).rename_axis(index="idx")
+        p_wdw: pd.DataFrame = pd.DataFrame(
+            {
+                self._X_idx_colname: X_idx,
+            }
         )
 
-        intvl_df = DataFrame[PeakWindows](intvl_df_)
+        p_wdw[self._w_type_colname] = "peak"
+        p_wdw[self._w_idx_colname] = i
 
-        return intvl_df
-    
+        p_wdw = p_wdw[[self._w_type_colname, self._w_idx_colname, self._X_idx_colname]]
+
+        p_wdw = p_wdw.astype(
+            {
+                self._w_idx_colname: int64,
+                self._w_type_colname: pd.StringDtype(),
+                self._w_idx_colname: int64,
+            }
+        )
+        return p_wdw
+
     @pa.check_types
-    def _set_peak_wndwd_time(
+    def _set_peak_wndwd_X_idx(
         self,
-        time: Series[float64],
-        peak_wdws: DataFrame[PeakWindows],
-    ) -> DataFrame[PWdwdTime]:
+        X: DataFrame[X_Schema],
+        X_idx_pw: DataFrame[PeakWindows],
+    ) -> DataFrame[X_PeakWindowed]:
         """
-        Broadcasts the identified peak windows to the length of the series time axis.
+        Broadcasts the identified peak windows to the length of the series X idx axis.
         Any time without an assigned window is labeled as `self.w_type_interpeak_label`,
         i.e. -999 to indicate 'missing'. The patterns of missing values are later computed
         to label the interpeak windows.
-        
-        :param time: the signal time axis
-        :type time: Series[float64]
-        :param peak_wdws: A Frame with columns 'time_idx', 'time', 'w_idx', 'w_type' 
-        representing the spans of the peak window intervals.
-        :type peak_wdws: DataFrame[PWdwdTime]
         """
-        
-        self.check_container_is_type(time, pd.Series, float64)
-        
-        # constructs a time dataframe with time value and index
-        
-        t_idx: pd.DataFrame = pd.DataFrame(
-            {"time_idx": np.arange(0, len(time), 1), "time": time}
-        )
-
+        if isinstance(X, DataFrame):
+            X = pl.from_pandas(X)
         # joins the peak window intervals to the time index to generate a pattern of missing values
-        
-        import polars as pl
-        
-        t_idx_ = pl.from_pandas(t_idx)
-        p_wdws_ = pl.from_pandas(peak_wdws)
-        
+
+        p_wdws_ = pl.from_pandas(X_idx_pw, schema_overrides={"X_idx": pl.UInt32()})
+
         # left join time idx to peak windows and peak types, leaving na's to be filled
         # with a placeholder and 'interpeak', respectively.
-        pw_time = (t_idx_
-                  .join(
-                      p_wdws_.select(pl.exclude('time')),
-                      on='time_idx', how='left')
-                  .with_columns(
-                      w_type=pl.col('w_type').fill_null("interpeak"),
-                      w_idx=pl.col('w_idx').fill_null(self.w_type_interpeak_label)
-                      )
-                  .select(self.get_schema_colorder(PWdwdTime))
-                  )
-        try:
-            wdwd_time = DataFrame[PWdwdTime](pw_time.to_pandas().rename_axis('idx'))
-        except pa.errors.SchemaErrors as e:
-            raise e
+        
+        X_pw_broadcast = (
+            X.with_row_index(self._X_idx_colname)
+            .join(p_wdws_, on=self._X_idx_colname, how="left")
+            .drop(self._X_idx_colname)
+        )
+        # not here
 
-        return wdwd_time
+        # this simply fills the nulls
+        x_w_ = X_pw_broadcast.with_columns(
+            **{
+                self._w_type_colname: pl.col(self._w_type_colname).fill_null(
+                    "interpeak"
+                ),
+                self._w_idx_colname: pl.col(self._w_idx_colname).fill_null(
+                    self.w_type_interpeak_label
+                ),
+            }
+        ).select(self._w_type_colname, self._w_idx_colname, self._X_colname)
 
-    def _get_na_labels(
+        x_w_pd_ = X_PeakWindowed.validate(
+            x_w_.to_pandas().rename_axis(index="idx"), lazy=True
+        )
+
+        X_w_ = DataFrame[X_PeakWindowed](x_w_pd_)
+        return X_w_
+
+    def _get_interpeak_w_idxs(
         self,
-        pwdwd_time: DataFrame[PWdwdTime],
-        w_idx_col: str,
+        pwdwd_time: DataFrame[X_PeakWindowed],
     ) -> NDArray[int64]:
-        
-        if not isinstance(w_idx_col, str):
-            raise TypeError(f"expected str, got {type(w_idx_col)}")
-        
         labels = []
-        labels, num_features = label(pwdwd_time[w_idx_col]==self.w_type_interpeak_label)  # type: ignore
+        labels, num_features = label(
+            pwdwd_time[self._w_idx_colname] == self.w_type_interpeak_label
+        )  # type: ignore
         labels = np.asarray(labels, dtype=np.int64)
         return labels
 
-    @pa.check_types
+    # @pa.check_types
     def _label_interpeaks(
         self,
-        pwdwd_time: DataFrame[PWdwdTime],
-        w_idx_col: str,
-    ) -> DataFrame[WindowedTime]:
-        
-        pwdwd_time_ = pwdwd_time.copy(deep=True)
-        
-        self._check_scalar_is_type(w_idx_col, str)
-        
-        labels = self._get_na_labels(pwdwd_time, w_idx_col)
-
-        pwdwd_time_["w_idx"] = pwdwd_time_["w_idx"].mask(
-            pwdwd_time_["w_idx"]==self.w_type_interpeak_label, Series(labels - 1)
-        )
-
-        wdwd_time: DataFrame[WindowedTime] = DataFrame[WindowedTime](
-            pwdwd_time_
-        )
-
-        return wdwd_time
-
-    @pa.check_types
-    def _join_ws_wt(
-        self,
-        amp: Series[float64],
-        wt: DataFrame[WindowedTime],
+        X_pw: DataFrame[X_PeakWindowed],
     ) -> DataFrame[WindowedSignal]:
-        
-        self.check_container_is_type(amp, pd.Series, float64)
-        
-        ws = wt.copy(deep=True)
+        """
+        Simply replaces the interpeak placeholder index with the mapping obtained from
+        "get_na_labels"
+        """
 
-        ws["amp"] = Series[float64](amp, dtype=float64)
+        X_w_: pd.DataFrame = X_pw.copy(deep=True)
 
-        ws = (
-            ws.set_index(
-                [
-                    "w_type",
-                    "w_idx",
-                    "time_idx",
-                    "time",
-                ]
-            )
-            .reset_index()
-            .rename_axis(index="idx")
+        labels = self._get_interpeak_w_idxs(X_pw)
+
+        X_w_[self._w_idx_colname] = X_w_[self._w_idx_colname].mask(
+            X_w_[self._w_idx_colname] == self.w_type_interpeak_label,
+            Series(labels - 1),
         )
-        try:
-            ws = DataFrame[WindowedSignal](ws)
-        except pa.errors.SchemaError as e:
-            e.add_note(str(ws))
-            raise e
 
-        return ws
+        X_w_ = X_w_.rename_axis(index="idx")
 
-    @pa.check_types
-    def _map_windows_to_time(
-        self,
-        left_bases: Series[float64],
-        right_bases: Series[float64],
-        time: Series[float64],
-    ) -> DataFrame[WindowedTime]:
+        X_Windowed.validate(X_w_, lazy=True)
+
+        X_w: DataFrame[X_Windowed] = DataFrame[X_Windowed](X_w_)
+
+        return X_w
+
+    def _window_X(self, X: DataFrame[X_Schema], peak_wdw_intvls: dict[int, pd.Interval])->DataFrame[X_Windowed]:
         """
-        convert left and right_bases to int. At this point assuming that all ceiling will be acceptable
+        Window X by broadcasting the identified peak window intervals to the length
+        of the signal. Patterns in missing window labels are coded as interpeak with
+        their own ascending index.
         """
 
+        # X_idw_w is the signal indices derived from the interval objects, rather than
+        # directly from X.
+        X_idx_pw: DataFrame[PeakWindows] = self._peak_intvls_as_frame(peak_wdw_intvls)
+        # X_pw is the result of joining X with X_idx_w, with an arbitrary label where
+        # interpeak windows are present
+        X_pw: DataFrame[X_PeakWindowed] = self._set_peak_wndwd_X_idx(X, X_idx_pw)
+
+        X_w: DataFrame[X_Windowed] = self._label_interpeaks(X_pw)
+
+        return X_w
+
+    def _p_wdw_intvl_factory(self, left_bases, right_bases):
+        left_bases_, right_bases_ = self._check_bases(left_bases, right_bases)
+
+        # get the peak bases as pd.Intveral objects, then map the peaks to windows
+        # depending on whether they overlap
+        # then construct the window interval objects.
+        pb_intvls = self._peak_base_intvl_factory(left_bases_, right_bases_)
+        wdw_peak_mapping: dict[int, list[int]] = self._map_wdws_to_peaks(pb_intvls)
+        peak_wdw_intvls: dict[int, pd.Interval] = self._set_wdw_intvls_from_peak_intvls(
+            pb_intvls, wdw_peak_mapping
+        )
+        return peak_wdw_intvls
+
+    def _check_bases(self, left_bases, right_bases):
         left_bases_: Series[int64] = Series(left_bases, dtype=int64)
         right_bases_: Series[int64] = Series(right_bases, dtype=int64)
 
@@ -384,53 +430,21 @@ class MapWindowsMixin(IOValid, PanderaSchemaMethods):
         base_check = pd.concat([left_bases_, right_bases_], axis=1)
         # horizontal less
 
-        base_check = base_check.assign(
-            hz_less=lambda df: df.iloc[:,0] < df.iloc[:,1]
-        )
+        base_check = base_check.assign(hz_less=lambda df: df.iloc[:, 0] < df.iloc[:, 1])
         if not base_check["hz_less"].all():
             raise ValueError(
                 f"expect left_base of each pair to be less than corresponding right.\n\n{base_check}"
             )
 
-        intvls = self._interval_factory(left_bases_, right_bases_)
-        w_idxs: dict[int, list[int]] = self._label_windows(intvls)
-        w_intvls: dict[int, pd.Interval] = self._combine_intvls(intvls, w_idxs)
-        pw: DataFrame[PeakWindows] = self._set_peak_windows(w_intvls, time)
-        pwt: DataFrame[PWdwdTime] = self._set_peak_wndwd_time(time, pw)
-        wt: DataFrame[WindowedTime] = self._label_interpeaks(
-            pwt, str(self.pwdt_sc.w_idx)
-        )
-        
-        return wt
+        return left_bases_, right_bases_
 
-
-@dataclass
-class MapWindows(MapWindowsMixin):
-    def window_signal(
-        self,
-        left_bases: Series[float64],
-        right_bases: Series[float64],
-        time: Series[float64],
-        amp: Series[float64],
-    ) -> DataFrame[WindowedSignal]:
-        wt = self._map_windows_to_time(
-            left_bases,
-            right_bases,
-            time,
-        )
-
-        wsdf = self._join_ws_wt(
-            amp,
-            wt,
-        )
-
-        return wsdf
 
 class Interval:
     """
     A simplistic class to handle comparision and addition of intervals. Assumes
     closed intervals.
     """
+
     def __init__(self, left: int, right: int, p_idx: int):
         """
         assign the left, right and p_idx of the Interval object. the p_idx keeps track
@@ -449,46 +463,45 @@ class Interval:
         self.left = left
         self.right = right
         self.p_idx = p_idx
-        
+
     def overlaps(
         self,
         other,
     ):
         """
-        Assess if two Interval abjects overlap by compring their left and right 
+        Assess if two Interval abjects overlap by compring their left and right
         bounds. Assumes closed intervals.
                     i1   i2                 i2   i1
-        case 1: |----\--|-----\   case 2: \---|---\----|
-        
+        case 1: |----||--|-----||  case 2: ||---|---||----|
+
         in either case, sorting the interval objects so that we're always in the
         frame of reference of case 1 then comparing i1 to i2. If right i1 is
         greater than or equal to the left of i2, then they are deemed overlapping.
         """
-        
-        
+
         if not isinstance(other, Interval):
             raise TypeError("can only compare Interval objects")
-        
+
         i1, i2 = sorted([self, other])
-        
+
         if i1.right >= i2.left:
             return True
         else:
             return False
-        
+
     def __add__(self, other):
         if self.left < other.left:
             new_left = self.left
         else:
             new_left = other.left
-        
+
         if self.right < other.right:
             new_right = other.right
         else:
             new_right = self.right
-            
-        return Interval(new_left, new_right, p_idx = self.p_idx)
-    
+
+        return Interval(new_left, new_right, p_idx=self.p_idx)
+
     def __lt__(self, other):
         return self.left < other.left
 

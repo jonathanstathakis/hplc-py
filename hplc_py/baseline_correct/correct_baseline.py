@@ -1,3 +1,4 @@
+from pandera.typing import Series
 import warnings
 from dataclasses import dataclass, field
 from typing import TypedDict, cast, Optional
@@ -19,11 +20,11 @@ class CorrectBaseline(IOValid):
     
     def __init__(
         self,
-        windowsize: int = 5,
+        window_size: float = 5.0,
         verbose: Optional[bool] = True,
     ):
         
-        self._windowsize = windowsize
+        self._window_size = window_size
         self.__verbose = verbose
         self.background: NDArray[float64] = np.ndarray(0)
         
@@ -40,13 +41,18 @@ class CorrectBaseline(IOValid):
         :param timestep: the average difference of the observation intervals in the time unit
         :type timestep: float64
         :param windowsize: size of the filter window
-        :type windowsize: int
+        :type windowsize: float
         :param verbose: whether to report fit progress to console, defaults to False
         :type verbose: bool, optional
         :return: the fitted signal background
         :rtype: NDArray[float64]
         """
+        if np.isnan(amp).any():
+            raise ValueError("NaN detected in input amp")
         self.amp_raw = amp
+        
+        if np.isnan(timestep):
+            raise ValueError("NaN detected as timestep input")
 
         shift = self._compute_shift(amp)
         amp_shifted = self._shift_amp(amp, shift)
@@ -57,7 +63,7 @@ class CorrectBaseline(IOValid):
 
         # calculate the number of iterations for the minimization
 
-        n_iter = self._compute_n_iter(self._windowsize, timestep)
+        n_iter = self._compute_n_iter(self._window_size, timestep)
 
         # iteratively filter the compressed signal
         s_compressed_prime = self._compute_s_compressed_minimum(
@@ -81,8 +87,10 @@ class CorrectBaseline(IOValid):
         """
         Transform the input amplitude signal by subtracting the fitted background
         """
-        
-        self.corrected = np.subtract(self.amp_raw, self.background)
+        self.corrected: Series[float64] = pd.Series(
+            data=np.subtract(self.amp_raw, self.background),
+            name="amp"
+        ).rename_axis(index='t_idx')
 
         return self
     
@@ -107,7 +115,7 @@ class CorrectBaseline(IOValid):
         return amp_clipped
         
 
-    def _compute_n_iter(self, window_size: int, timestep: float64)->int:
+    def _compute_n_iter(self, window_size: float, timestep: float64)->int:
         n_iter = int(
             np.divide(
                 np.subtract(
