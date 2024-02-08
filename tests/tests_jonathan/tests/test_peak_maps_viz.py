@@ -210,6 +210,7 @@ def test_peak_map(
 def pmi(peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema])->PeakMapInterface:
     pmi = PeakMapInterface(peak_map=peak_map, X=X)
     return pmi
+    
 
 class TestPeakMapInterface:
     def test_Pipe_Peak_Widths_To_Long(self,

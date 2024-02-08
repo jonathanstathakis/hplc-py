@@ -226,7 +226,36 @@ class PeakPlotter(PlotCore):
         return self
 
 
-class PeakMapInterface(IOValid):
+import abc
+
+class InterfacePipeline(metaclass=abc.ABCMeta):
+    """
+    A basic template for pipelines - objects that take one or more inputs and produce
+    one output, with internal validation via Pandera DataFrameModel schemas.
+    """
+    
+    @abc.abstractmethod
+    def load_pipeline(self, **kwargs):
+        """
+        load the pipeline with necessary input for `run_pipeline`
+        """
+        raise NotImplementedError
+    
+    @abc.abstractmethod
+    def run_pipeline(self):
+        """
+        Execute the pipeline for the input of `load_pipeline`
+        """
+        raise NotImplementedError
+    
+    @abc.abstractmethod
+    def _set_schemas(self):
+        """
+        Initialise defined schemas as objects of self.
+        """
+        raise NotImplementedError
+
+class PeakMapInterface(InterfacePipeline, IOValid):
     """
     Contains methods to organise the peak map data for plotting.
     """
