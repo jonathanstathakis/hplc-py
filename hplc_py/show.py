@@ -16,38 +16,41 @@ from numpy import float64
 from pandera.typing import DataFrame
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    PeakMap,
     WindowedSignal,
 )
-from hplc_py.hplc_py_typing.type_aliases import rgba
 
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakMapViz
 
 """
 Module for vizualisation, primarily the "Show" class
 """
 
 class SignalPlotter(IOValid):
+    def __init__(
+        self,
+        df: pl.DataFrame,
+        ax: Axes=plt.gca(),
+    ):
+        # self.check_df_is_pd_not_empty(df)
+        self.ax = ax
+        self.df = df
+        
 
     def plot_signal(
         self,
-        ax: Axes,
-        df: pd.DataFrame,
         x_colname: str,
         y_colname: str,
         label: Optional[str] = None,
         line_kwargs: dict = {},
     ) -> None:
 
-        self.check_df_is_pd_not_empty(df)
-        self.check_keys_in_index([x_colname, y_colname], df.columns)
+        self.check_keys_in_index([x_colname, y_colname], self.df.columns)
+        sig_x = self.df[x_colname]
+        sig_y = self.df[y_colname]
 
-        sig_x = df[x_colname]
-        sig_y = df[y_colname]
-
-        ax.plot(sig_x, sig_y, label=label, **line_kwargs)
-        ax.legend()
+        line = self.ax.plot(sig_x, sig_y, label=label, **line_kwargs)
+        self.ax.legend(handles=line)
+        
 
 class DrawPeakWindows:
     def __init__(self):
@@ -108,7 +111,6 @@ class DrawPeakWindows:
         
 
 class Show(
-    PeakMapViz,
 ):
     def __init__(self):
         pass

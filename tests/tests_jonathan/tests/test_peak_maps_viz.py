@@ -7,6 +7,12 @@ the same thing but via method chaining from the `loaded_pmv` object.
 
 Note: Uses time rather than t_idx as the x-axis units.
 """
+
+import distinctipy
+from hplc_py.map_signals.map_peaks.map_peaks_viz_pipelines import (
+    Pipe_Peak_Maxima_To_Long,
+)
+import polars as pl
 import pandera as pa
 import pytest
 import pandas as pd
@@ -15,9 +21,13 @@ from matplotlib.figure import Figure
 from pandera.typing import Series, DataFrame
 from numpy import float64
 import matplotlib.pyplot as plt
-from hplc_py.show import SignalPlotter, PeakMapViz
+from hplc_py.show import SignalPlotter
 from hplc_py.hplc_py_typing.hplc_py_typing import PeakMap, X_Schema
-from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakPlotter, WidthPlotter
+from hplc_py.map_signals.map_peaks.map_peaks_viz import (
+    MaximaPlotter,
+    WidthPlotter,
+    UI_PlotPeakMap,
+)
 from hplc_py.map_signals.map_peaks.map_peaks_viz_schemas import (
     PM_Width_In_X,
     PM_Width_In_Y,
@@ -27,78 +37,65 @@ from hplc_py.map_signals.map_peaks.map_peaks_viz_schemas import (
     Maxima_X_Y,
     Width_Maxima_Join,
 )
-from hplc_py.map_signals.map_peaks.map_peaks_viz import (
+
+from hplc_py.map_signals.map_peaks.map_peaks_viz_pipelines import (
     Pipe_Peak_Widths_To_Long,
     Pipeline_Join_Width_Maxima_Long,
-    Pipeline_Peak_Map_Interface
+    Pipeline_Peak_Map_Interface,
 )
 
 
-def test_signal_plot(
-    plot_signal,
-) -> None:
-    plt.show()
+# def test_plot_whh(
+#     plot_signal,
+#     plot_peaks,
+#     plot_whh,
+# ) -> None:
+#     plt.show()
 
 
-def test_plot_peaks(
-    peak_map_fig: Figure,
-    plot_signal,
-    plot_peaks,
-):
-    plt.show()
+# @pytest.fixture
+# def plot_whh(
+#     peak_map_ax,
+#     loaded_pmv: PeakMapViz,
+# ):
+#     loaded_pmv.plot_whh(
+#         y_colname=str(PeakMap.whh_height),
+#         left_colname=str(PeakMap.whh_left),
+#         right_colname=str(PeakMap.whh_right),
+#         ax=peak_map_ax,
+#     )
 
 
-def test_plot_whh(
-    plot_signal,
-    plot_peaks,
-    plot_whh,
-) -> None:
-    plt.show()
+# def test_plot_pb(
+#     plot_signal,
+#     plot_peaks,
+#     plot_whh,
+#     plot_pb,
+# ) -> None:
+#     plt.show()
 
 
-@pytest.fixture
-def plot_whh(
-    peak_map_ax,
-    loaded_pmv: PeakMapViz,
-):
-    loaded_pmv.plot_whh(
-        y_colname=str(PeakMap.whh_height),
-        left_colname=str(PeakMap.whh_left),
-        right_colname=str(PeakMap.whh_right),
-        ax=peak_map_ax,
-    )
+# def test_chain_plot(
+#     loaded_pmv: PeakMapViz,
+#     plot_signal,
+# ) -> None:
+#     """
+#     Test whether chaining the plot methods produces the expected drawing
 
+#     :param loaded_pmv: PeakMapViz object loaded with data
+#     :type loaded_pmv: PeakMapViz
+#     :param plot_signal: A fixture plotting the signal on the axis loaded into `loaded_pmv`
+#     :type plot_signal: None
+#     """
+#     (
+#         loaded_pmv.plot_whh(
+#             str(PeakMap.whh_height), str(PeakMap.whh_left), str(PeakMap.whh_right)
+#         ).plot_bases(
+#             str(PeakMap.pb_height), str(PeakMap.pb_left), str(PeakMap.pb_right)
+#         )
+#     )
 
-def test_plot_pb(
-    plot_signal,
-    plot_peaks,
-    plot_whh,
-    plot_pb,
-) -> None:
-    plt.show()
-
-
-def test_chain_plot(
-    loaded_pmv: PeakMapViz,
-    plot_signal,
-) -> None:
-    """
-    Test whether chaining the plot methods produces the expected drawing
-
-    :param loaded_pmv: PeakMapViz object loaded with data
-    :type loaded_pmv: PeakMapViz
-    :param plot_signal: A fixture plotting the signal on the axis loaded into `loaded_pmv`
-    :type plot_signal: None
-    """
-    (
-        loaded_pmv.plot_whh(
-            str(PeakMap.whh_height), str(PeakMap.whh_left), str(PeakMap.whh_right)
-        ).plot_bases(
-            str(PeakMap.pb_height), str(PeakMap.pb_left), str(PeakMap.pb_right)
-        )
-    )
-
-    plt.show()
+#     plt.show()
 
 
 @pytest.fixture
@@ -126,8 +123,7 @@ def maxima_colname():
     return "maxima"
 
 
-@pytest.fixture
-def plot_signal(
+def test_plot_signal_Signal_Plotter(
     X: DataFrame[X_Schema],
     x_colname: str,
     y_colname: str,
@@ -135,64 +131,121 @@ def plot_signal(
 ):
     X = X.reset_index(names="X_idx")
 
-    SignalPlotter().plot_signal(
-        ax=peak_map_ax,
-        df=X,
+    SignalPlotter(df=X, ax=peak_map_ax).plot_signal(
         x_colname=x_colname,
         y_colname=y_colname,
         label=y_colname,
     )
 
+    plt.show()
+
     return None
 
 
 @pytest.fixture
-def loaded_pmv(
+def maxima_x_y(
     peak_map: DataFrame[PeakMap],
+) -> DataFrame[Maxima_X_Y]:
+
+    pipe_peak_maxima_to_long = Pipe_Peak_Maxima_To_Long()
+
+    (pipe_peak_maxima_to_long.load_pipeline(peak_map).run_pipeline())
+    return pipe_peak_maxima_to_long.maxima_x_y
+
+
+@pytest.fixture
+def colors(peak_map: DataFrame[PeakMap]):
+    colors = distinctipy.get_colors(len(peak_map))
+    
+    return colors
+
+
+def test_draw_maxima(
+    colors: list[tuple[float, float, float]],
+    maxima_x_y: DataFrame[Maxima_X_Y],
     peak_map_ax: Axes,
-    x_colname: str,
-) -> PeakMapViz:
-    pmv = PeakMapViz(df=peak_map, x_colname=x_colname, ax=peak_map_ax)
-
-    return pmv
-
-
-@pytest.fixture
-def plot_peaks(
-    loaded_pmv: PeakMapViz,
-    maxima_colname: str,
 ) -> None:
-    loaded_pmv.plot_peaks(pmax_col=maxima_colname)
-
-
-@pytest.fixture
-def plot_pb(
-    peak_map_ax,
-    loaded_pmv: PeakMapViz,
-):
-    loaded_pmv.plot_bases(
-        y_colname=str(PeakMap.pb_height),
-        left_colname=str(PeakMap.pb_left),
-        right_colname=str(PeakMap.pb_right),
+    
+    peakplotter = MaximaPlotter(
         ax=peak_map_ax,
-    )
+        df=maxima_x_y,
+        colors=colors)
+    
+    peakplotter.draw_maxima()
+
+
+class Test_Plot_Peak_Map:
+    """
+    test the higher level viz via PlotPeakMap class.
+    """
+
+    @pytest.fixture
+    def ui_plot_peak_map(
+        self, X: DataFrame[X_Schema], peak_map: DataFrame[PeakMap]
+    ) -> UI_PlotPeakMap:
+        plot_peak_map = UI_PlotPeakMap(
+            X=pl.from_pandas(X).with_row_index("X_idx"), peak_map=peak_map
+        )
+        return plot_peak_map
+
+    def test_draw_signal_Peak_Map(
+        self,
+        ui_plot_peak_map: UI_PlotPeakMap,
+    ):
+        pass
+
+        ui_plot_peak_map.draw_signal().show()
+
+    def test_draw_maxima_UI_PlotPeakMap(
+        self,
+        ui_plot_peak_map: UI_PlotPeakMap,
+    ):
+        """
+        test drawing the maximas through the PlotPeakMap UI
+        """
+
+        ui_plot_peak_map.draw_maxima().show()
+
+
+# @pytest.fixture
+# def loaded_pmv(
+#     peak_map: DataFrame[PeakMap],
+#     peak_map_ax: Axes,
+#     x_colname: str,
+# ) -> PeakMapViz:
+#     pmv = PeakMapViz(df=peak_map, x_colname=x_colname, ax=peak_map_ax)
+
+#     return pmv
+
+
+# @pytest.fixture
+# def plot_pb(
+#     peak_map_ax,
+#     loaded_pmv: PeakMapViz,
+# ):
+#     loaded_pmv.plot_bases(
+#         y_colname=str(PeakMap.pb_height),
+#         left_colname=str(PeakMap.pb_left),
+#         right_colname=str(PeakMap.pb_right),
+#         ax=peak_map_ax,
+#     )
 
 
 @pytest.fixture
 def peakplotter(
     peak_map_ax: Axes,
     peak_map: DataFrame[PeakMap],
-) -> PeakPlotter:
-    peakplotter = PeakPlotter(ax=peak_map_ax, df=peak_map)
+) -> MaximaPlotter:
+    peakplotter = MaximaPlotter(ax=peak_map_ax, df=peak_map)
     return peakplotter
 
 
 def test_peak_plotter(
-    peakplotter: PeakPlotter,
+    peakplotter: MaximaPlotter,
     x_colname: str,
     y_colname: str,
 ):
-    peakplotter.plot_peaks(
+    peakplotter.draw_maxima(
         x_colname=x_colname,
         y_colname=y_colname,
     )
@@ -205,12 +258,12 @@ def width_plotter(
     peak_map: DataFrame[PeakMap],
 ) -> WidthPlotter:
 
-    widthplotter = WidthPlotter(ax=peak_map_ax, df=peak_map)
+    widthplotter = WidthPlotter(ax=peak_map_ax, peak_map=peak_map)
 
     return widthplotter
 
 
-def test_width_plotter(plot_signal, width_plotter: WidthPlotter) -> None:
+def test_width_plotter(plot_signal_Signal_Plotter, width_plotter: WidthPlotter) -> None:
     width_plotter.plot_widths_vertices(
         y_colname=str(PeakMap.pb_height),
         left_x_colname=str(PeakMap.pb_left),
@@ -218,20 +271,22 @@ def test_width_plotter(plot_signal, width_plotter: WidthPlotter) -> None:
         marker="v",
     )
     plt.show()
-    
+
+
 # @pytest.fixture
 # def width_maxima_join(
 # ):
 #     pass
-    
+
 # def test_plot_widths_edges(
 #     width_maxima_join: DataFrame[Width_Maxima_Join]
 # )
 
 
-
 @pytest.fixture
-def pmi(peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema])->Pipeline_Peak_Map_Interface:
+def pmi(
+    peak_map: DataFrame[PeakMap], X: DataFrame[X_Schema]
+) -> Pipeline_Peak_Map_Interface:
     pmi = Pipeline_Peak_Map_Interface(peak_map=peak_map, X=X)
     return pmi
 
@@ -256,18 +311,6 @@ class TestPipeline_Peak_Map_Interface:
     ):
         PM_Width_Long_Joined(widths_long_xy.to_pandas(), lazy=True)
         pass
-
-    @pytest.fixture
-    def maxima_x_y(
-        self,
-        peak_map: DataFrame[PeakMap],
-    ) -> DataFrame[Maxima_X_Y]:
-        from hplc_py.map_signals.map_peaks.map_peaks_viz import Pipe_Peak_Maxima_To_Long
-
-        pipe_peak_maxima_to_long = Pipe_Peak_Maxima_To_Long()
-
-        (pipe_peak_maxima_to_long.load_pipeline(peak_map).run_pipeline())
-        return pipe_peak_maxima_to_long.maxima_x_y
 
     def test_pipe_peak_maxima_to_long(
         self,
@@ -297,27 +340,22 @@ class TestPipeline_Peak_Map_Interface:
     ):
         Width_Maxima_Join.validate(width_maxima_join.to_pandas(), lazy=True)
         pass
-    
+
     @pytest.fixture
     @pa.check_types
     def peak_map_plot_data(
-        self,
-        peak_map: DataFrame[PeakMap]
-    )->DataFrame[Width_Maxima_Join]:
-        
+        self, peak_map: DataFrame[PeakMap]
+    ) -> DataFrame[Width_Maxima_Join]:
+
         pipeline_peak_map_interface = Pipeline_Peak_Map_Interface()
         peak_map_plot_data = (
-            pipeline_peak_map_interface
-            .load_pipeline(peak_map=peak_map)
+            pipeline_peak_map_interface.load_pipeline(peak_map=peak_map)
             .run_pipeline()
             .peak_map_plot_data
         )
         return peak_map_plot_data
-    
+
     def test_pipeline_peak_map_interface(
-        self,
-        peak_map_plot_data: DataFrame[Width_Maxima_Join]
+        self, peak_map_plot_data: DataFrame[Width_Maxima_Join]
     ):
         Width_Maxima_Join.validate(peak_map_plot_data.to_pandas(), lazy=True)
-        
-        

@@ -56,3 +56,5 @@ The second question is this: how do I use the fork in my project? The answer is 
 
 2. 2024-02-06 13:52:37: based loosely on the sci-kit learn API, data agnostic settings are psased to __init__, data AND specific settings are passed to fit, then tranform is called to do the action.
 3. 2024-02-06 14:02:16: Using pandera schemas to share information across modules was a terrible idea because you lose encapsulation, and encapsulation is everything right now. Get rid of it wherever it can be found. Can still use schemas for io validation, but you cant refer to them for dataframe info.
+
+4. 2024-02-09 12:25:42: To clarify which are front and which are back end classes, front ends will be prefixed with "UI_". This is merely a precaution during development in order to encourage a heirarchy.
