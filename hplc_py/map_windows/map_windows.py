@@ -21,10 +21,10 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
+from hplc_py.map_peaks.map_peaks import PeakMapWide
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 
-from .map_peaks.map_peaks import MapPeaks
+from ..map_peaks.map_peaks import MapPeaks
 
 
 class MapWindows(IOValid):

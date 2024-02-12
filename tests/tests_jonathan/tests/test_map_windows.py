@@ -7,11 +7,11 @@ from pandera.typing.pandas import DataFrame, Series
 import pandera as pa
 import matplotlib.pyplot as plt
 
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 
 from hplc_py.show import DrawPeakWindows, SignalPlotter
 
-from hplc_py.map_signals.map_windows import (
+from hplc_py.map_windows.map_windows import (
     MapWindows,
 )
 

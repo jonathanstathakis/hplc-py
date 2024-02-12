@@ -61,7 +61,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WindowedSignal,
 )
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
+from hplc_py.map_peaks.map_peaks import PeakMapWide
 from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
 
 from hplc_py.pandera_helpers import PanderaSchemaMethods

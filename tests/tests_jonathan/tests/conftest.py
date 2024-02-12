@@ -1,18 +1,14 @@
 import numpy as np
 import pandera as pa
-import os
-from typing import Any, Literal
 
-import hplc
 import pandas as pd
-import polars as pl
 import pytest
 from numpy import float64, int64
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 
 from hplc_py.baseline_correction import CorrectBaseline
-from hplc_py.deconvolve_peaks.deconvolution import DataPrepper, PeakDeconvolver
+from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b  # noqa: F401
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     Popt,
@@ -23,9 +19,8 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     RSignal,
     X_Schema,
 )
-from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
-from hplc_py.map_signals.map_windows import MapWindows
+from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from hplc_py.map_windows.map_windows import MapWindows
 from hplc_py.fit_assessment import FitAssessment
 from hplc_py.misc.misc import compute_timestep
 
@@ -297,7 +292,7 @@ def amp_bcorr(
 ) -> Series[float64]:
 
     background = cb.fit(amp_raw, timestep).transform().background
-    
+
     bcorr = np.subtract(amp_raw, background)
     return bcorr
 

@@ -94,10 +94,10 @@ class SignalDFBCorr(Data):
 
 
 class FindPeaks(BaseDF):
-    p_idx: int64
-    X_idx: int64
-    maxima: float64
-    prom: float64
+    p_idx: int64 = pa.Field(ge=0, le=100)
+    X_idx: int64 = pa.Field(ge=0, le=5000)
+    maxima: float64 = pa.Field(ge=-1e-10, le=1000)
+    prom: float64 = pa.Field(ge=0)
     prom_left: int64
     prom_right: int64
 

@@ -3,7 +3,7 @@ from numpy import float64
 from numpy import int64
 import numpy as np
 import polars as pl
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from pandera.typing import Series, DataFrame
 from hplc_py.hplc_py_typing.hplc_py_typing import WindowedSignal
 import pytest

@@ -14,8 +14,8 @@ from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.fit_assessment import FitAssessment
 from hplc_py.hplc_py_typing.hplc_py_typing import Popt, WindowedSignal
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
-from hplc_py.map_signals.map_windows import MapWindows
+from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from hplc_py.map_windows.map_windows import MapWindows
 
 from ..tests.conftest import prepare_dataset_for_input
 

@@ -1,19 +1,19 @@
 import pandera as pa
-from hplc_py.map_signals.map_peaks.peak_map_plot_ui import UI_PlotPeakMapWide
+
 import polars as pl
 import pytest
 from pandera.typing import DataFrame
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     PeakMapWide,
     X_Schema,
-    PeakMapWide,
     PeakMapWideColored,
+    ColorMap,
 )
-from hplc_py.map_signals.map_peaks.map_peaks_viz_schemas import ColorMap
-from hplc_py.map_signals.map_peaks.peakplotfuncs import (
+
+from hplc_py.map_peaks.viz import (
     assign_colors_to_p_idx,
-    pivot_peak_map,
     join_peak_map_colors,
+    UI_PlotPeakMapWide,
 )
 
 
@@ -26,31 +26,22 @@ def color_map(peak_map: DataFrame[PeakMapWide]) -> DataFrame[ColorMap]:
 
 
 @pytest.fixture
-def peak_map_wide(peak_map: DataFrame[PeakMapWide]) -> DataFrame[PeakMapWide]:
-    # peak_map_wide = pivot_peak_map(peak_map=peak_map)
-    # return peak_map_wide
-    return peak_map
-
-
-@pytest.fixture
 @pa.check_types
-def peak_map_wide_colored(
-    peak_map_wide: DataFrame[PeakMapWide], color_map: DataFrame[ColorMap]
+def peak_map_colored(
+    peak_map: DataFrame[PeakMapWide], color_map: DataFrame[ColorMap]
 ) -> DataFrame[PeakMapWideColored]:
 
-    peak_map_wide_colored = join_peak_map_colors(
-        peak_map_wide=peak_map_wide, color_map=color_map
-    )
+    peak_map_colored = join_peak_map_colors(peak_map=peak_map, color_map=color_map)
 
-    return peak_map_wide_colored
+    return peak_map_colored
 
 
 @pa.check_types
 def test_join_colors_peak_map(
-    peak_map_wide_colored: DataFrame[PeakMapWideColored],
+    peak_map_colored: DataFrame[PeakMapWideColored],
 ) -> None:
 
-    PeakMapWideColored.validate(peak_map_wide_colored)
+    PeakMapWideColored.validate(peak_map_colored)
 
 
 class Test_UI_Plot_Peak_Map:
@@ -81,12 +72,7 @@ class Test_UI_Plot_Peak_Map:
         self,
         ui_plot_peak_map: UI_PlotPeakMapWide,
     ):
-        (ui_plot_peak_map
-        .draw_signal()
-        .draw_maxima()
-        .draw_base_vertices()
-        .show()
-        )
+        (ui_plot_peak_map.draw_signal().draw_maxima().draw_base_vertices().show())
 
     def test_draw_edges(
         self,

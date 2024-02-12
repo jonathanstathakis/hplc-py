@@ -6,7 +6,7 @@ from .show import Show
 from typing import Self, Optional
 from .baseline_correct.correct_baseline import CorrectBaseline
 from .map_signals.map_peaks.map_peaks import MapPeaks
-from .map_signals.map_windows import MapWindows
+from .map_windows.map_windows import MapWindows
 from .deconvolve_peaks.mydeconvolution import PeakDeconvolver
 from hplc_py.io_validation import IOValid
 

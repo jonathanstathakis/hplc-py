@@ -27,7 +27,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WindowedSignal,
     X_Schema,
 )
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
+from hplc_py.map_peaks.map_peaks import PeakMapWide
 from test_map_peaks import TestMapPeaksFix
 from hplc_py.hplc_py_typing.interpret_model import Modelinterpreter
 

@@ -1,3 +1,4 @@
+from dataclasses import dataclass, asdict
 from numpy import int64
 from numpy.typing import NDArray
 
@@ -16,9 +17,13 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     X_Schema,
 )
 
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PPD
-
-pl.Config(set_tbl_cols=50)
+from hplc_py.map_peaks.map_peaks import (
+    MapPeaks,
+    PPD,
+    set_findpeaks,
+    get_peak_prom_data,
+    width_df_factory,
+)
 
 
 def test_set_fp(
@@ -63,18 +68,33 @@ def prom() -> float:
 def wlen() -> None:
     return None
 
-from hplc_py.map_peaks im
+
 @pytest.fixture
+def fp_cols():
+    return {
+        "X_key": "X",
+        "X_idx_key": "X_idx",
+        "p_idx_key": "p_idx",
+        "prom_key": "prom",
+        "prom_lb_key": "prom_left",
+        "prom_rb_key": "prom_right",
+        "maxima_key": "maxima",
+    }
+
+
+@pytest.fixture
+@pa.check_types
 def fp(
     X: DataFrame[X_Schema],
+    fp_cols: dict[str, str],
     prom: float,
-    mp: MapPeaks,
     wlen: None,
 ) -> DataFrame[FindPeaks]:
     fp = set_findpeaks(
         X=X,
         prominence=prom,
         wlen=wlen,
+        **fp_cols,
     )
 
     return fp
@@ -103,9 +123,26 @@ def pt_idx(
     return fp[pt_idx_col].to_numpy(int64)
 
 
+@dataclass
+class FP_Keys:
+    prom_key: str = "prom"
+    prom_lb_key: str = "prom_left"
+    prom_rb_key: str = "prom_right"
+
+
 @pytest.fixture
-def ppd(mp: MapPeaks, fp: DataFrame[FindPeaks]) -> PPD:
-    ppd = mp.get_peak_prom_data(fp)
+def fp_keys():
+    fp_keys = FP_Keys()
+
+    return fp_keys
+
+
+@pytest.fixture
+def ppd(
+    fp: DataFrame[FindPeaks],
+    fp_keys: FP_Keys,
+) -> PPD:
+    ppd = get_peak_prom_data(fp=fp, **asdict(fp_keys))
     return ppd
 
 
@@ -117,13 +154,16 @@ def whh(
     ppd: PPD,
     whh_rel_height: float,
 ) -> DataFrame[WHH]:
+
     whh = DataFrame[WHH](
-        mp.width_df_factory(
+        width_df_factory(
             X=X,
             peak_t_idx=pt_idx,
             peak_prom_data=ppd,
             rel_height=whh_rel_height,
             prefix="whh",
+            p_idx_key="p_idx",
+            X_key="X",
         )
     )
 
@@ -141,12 +181,14 @@ def pb(
     """
     The peak bases
     """
-    pb_ = mp.width_df_factory(
+    pb_ = width_df_factory(
         X=X,
         peak_t_idx=pt_idx,
         peak_prom_data=ppd,
         rel_height=pb_rel_height,
         prefix="pb",
+        p_idx_key='p_idx',
+        X_key='X'
     )
 
     pb = DataFrame[PeakBases](pb_)

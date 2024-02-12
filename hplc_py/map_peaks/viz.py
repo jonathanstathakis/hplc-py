@@ -1,12 +1,25 @@
-from matplotlib.lines import Line2D
+"""
+Pure functions for plotting information from `peak_map`.
+"""
+
+import seaborn as sns
+import colorcet as cc
+import pandas as pd
+import pandera as pa
 import polars as pl
-from typing import Self
+from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
+from matplotlib.artist import Artist
 from pandera.typing import DataFrame
-from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWide, X_Schema
+
+from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWide
+from typeguard import typechecked
+
+from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWideColored, ColorMap
+from typing import Self
+from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema
 
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
-from matplotlib.artist import Artist
 
 
 class UI_PlotPeakMapWide:
@@ -147,7 +160,6 @@ class UI_PlotPeakMapWide:
         """
 
         add_handles_to_legend(ax=self.ax, handles=self.handles)
-        plt.suptitle("testplot")
         plt.show()
 
         return self
@@ -161,30 +173,10 @@ class UI_PlotPeakMapWide:
         """
         Code lifted directly from matplotlib legend guide <https://matplotlib.org/stable/users/explain/axes/legend_guide.html#creating-artists-specifically-for-adding-to-the-legend-aka-proxy-artists>
         """
-
+        
         legend_proxy = set_legend_proxy_artist(label, line_2d, color)
 
         self.handles += [legend_proxy]
-
-
-"""
-Pure functions for plotting information from `peak_map`.
-"""
-
-import seaborn as sns
-import colorcet as cc
-import pandas as pd
-import pandera as pa
-import polars as pl
-from matplotlib.axes import Axes
-from matplotlib.lines import Line2D
-from matplotlib.artist import Artist
-from pandera.typing import DataFrame
-
-from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWide
-from typeguard import typechecked
-
-from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWideColored, ColorMap
 
 
 def plot_signal(
@@ -226,34 +218,28 @@ def assign_colors_to_p_idx(
         color=pl.Series(name="color", values=colors)
     )
 
-    return color_table.to_pandas()
-
-
-@pa.check_types
-def pivot_peak_map(peak_map: DataFrame[PeakMapWide]) -> DataFrame[PeakMapWide]:
-
-    peak_map_wide = peak_map.pivot(index="p_idx", columns="prop", values="value")
-
-    return peak_map_wide
+    return DataFrame[ColorMap](color_table.to_pandas())
 
 
 @pa.check_types
 def join_peak_map_colors(
-    peak_map_wide: DataFrame[PeakMapWide],
+    peak_map: DataFrame[PeakMapWide],
     color_map: DataFrame[ColorMap],
 ) -> DataFrame[PeakMapWideColored]:
     """
     Joins a wide peak map with unique peak indexes with the pre-determined color mapping
     """
 
-    peak_map_wide_pl: pl.DataFrame = pl.from_pandas(peak_map_wide)
+    peak_map_pl: pl.DataFrame = pl.from_pandas(peak_map)
     color_map_pl: pl.DataFrame = pl.from_pandas(color_map)
 
-    peak_map_colored_pl = peak_map_wide_pl.join(
+    peak_map_colored_pl = peak_map_pl.join(
         color_map_pl, on="p_idx", how="left", validate="1:1"
     )
 
-    peak_map_colored = peak_map_colored_pl.to_pandas()
+    peak_map_colored = DataFrame[PeakMapWideColored](
+        peak_map_colored_pl.to_pandas()
+    )
 
     return peak_map_colored
 
