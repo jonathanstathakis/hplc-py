@@ -20,13 +20,13 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     PReport,
     PSignals,
     RSignal,
-    WdwPeakMap,
+    WdwPeakMapWide,
     X_Schema,
     X_Windowed,
 )
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_signals.map_windows import MapWindows
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
@@ -34,10 +34,10 @@ from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
 WhichOpt = Literal["jax", "scipy"]
 WhichFitFunc = Literal["jax", "scipy"]
 
-def get_window_bounds(
-    df: pl.DataFrame):
+
+def get_window_bounds(df: pl.DataFrame):
     """
-    A convenience method to display the window bounds. For testing, will delete or 
+    A convenience method to display the window bounds. For testing, will delete or
     recycle later.
     """
     bounds = df.groupby(["w_type", "w_idx"], maintain_order=True).agg(
@@ -75,9 +75,9 @@ class DataPrepper:
 
     def _window_peak_map(
         self,
-        pm: DataFrame[PeakMap],
+        pm: DataFrame[PeakMapWide],
         X_w: DataFrame[X_Windowed],
-    ) -> DataFrame[WdwPeakMap]:
+    ) -> DataFrame[WdwPeakMapWide]:
         """
         add w_idx to to peak map for later lookups
         """
@@ -274,7 +274,7 @@ class DataPrepper:
 
     def transform(
         self,
-        pm: DataFrame[PeakMap],
+        pm: DataFrame[PeakMapWide],
         X_w: DataFrame[X_Windowed],
         timestep: float64,
     ) -> DataFrame[Params]:
@@ -283,7 +283,7 @@ class DataPrepper:
         of the skewnorm model.
 
         :param pm: peakmap table
-        :type pm: DataFrame[PeakMap]
+        :type pm: DataFrame[PeakMapWide]
         :param ws: windowed signal table
         :type ws: DataFrame[X_Windowed]
         :param timestep: the timestep
@@ -540,7 +540,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
     ) -> DataFrame[Popt]:
         popt_list = []
 
-        ws_ = pl.from_pandas(X_w).with_row_index(self._X_idx_colname)
+        ws_: pl.DataFrame = pl.from_pandas(X_w).with_row_index(self._X_idx_colname)
         params_ = pl.from_pandas(params)
 
         wdw_grpby = params_.partition_by(
@@ -651,7 +651,9 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         p_signals_ = popt_df.groupby(
             by=["p_idx"],
             group_keys=False,
-        ).apply(construct_peak_signal, time)  # type: ignore
+        ).apply(
+            construct_peak_signal, time
+        )  # type: ignore
 
         peak_signals = p_signals_.reset_index(drop=True)
 

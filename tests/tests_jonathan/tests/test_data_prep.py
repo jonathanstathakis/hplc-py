@@ -6,7 +6,7 @@ from pandera.typing import DataFrame
 from hplc_py.deconvolve_peaks.deconvolution import (
     DataPrepper,
     InP0,
-    WdwPeakMap,
+    WdwPeakMapWide,
 )
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     P0,
@@ -14,19 +14,20 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     Params,
     X_Windowed,
 )
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
+
 
 def test_map_peaks_exec(
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
 ) -> None:
-    PeakMap.validate(peak_map, lazy=True)
+    PeakMapWide.validate(peak_map, lazy=True)
 
 
 def test_window_peak_map(
-    wpm: DataFrame[WdwPeakMap],
+    wpm: DataFrame[WdwPeakMapWide],
 ) -> None:
-    
-    WdwPeakMap.validate(wpm, lazy=True)
+
+    WdwPeakMapWide.validate(wpm, lazy=True)
 
 
 def test_p0_factory(
@@ -53,18 +54,20 @@ def test_prepare_params(
 ) -> None:
     Params.validate(params, lazy=True)
 
+
 @pytest.fixture
 def dp():
     dp = DataPrepper()
     return dp
 
+
 @pytest.fixture
 @pa.check_types
 def wpm(
     dp: DataPrepper,
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
     X_w: DataFrame[X_Windowed],
-) -> DataFrame[WdwPeakMap]:
+) -> DataFrame[WdwPeakMapWide]:
     wpm = dp._window_peak_map(peak_map, X_w)
 
     return wpm
@@ -73,7 +76,7 @@ def wpm(
 @pytest.fixture
 def p0(
     dp: DataPrepper,
-    wpm: DataFrame[PeakMap],
+    wpm: DataFrame[PeakMapWide],
     timestep: float64,
 ) -> DataFrame[P0]:
     wpm_ = wpm.loc[:, [InP0.w_idx, InP0.p_idx, InP0.amp, InP0.time, InP0.whh]]
@@ -105,7 +108,7 @@ def default_bounds(
 @pytest.fixture
 def params(
     dp: DataPrepper,
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
     X_w: DataFrame[X_Windowed],
     timestep: float64,
 ) -> DataFrame[Params]:

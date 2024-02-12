@@ -25,31 +25,7 @@ from hplc_py.io_validation import IOValid
 Module for vizualisation, primarily the "Show" class
 """
 
-class SignalPlotter(IOValid):
-    def __init__(
-        self,
-        df: pl.DataFrame,
-        ax: Axes=plt.gca(),
-    ):
-        # self.check_df_is_pd_not_empty(df)
-        self.ax = ax
-        self.df = df
-        
 
-    def plot_signal(
-        self,
-        x_colname: str,
-        y_colname: str,
-        label: Optional[str] = None,
-        line_kwargs: dict = {},
-    ) -> None:
-
-        self.check_keys_in_index([x_colname, y_colname], self.df.columns)
-        sig_x = self.df[x_colname]
-        sig_y = self.df[y_colname]
-
-        line = self.ax.plot(sig_x, sig_y, label=label, **line_kwargs)
-        self.ax.legend(handles=line)
         
 
 class DrawPeakWindows:

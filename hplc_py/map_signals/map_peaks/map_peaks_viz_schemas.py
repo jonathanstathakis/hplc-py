@@ -1,6 +1,7 @@
 """
 Pandera schema classes for pipelines in `map_peaks_viz` module.
 """
+
 import pandera as pa
 
 
@@ -36,7 +37,8 @@ class PM_Width_Long_Out_X(pa.DataFrameModel):
 
     p_idx: int = pa.Field(ge=0)  # peak idx
     peak_prop: str = pa.Field(isin=["whh", "pb"])
-    geoprop: str = pa.Field(isin=["left", "right"])
+
+    geo_prop: str = pa.Field(isin=["left", "right"])
     x: float
 
     class Config:
@@ -54,7 +56,7 @@ class PM_Width_Long_Out_Y(pa.DataFrameModel):
         ge=0,
     )  # peak idx
     peak_prop: str = pa.Field(isin=["whh", "pb"])
-    geoprop: str = pa.Field(isin=["height"])
+    geo_prop: str = pa.Field(isin=["height"])
     y: float
 
     class Config:
@@ -69,7 +71,7 @@ class PM_Width_Long_Joined(pa.DataFrameModel):
     peak_prop: str = pa.Field(
         isin=["whh", "pb"],
     )
-    geoprop: str = pa.Field(isin=["left", "right"])
+    geo_prop: str = pa.Field(isin=["left", "right"])
     x: float
     y: float
 
@@ -92,21 +94,32 @@ class Maxima_X_Y(pa.DataFrameModel):
         name = "Maxima_X_Y"
         strict = True
 
+
 class Width_Maxima_Join(pa.DataFrameModel):
     """
     Schema for the width, maxima join ready for plotting lines tracing from the width
     ips to peak maxima
     """
-    
+
     p_idx: int = pa.Field(ge=0)
-    peak_prop: str = pa.Field(isin=["whh","pb"])
-    geoprop: str = pa.Field(isin=["left","right"])
+    peak_prop: str = pa.Field(isin=["whh", "pb"])
+    geo_prop: str = pa.Field(isin=["left", "right"])
     x1: float
     y1: float
     x2: int
     y2: float
-    
+
     class Config:
         name = "Width_Maxima_Join"
         strict = True
-        ordered=True
+        ordered = True
+
+
+class ColorMap(pa.DataFrameModel):
+    """
+    A table mapping unique p_idxs to distinct colors. Use once to generate the mapping
+    then join to the table as needed.
+    """
+
+    p_idx: int = pa.Field(ge=0)
+    color: object

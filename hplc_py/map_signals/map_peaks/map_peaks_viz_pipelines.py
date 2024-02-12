@@ -5,7 +5,7 @@ import pandera as pa
 import polars as pl
 from pandera.typing import DataFrame
 
-from hplc_py.hplc_py_typing.hplc_py_typing import PeakMap
+from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWide
 from hplc_py.io_validation import IOValid
 
 from .map_peaks_viz_schemas import (
@@ -58,7 +58,7 @@ class Pipeline(metaclass=abc.ABCMeta):
 class Pipeline_Peak_Map_Interface(Pipeline, IOValid):
     """
     Combines several pipelines to produce a long frame indexed by the peak index
-    'p_idx', peak prop ('whh','pb') and geoprop ('left', 'right'). This format is
+    'p_idx', peak prop ('whh','pb') and geo_prop ('left', 'right'). This format is
     useful for visualising the left and right ips calculated by `scipy.peak_widths`
     """
 
@@ -75,7 +75,7 @@ class Pipeline_Peak_Map_Interface(Pipeline, IOValid):
         self._pipe_join_width_maxima_long = Pipeline_Join_Width_Maxima_Long()
 
     @pa.check_types
-    def load_pipeline(self, peak_map: DataFrame[PeakMap]) -> Self:
+    def load_pipeline(self, peak_map: DataFrame[PeakMapWide]) -> Self:
         if not self._is_polars(peak_map):
             self.peak_map = pl.from_pandas(peak_map)
         else:
@@ -109,6 +109,7 @@ class Pipeline_Peak_Map_Interface(Pipeline, IOValid):
             .run_pipeline()
             .width_maxima_join
         )
+
         return self
 
     def _set_internal_schemas(self):
@@ -130,7 +131,7 @@ class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
     @pa.check_types(lazy=True)
     def load_pipeline(
         self,
-        peak_map: DataFrame[PeakMap],
+        peak_map: DataFrame[PeakMapWide],
         idx_cols: list[str] = ["p_idx"],
         x_cols: list[str] = ["whh_left", "whh_right", "pb_left", "pb_right"],
         y_cols: list[str] = ["whh_height", "pb_height"],
@@ -164,7 +165,7 @@ class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
         This pipeline relies on the x and y columns to share a common prefix, i.e.
         'whh_', or 'pb_'. After melting, the pipeline will split the label column
         into prefix and suffix columns. The prefix columns will be dubbed
-        'peak props' and the suffix will be dubbed 'geoprops'. Geoprops represent
+        'peak props' and the suffix will be dubbed 'geo_props'. Geoprops represent
         the properties of the width contour line, left, right, height, and 'peak_props'
         represent the inferred peak properties, 'whh', 'pb' (peak bases), etc.
 
@@ -172,7 +173,7 @@ class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
         effort to account for deviations from that structure.
 
         :param peak_map: a wide table containing the peak mapping data. check schema for more info.
-        :type peak_map: DataFrame[PeakMap]
+        :type peak_map: DataFrame[PeakMapWide]
         :param idx_cols: the primary key column of the peak_map - likely the peak idx
         :type param_cols: list[str]
         :param x_cols: the columns containing x values - the time locations
@@ -197,7 +198,7 @@ class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
                 df.melt(id_vars="p_idx", variable_name="peak_prop", value_name="msnt")
                 .with_columns(pl.col("peak_prop").str.split(by="_").list.to_struct())
                 .unnest("peak_prop")
-                .rename({"field_0": "peak_prop", "field_1": "geoprop"})
+                .rename({"field_0": "peak_prop", "field_1": "geo_prop"})
             )
 
             return out
@@ -211,7 +212,7 @@ class Pipe_Peak_Widths_To_Long(Pipeline, IOValid):
         # allocate the height to each x row
 
         long_widths_xy = x_pm_long.join(
-            y_pm_long.select(pl.exclude("geoprop")),
+            y_pm_long.select(pl.exclude("geo_prop")),
             on=["p_idx", "peak_prop"],
             how="inner",
         )
@@ -244,7 +245,7 @@ class Pipe_Peak_Maxima_To_Long(Pipeline, IOValid):
     @pa.check_types
     def load_pipeline(
         self,
-        peak_map: DataFrame[PeakMap],
+        peak_map: DataFrame[PeakMapWide],
     ) -> Self:
         if not self._is_polars(peak_map):
             self.peak_map = pl.from_pandas(peak_map)

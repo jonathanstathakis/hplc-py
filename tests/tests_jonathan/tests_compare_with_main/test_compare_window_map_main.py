@@ -3,7 +3,7 @@ from numpy import float64
 from numpy import int64
 import numpy as np
 import polars as pl
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMap
+from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from pandera.typing import Series, DataFrame
 from hplc_py.hplc_py_typing.hplc_py_typing import WindowedSignal
 import pytest
@@ -20,7 +20,7 @@ def test_compare_window_df_main(
     the absolute difference of the two sources for each window is less than 5% of the main value.
     If any of the windows has a difference greater than 5%, test will fail.
     """
-    
+
     main_window_df = main_window_df.drop(["signal", "estimated_background"]).rename(
         {"window_type": "w_type", "window_id": "w_idx", "signal_corrected": "amp"}
     )
@@ -28,7 +28,9 @@ def test_compare_window_df_main(
 
     wdws = pl.concat(
         [
-            ws_.select(["w_type", "w_idx", "t_idx"]).with_columns(source=pl.lit("mine")),
+            ws_.select(["w_type", "w_idx", "t_idx"]).with_columns(
+                source=pl.lit("mine")
+            ),
             main_window_df.select(["w_type", "w_idx", "t_idx"]).with_columns(
                 source=pl.lit("main")
             ),
@@ -48,4 +50,4 @@ def test_compare_window_df_main(
         .with_columns(tolpass=pl.col("diff_tol") >= pl.col("diff"))
     )
 
-    assert wdw_compare.select('tolpass').to_series().all()
+    assert wdw_compare.select("tolpass").to_series().all()

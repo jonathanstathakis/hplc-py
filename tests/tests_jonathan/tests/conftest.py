@@ -22,10 +22,8 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     RSignal,
     X_Schema,
 )
-from hplc_py.io_validation import (
-    IOValid
-)
-from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMap
+from hplc_py.io_validation import IOValid
+from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_signals.map_windows import MapWindows
 from hplc_py.fit_assessment import FitAssessment
 from hplc_py.misc.misc import compute_timestep
@@ -35,10 +33,10 @@ def prepare_dataset_for_input(
     data: pd.DataFrame,
     time_col: str,
     amp_col: str,
-)->DataFrame[RawData]:
+) -> DataFrame[RawData]:
     """
     Rename the x and y columns to match SignalDFLoaded schema.
-    
+
     :param data: the dirty dataset
     :type data: pd.DataFrame
     :param time_col: the x column to be renamed to match the schema
@@ -46,31 +44,39 @@ def prepare_dataset_for_input(
     :param amp_col: the y column to be renamed to match the schema
     :type time_col: str
     """
-    data = data.rename({time_col: RawData.time, amp_col: RawData.amp}, axis=1, errors="raise").reset_index(names='t_idx').rename_axis(index='idx')
-    
+    data = (
+        data.rename(
+            {time_col: RawData.time, amp_col: RawData.amp}, axis=1, errors="raise"
+        )
+        .reset_index(names="t_idx")
+        .rename_axis(index="idx")
+    )
+
     data = DataFrame[RawData](data)
-    
+
     return data
+
 
 @pytest.fixture
 def ringland_shz_dset():
     path = "tests/tests_jonathan/test_data/a0301_2021_chris_ringland_shiraz.csv"
-    
+
     dset = pd.read_csv(path)
-    dset = dset[['time', 'signal']]
+    dset = dset[["time", "signal"]]
     cleaned_dset = prepare_dataset_for_input(dset, "time", "signal")
     return cleaned_dset
 
+
 @pytest.fixture
-def asschrom_dset(
-):
-    path="tests/test_data/test_assessment_chrom.csv"
-    
+def asschrom_dset():
+    path = "tests/test_data/test_assessment_chrom.csv"
+
     dset = pd.read_csv(path)
-    
+
     cleaned_dset = prepare_dataset_for_input(dset, "x", "y")
-    
+
     return cleaned_dset
+
 
 # @pytest.fixture
 # @pa.check_types
@@ -82,8 +88,9 @@ def asschrom_dset(
 @pa.check_types
 def in_signal(
     ringland_shz_dset,
-    ) -> DataFrame[RawData]:
+) -> DataFrame[RawData]:
     return ringland_shz_dset
+
 
 @pytest.fixture
 def time_colname():
@@ -94,8 +101,9 @@ def time_colname():
 def amp_col():
     return "amp"
 
+
 @pytest.fixture
-def time(in_signal: DataFrame[RawData])->Series[float64]:
+def time(in_signal: DataFrame[RawData]) -> Series[float64]:
     return Series[float64](in_signal["time"])
 
 
@@ -110,14 +118,17 @@ def cb():
     cb = CorrectBaseline(window_size=0.65)
     return cb
 
+
 @pytest.fixture
 def windowsize():
     return 5
+
 
 @pytest.fixture
 def amp_colname(amp_col: str) -> str:
     bcorr_col_str: str = amp_col
     return bcorr_col_str
+
 
 @pytest.fixture
 def background_colname():
@@ -131,16 +142,17 @@ def background(bcorrected_signal_df, background_colname):
 
 @pytest.fixture
 def dc(
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
     asschrom_ws: DataFrame[WindowedSignal],
     timestep: float64,
-    ) -> PeakDeconvolver:
+) -> PeakDeconvolver:
     dc = PeakDeconvolver(
         pm=peak_map,
         ws=asschrom_ws,
         timestep=timestep,
     )
     return dc
+
 
 @pytest.fixture
 def int_col():
@@ -168,8 +180,9 @@ def peak_report(
         stored_popt,
         psignals,
     )
- 
+
     return peak_report
+
 
 @pytest.fixture
 def popt_parqpath():
@@ -189,21 +202,21 @@ def stored_popt(popt_parqpath):
 
 @pytest.fixture
 def left_bases(
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
 ) -> Series[int64]:
-    
+
     left_bases: Series[int64] = Series[int64](
-        peak_map[PeakMap.pb_left_idx], dtype=int64
+        peak_map[PeakMapWide.pb_left_idx], dtype=int64
     )
     return left_bases
 
 
 @pytest.fixture
 def right_bases(
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
 ) -> Series[int64]:
     right_bases: Series[int64] = Series[int64](
-        peak_map[PeakMap.pb_right_idx], dtype=int64
+        peak_map[PeakMapWide.pb_right_idx], dtype=int64
     )
     return right_bases
 
@@ -213,8 +226,9 @@ def mw() -> MapWindows:
     mw = MapWindows()
     return mw
 
+
 @pytest.fixture
-def prom()->float:
+def prom() -> float:
     return 0.01
 
 
@@ -232,24 +246,26 @@ def asschrom_ws(
         time,
         amp_bcorr,
     )
-    
+
     return ws
+
 
 @pytest.fixture
 def r_signal(
     dc: PeakDeconvolver,
     psignals: DataFrame[PSignals],
-)-> DataFrame[RSignal]:
-    
+) -> DataFrame[RSignal]:
+
     r_signal = dc._reconstruct_signal(psignals)
-    
+
     return r_signal
 
+
 @pytest.fixture
-def fa(
-) -> FitAssessment:
+def fa() -> FitAssessment:
     fa = FitAssessment()
     return fa
+
 
 @pytest.fixture
 def scores(
@@ -262,55 +278,61 @@ def scores(
 
     return scores
 
+
 @pytest.fixture
 def amp_raw(
     in_signal: DataFrame[RawData],
-    in_signal_amp_col:str,
+    in_signal_amp_col: str,
 ) -> Series[float64]:
     amp = in_signal[in_signal_amp_col]
     return amp
+
 
 @pytest.fixture
 def amp_bcorr(
     cb: CorrectBaseline,
     amp_raw: NDArray[float64],
     timestep: float64,
-    ) -> Series[float64]:
-    
+) -> Series[float64]:
+
     bcorr = cb.fit(amp_raw, timestep).transform().corrected
     return bcorr
 
-@pytest.fixture
-def in_signal_amp_col()->str:
-    return "amp"
 
 @pytest.fixture
-def mp(
-)->MapPeaks:
+def in_signal_amp_col() -> str:
+    return "amp"
+
+
+@pytest.fixture
+def mp() -> MapPeaks:
     pm = MapPeaks(prominence=0.01)
     return pm
+
 
 @pytest.fixture
 def peak_map(
     mp: MapPeaks,
     X: DataFrame[X_Schema],
-) -> DataFrame[PeakMap]:
-    
+) -> DataFrame[PeakMapWide]:
+
     mp.fit(
         X=X,
-        )
+    )
     mp.transform()
-    
+
     pm = mp.peak_map
     return pm
+
 
 @pytest.fixture
 def X(
     amp_bcorr: Series[float64],
     mw: MapWindows,
-)->DataFrame[X_Schema]:
-    X = DataFrame[X_Schema]({mw._X_colname:amp_bcorr})
+) -> DataFrame[X_Schema]:
+    X = DataFrame[X_Schema]({mw._X_colname: amp_bcorr})
     return X
+
 
 @pytest.fixture
 @pa.check_types
@@ -319,7 +341,7 @@ def X_w(
     X: DataFrame[X_Schema],
     timestep: float,
 ) -> DataFrame[WindowedSignal]:
-    
+
     X_w = mw.fit(X, timestep).transform().X_w
-    
+
     return X_w

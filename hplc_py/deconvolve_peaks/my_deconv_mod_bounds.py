@@ -35,6 +35,7 @@
 
     This test class now contains methods pertaining to the preparation stage of the deconvolution process.
 """
+
 import polars as pl
 from dataclasses import dataclass, field
 from typing import Literal, Type, Self, cast
@@ -60,7 +61,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WindowedSignal,
 )
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
 from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
 
 from hplc_py.pandera_helpers import PanderaSchemaMethods
@@ -69,7 +70,7 @@ WhichOpt = Literal["jax", "scipy"]
 WhichFitFunc = Literal["jax", "scipy"]
 
 
-class WdwPeakMap(PeakMap):
+class WdwPeakMapWide(PeakMapWide):
     w_type: pd.StringDtype
     w_idx: int64
 
@@ -107,30 +108,26 @@ class PanderaMixin:
             err.add_note("\n\n")
             err.add_note(err.data.to_markdown())
             raise err
-        
+
         out_df = DataFrame[schema](df_)
 
         return out_df
-    
-    def get_sch_colorder(
-        self,
-        sch
-    ):  
+
+    def get_sch_colorder(self, sch):
 
         # have to convert to schema object first as if the column has a field object assignment the __schema__ attribute is uninitialized at runtime
         return list(sch.to_schema().columns.keys())
-            
 
 
 @dataclass
 class DataPrepper(PanderaMixin):
     ws_sc: Type[WindowedSignal] = WindowedSignal
     ws: pd.DataFrame = field(default_factory=pd.DataFrame)
-    
-    pm_sc: Type[PeakMap] = PeakMap
+
+    pm_sc: Type[PeakMapWide] = PeakMapWide
     pm: pd.DataFrame = field(default_factory=pd.DataFrame)
 
-    wpm_sc: Type[WdwPeakMap] = WdwPeakMap
+    wpm_sc: Type[WdwPeakMapWide] = WdwPeakMapWide
     wpm: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     inp0_sc: Type[InP0] = InP0
@@ -163,25 +160,23 @@ class DataPrepper(PanderaMixin):
         self,
         pm,
         ws,
-    ) -> DataFrame[WdwPeakMap]:
+    ) -> DataFrame[WdwPeakMapWide]:
         wpm_ = pm.copy(deep=True)
         ws_ = ws.copy(deep=True)
-        
+
         t = str(self.ws_sc.time)
         t_idx = str(self.ws_sc.t_idx)
         w_type = str(self.ws_sc.w_type)
         w_idx = str(self.ws_sc.w_idx)
-        
+
         wpm_ = wpm_.reset_index().set_index(t_idx)
 
-        ws_ = ws_[[t_idx,w_type, w_idx]].set_index(
-            t_idx
-        )
+        ws_ = ws_[[t_idx, w_type, w_idx]].set_index(t_idx)
 
         wpm_ = wpm_.join(ws_, how="left", validate="1:1").reset_index()
         wpm_idx_cols = self.get_sch_colorder(self.wpm_sc)
         wpm_ = wpm_.set_index(wpm_idx_cols).reset_index().set_index(self.wpm_sc.idx)
-        
+
         self.wpm = self.try_validate(wpm_, self.wpm_sc)
 
         return self.wpm
@@ -346,7 +341,6 @@ class DataPrepper(PanderaMixin):
         bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.lb] = -np.inf
         bounds_.loc[pd.IndexSlice[:, :, P0SKEW], self.bds_sc.ub] = np.inf
 
-        
         column_ordering = self.get_sch_colorder(self.bds_sc)
 
         bounds_ = bounds_.reset_index()
@@ -358,10 +352,9 @@ class DataPrepper(PanderaMixin):
 
         return self.bounds
 
-
     def _prepare_params(
         self,
-        pm: DataFrame[PeakMap],
+        pm: DataFrame[PeakMapWide],
         ws: DataFrame[WindowedSignal],
         timestep: float64,
     ) -> DataFrame[Params]:
@@ -449,29 +442,29 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
     def __init__(
         self,
-        pm: DataFrame[PeakMap],
+        pm: DataFrame[PeakMapWide],
         ws: DataFrame[WindowedSignal],
         timestep: float64,
         which_opt: WhichOpt = "jax",
         which_fit_func: WhichFitFunc = "jax",
     ):
         self.__dp = DataPrepper()
-        
+
         # internal schemas
         self.r_signal_sch = RSignal
         self.ws_sc: Type[WindowedSignal] = WindowedSignal
-        self.pm_sc: Type[PeakMap] = PeakMap
-        self.wpm_sc: Type[WdwPeakMap] = WdwPeakMap
+        self.pm_sc: Type[PeakMapWide] = PeakMapWide
+        self.wpm_sc: Type[WdwPeakMapWide] = WdwPeakMapWide
         self.inp0_sc: Type[InP0] = InP0
         self.p0_sc: Type[P0] = P0
         self.bds_sc: Type[Bounds] = Bounds
         self.prm_sc: Type[Bounds] = Params
         self.psig_sc: Type[PSignals] = PSignals
-        
+
         # input validation
         self.pm = self.pm_sc.to_schema().validate(pm)
         self.ws = self.ws_sc.to_schema().validate(ws)
-        
+
         self.timestep = timestep
 
         if which_opt not in WhichOpt.__args__:  # type: ignore
@@ -485,7 +478,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
             raise ValueError(
                 "Please pair the fit func with its corresponding optimizer"
             )
-        
+
         self.optfunc = self.get_optimizer(which_opt)
         self.fit_func = self.get_fit_func(which_fit_func)
 
@@ -503,7 +496,6 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         """
 
         # as of 2024-01-30 16:37:00 cant use @check_types on columns with regex aliases (i.e. amp/amp_corrected) as it doesnt seem to be detecting `regex=True`. Work around is to validate as a schema obj.
-        
 
         # checks
         params = self.__dp._prepare_params(self.pm, self.ws, self.timestep)
@@ -522,17 +514,20 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         popt_df = DataFrame[Popt](popt_df)
         psignals = DataFrame[PSignals](recon_)
 
-        
         self.popt_df = popt_df
         self.psignals = psignals
         self.rsignal = self._reconstruct_signal(psignals)
-        
+
         rs = pl.from_pandas(self.rsignal)
         ws = pl.from_pandas(self.ws)
-        
-        self.ws = ws.join(rs.select(['t_idx', 'amp_unmixed']), on='t_idx', how='left').to_pandas().rename_axis(index='idx')
+
+        self.ws = (
+            ws.join(rs.select(["t_idx", "amp_unmixed"]), on="t_idx", how="left")
+            .to_pandas()
+            .rename_axis(index="idx")
+        )
         self.preport = self._get_peak_report(self.popt_df, self.psignals)
-        
+
         return self
 
     def _get_peak_report(
@@ -677,7 +672,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
             popt_df: DataFrame[Popt],
             time: Series[float64],
         ) -> pd.DataFrame:
-            
+
             self.check_container_is_type(time, pd.Series, float64)
 
             params = popt_df.loc[
@@ -706,31 +701,35 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         p_signals_ = popt_df.groupby(
             by=["p_idx"],
             group_keys=False,
-        ).apply(construct_peak_signal, time)  # type: ignore
+        ).apply(
+            construct_peak_signal, time
+        )  # type: ignore
 
         peak_signals = p_signals_.reset_index(drop=True)
 
         return peak_signals
-    
+
     @pa.check_types
-    def _reconstruct_signal(self, peak_signals: DataFrame[PSignals])->DataFrame[RSignal]:
-        
+    def _reconstruct_signal(
+        self, peak_signals: DataFrame[PSignals]
+    ) -> DataFrame[RSignal]:
+
         p_idx = str(self.psig_sc.p_idx)
         t_idx = str(self.psig_sc.t_idx)
         t = str(self.psig_sc.time)
         unmx = str(self.psig_sc.amp_unmixed)
-        
-        peak_signals_: pl.DataFrame = pl.from_pandas(peak_signals) #type: ignore
 
-        
+        peak_signals_: pl.DataFrame = pl.from_pandas(peak_signals)  # type: ignore
+
         recon_sig = peak_signals_.pivot(
-            columns=p_idx, index=[t_idx, t], values=unmx).select(
+            columns=p_idx, index=[t_idx, t], values=unmx
+        ).select(
             pl.col(t_idx, t),
             pl.sum_horizontal(pl.exclude([t_idx, t])).alias(unmx),
         )
 
-        recon_sig_ = recon_sig.to_pandas().rename_axis(index='idx')
-        
+        recon_sig_ = recon_sig.to_pandas().rename_axis(index="idx")
+
         RSignal.validate(recon_sig_, lazy=True)
         recon = DataFrame[RSignal](recon_sig_)
 

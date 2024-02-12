@@ -21,7 +21,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
-from hplc_py.map_signals.map_peaks.map_peaks import PeakMap
+from hplc_py.map_signals.map_peaks.map_peaks import PeakMapWide
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 
 from .map_peaks.map_peaks import MapPeaks
@@ -47,12 +47,12 @@ class MapWindows(IOValid):
         self.X_w = pl.DataFrame()
 
     def fit(self, X: DataFrame[X_Schema], timestep: float, y=None) -> Self:
-        
+
         if isinstance(X, DataFrame):
-            self.X=pl.from_pandas(X)
+            self.X = pl.from_pandas(X)
         else:
             self.X = X
-            
+
         self.timestep = timestep
         self.mp.fit(X=X)
 
@@ -75,8 +75,6 @@ class MapWindows(IOValid):
 
         peak_wdw_intvls = self._p_wdw_intvl_factory(left_bases, right_bases)
         self.X_w: DataFrame[X_Windowed] = self._window_X(self.X, peak_wdw_intvls)
-
-        
 
         return self
 
@@ -325,7 +323,7 @@ class MapWindows(IOValid):
 
         # left join time idx to peak windows and peak types, leaving na's to be filled
         # with a placeholder and 'interpeak', respectively.
-        
+
         X_pw_broadcast = (
             X.with_row_index(self._X_idx_colname)
             .join(p_wdws_, on=self._X_idx_colname, how="left")
@@ -390,7 +388,9 @@ class MapWindows(IOValid):
 
         return X_w
 
-    def _window_X(self, X: DataFrame[X_Schema], peak_wdw_intvls: dict[int, pd.Interval])->DataFrame[X_Windowed]:
+    def _window_X(
+        self, X: DataFrame[X_Schema], peak_wdw_intvls: dict[int, pd.Interval]
+    ) -> DataFrame[X_Windowed]:
         """
         Window X by broadcasting the identified peak window intervals to the length
         of the signal. Patterns in missing window labels are coded as interpeak with

@@ -17,7 +17,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WHH,
     FindPeaks,
     PeakBases,
-    PeakMap,
+    PeakMapWide,
     X_Schema,
 )
 
@@ -42,9 +42,9 @@ class MapPeaks(IOValid):
         self._prominence = prominence
         self._wlen = wlen
         self._find_peaks_kwargs = find_peaks_kwargs
-        
+
         self._X_colname: str = "X"
-        
+
         self._idx_name: Literal["idx"] = "idx"
         self._p_idx_col: Literal["p_idx"] = "p_idx"
         self._p_idx_colname: Literal["X_idx"] = "X_idx"
@@ -68,15 +68,15 @@ class MapPeaks(IOValid):
         self,
         X: DataFrame[X_Schema],
         y=None,
-    )->Self:
+    ) -> Self:
         """
         In this case, simply stores X and the timestep
         """
-        
+
         self.X = X
-        
+
         return self
-        
+
     @pa.check_types()
     def transform(
         self,
@@ -145,47 +145,46 @@ class MapPeaks(IOValid):
 
         if wlen:
             self._check_scalar_is_type(wlen, int, "wlen")
-        
+
         if not isinstance(prominence, float):
             raise TypeError(f"expected prominance to be {float}")
-        
+
         if (prominence < 0) | (prominence > 1):
             raise ValueError("expect prominence to be a float between 0 and 1")
-        
+
         if not isinstance(find_peaks_kwargs, dict):
             raise TypeError("Expect find_peaks_kwargs to be a dict")
-        
+
         prom_ = prominence * X.max().iat[0]
-        
+
         p_idx, _dict = signal.find_peaks(
             X[self._X_colname],
             prominence=prom_,
             wlen=wlen,
             **find_peaks_kwargs,
         )
-        
+
         fp = DataFrame[FindPeaks](
-            X
-            .loc[p_idx]
-            .assign(
-                **{
-                    self._p_idx_colname: p_idx,
-                    **_dict
-                }
-            )
+            X.loc[p_idx]
+            .assign(**{self._p_idx_colname: p_idx, **_dict})
             .reset_index(drop=True)
             .reset_index(names=self._p_idx_col)
             .rename_axis(index=self._idx_name)
             .rename(
-            {
-                "prominences": self._prom_col,
-                "left_bases": self._prom_lb_col,
-                "right_bases": self._prom_rb_col,
-                self._X_colname: self._maxima_colname,
-            },
-            axis=1,
+                {
+                    "prominences": self._prom_col,
+                    "left_bases": self._prom_lb_col,
+                    "right_bases": self._prom_rb_col,
+                    self._X_colname: self._maxima_colname,
+                },
+                axis=1,
             )
-            .loc[:, lambda df: df.columns.drop(self._maxima_colname).insert(2, self._maxima_colname)]
+            .loc[
+                :,
+                lambda df: df.columns.drop(self._maxima_colname).insert(
+                    2, self._maxima_colname
+                ),
+            ]
         )
 
         return fp
@@ -217,7 +216,7 @@ class MapPeaks(IOValid):
         h_key = prefix + "_height"
         left_ips_key = prefix + "_left"
         right_ips_key = prefix + "_right"
-        
+
         w, h, left_ips, right_ips = signal.peak_widths(
             X[self._X_colname],
             peak_t_idx,
@@ -245,7 +244,8 @@ class MapPeaks(IOValid):
         fp: DataFrame[FindPeaks],
         whh: DataFrame[WHH],
         pb: DataFrame[PeakBases],
-    ) -> DataFrame[PeakMap]:
+    ) -> DataFrame[PeakMapWide]:
+
         pm_ = pd.concat(
             [
                 fp,
@@ -254,15 +254,9 @@ class MapPeaks(IOValid):
             ],
             axis=1,
         )
-        try:
-            pm: DataFrame[PeakMap] = DataFrame[PeakMap](pm_)
+        # .melt(id_vars="p_idx", var_name="prop", value_name="value")
 
-            PeakMap.validate(pm_, lazy=True)
-
-        except pa.errors.SchemaError as e:
-            raise e
-        else:
-            pm: DataFrame[PeakMap] = DataFrame[PeakMap](pm_)
+        pm = PeakMapWide.validate(pm_, lazy=True)
 
         return pm
 

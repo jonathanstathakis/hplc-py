@@ -22,16 +22,17 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WHH,
     FindPeaks,
     PeakBases,
-    PeakMap,
+    PeakMapWide,
     X_Schema,
 )
 
 from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PPD
-from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakMapViz
+from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakMapWideViz
 from hplc_py.show import SignalPlotter
 from matplotlib.axes import Axes
 
 pl.Config(set_tbl_cols=50)
+
 
 def test_set_fp(
     fp: DataFrame[FindPeaks],
@@ -58,9 +59,11 @@ def test_set_pb(
 
 
 def test_map_peaks(
-    peak_map: DataFrame[PeakMap],
+    peak_map: DataFrame[PeakMapWide],
 ) -> None:
-    PeakMap(peak_map, lazy=True)
+    PeakMapWide(peak_map, lazy=True)
+
+
 #######################################
 
 
@@ -72,6 +75,7 @@ def prom() -> float:
 @pytest.fixture
 def wlen() -> None:
     return None
+
 
 @pytest.fixture
 def fp(
@@ -101,7 +105,7 @@ def pb_rel_height() -> float:
 
 @pytest.fixture
 def pt_idx_col():
-    return str(FindPeaks.t_idx)
+    return str(FindPeaks.X_idx)
 
 
 @pytest.fixture

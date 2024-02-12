@@ -28,16 +28,16 @@ class BaseDF(pa.DataFrameModel):
     contain a index named 'idx' which is the default RangedIndex
     """
 
-    idx: Index[int] = pa.Field(check_name=True)
+    # idx: Index[int] = pa.Field(check_name=True)
 
-    @pa.check(
-        "idx", name="idx_check", error="expected range index bounded by 0 and len(df)"
-    )
-    def check_is_range_index(cls, idx: Series[int]) -> bool:
-        left_idx = pd.RangeIndex(0, len(idx) - 1)
-        right_idx = pd.RangeIndex(idx.iloc[0], idx.iloc[-1])
-        check = left_idx.equals(right_idx)
-        return check
+    # @pa.check(
+    #     "idx", name="idx_check", error="expected range index bounded by 0 and len(df)"
+    # )
+    # def check_is_range_index(cls, idx: Series[int]) -> bool:
+    #     left_idx = pd.RangeIndex(0, len(idx) - 1)
+    #     right_idx = pd.RangeIndex(idx.iloc[0], idx.iloc[-1])
+    #     check = left_idx.equals(right_idx)
+    #     return check
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -45,10 +45,12 @@ class BaseDF(pa.DataFrameModel):
         name = "BaseDF"
         coerce = True
 
+
 class Data(pa.DataFrameModel):
     """
     The central datastorage table of the Chromatogram object
     """
+
     w_type: Optional[String]
     w_idx: Optional[int64]
     t_idx: int64
@@ -56,19 +58,19 @@ class Data(pa.DataFrameModel):
     amp: float64
     amp_raw: Optional[float64]
     background: Optional[float64]
-    
+
     class Config:
-        name="Data"
-        coerce=True
-        ordered=True
-        strict=True
-    
+        name = "Data"
+        coerce = True
+        ordered = True
+        strict = True
 
 
 class RawData(BaseDF):
     """
     The base signal, with time and amplitude directions
     """
+
     t_idx: int64
     time: float64
     amp: float64
@@ -78,7 +80,6 @@ class RawData(BaseDF):
         ordered = True
         name = "SignalDFLoaded"
         coerce = True
-        
 
 
 class SignalDFBCorr(Data):
@@ -99,7 +100,7 @@ class FindPeaks(BaseDF):
     prom: float64
     prom_left: int64
     prom_right: int64
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
@@ -114,14 +115,14 @@ class WHH(BaseDF):
     whh_height: float64
     whh_left: float64
     whh_right: float64
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
         name = "WHH"
         coerce = True
-    
-    
+
+
 class PeakBases(BaseDF):
     p_idx: int64
     pb_rel_height: float64
@@ -129,7 +130,7 @@ class PeakBases(BaseDF):
     pb_height: float64
     pb_left: float64
     pb_right: float64
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
@@ -137,15 +138,56 @@ class PeakBases(BaseDF):
         coerce = True
 
 
-class PeakMap(
+class PeakMapWide(
     PeakBases,
     WHH,
     FindPeaks,
 ):
     class Config(HPLCBaseConfig):
         col_a_less_than_col_b = {"col_a": "whh_width", "col_b": "pb_width"}
-        name = "PeakMap"
-        
+        name = "PeakMapWide"
+
+
+class PeakMapLong(pa.DataFrameModel):
+    """
+    Long form frame containing the concatenated peak property information indexed
+    by peak number sorted by time
+    """
+
+    p_idx: int = pa.Field(ge=0)
+    prop: str = pa.Field(
+        isin=[
+            "X_idx",
+            "maxima",
+            "prom",
+            "prom_left",
+            "prom_right",
+            "whh_rel_height",
+            "whh_width",
+            "whh_height",
+            "whh_left",
+            "whh_right",
+            "pb_rel_height",
+            "pb_width",
+            "pb_height",
+            "pb_left",
+            "pb_right",
+        ]
+    )
+    value: float = pa.Field(ge=-0.1e-10)
+
+
+class PeakMapWideColored(
+    PeakBases,
+    WHH,
+    FindPeaks,
+):
+    color: object
+
+    class Config(HPLCBaseConfig):
+        col_a_less_than_col_b = {"col_a": "whh_width", "col_b": "pb_width"}
+        name = "PeakMapWide"
+
 
 class P0(BaseDF):
     """
@@ -162,19 +204,21 @@ class P0(BaseDF):
         ordered = True
         name = "P0"
         coerce = True
-    
+
+
 class Bounds(BaseDF):
     w_idx: int64
     p_idx: int64
     param: pd.CategoricalDtype
     lb: float64 = pa.Field(nullable=False)
     ub: float64 = pa.Field(nullable=False)
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
         name = "Bounds"
         coerce = True
+
 
 class Params(Bounds, P0):
     pass
@@ -184,12 +228,11 @@ class Params(Bounds, P0):
         ordered = True
         name = "Params"
         coerce = True
-        
-        
+
         col_in_lb = {"col": "p0", "col_lb": "lb"}
         col_in_ub = {"col": "p0", "col_ub": "ub"}
-        
-        
+
+
 class Popt(BaseDF):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
@@ -230,20 +273,22 @@ class RSignal(BaseDF):
     t_idx: int64
     time: float64
     amp_unmixed: float64
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
         name = "RSignal"
         coerce = True
-        description = "The reconstituted signal, summation of the individual peak signals"
+        description = (
+            "The reconstituted signal, summation of the individual peak signals"
+        )
 
 
 class PReport(Popt):
     retention_time: float64
     area_unmixed: float64
     maxima_unmixed: float64
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = False
@@ -255,6 +300,7 @@ class WindowedSignal(pa.DataFrameModel):
     """
     Inherit from data, but w_type and w_idx are compulsory
     """
+
     w_type: String
     w_idx: int64
     X: float64
@@ -276,6 +322,7 @@ class PeakWindows(BaseDF):
         ordered = True
         name = "PeakWindows"
         coerce = True
+
 
 # 2024-01-29 10:50:49 JS: where is this used?
 class IPBounds(BaseDF):
@@ -304,7 +351,7 @@ class X_PeakWindowed(BaseDF):
     peak windowed time dataframe, with placeholders for nonpeak regions. An intermediate frame prior to full mapping
     """
 
-    w_type: String = pa.Field(isin=['peak','interpeak'])
+    w_type: String = pa.Field(isin=["peak", "interpeak"])
     w_idx: int64
     X: float64
 
@@ -313,17 +360,17 @@ class X_PeakWindowed(BaseDF):
         ordered = True
         name = "X_PeakWindowed"
         coerce = True
-        
+
 
 class X_Windowed(X_PeakWindowed):
     w_idx: int64 = pa.Field(gt=-1)
-    
+
     class Config(HPLCBaseConfig):
         strict = True
         ordered = True
         name = "X_Windowed"
         coerce = True
-        
+
 
 class FitAssessScores(pa.DataFrameModel):
     """
@@ -344,29 +391,29 @@ class FitAssessScores(pa.DataFrameModel):
     tolcheck: float64 = pa.Field()
     tolpass: bool = pa.Field()
     u_peak_fano: float64 = pa.Field()
-    fano_div: float64 = pa.Field() 
+    fano_div: float64 = pa.Field()
     fanopass: bool = pa.Field()
     status: str = pa.Field()
     grade: str = pa.Field()
-    color_tuple: str=pa.Field()
+    color_tuple: str = pa.Field()
 
     class Config:
 
-        name="FitAssessScores"
-        ordered=True
-        coerce=True
-        strict=True
-        
+        name = "FitAssessScores"
+        ordered = True
+        coerce = True
+        strict = True
+
+
 class X_Schema(pa.DataFrameModel):
     X: float64
-    
+
     class Config:
-        strict=True
-        description="A simplistic container for the signal array"
-        
+        strict = True
+        description = "A simplistic container for the signal array"
 
 
-class WdwPeakMap(PeakMap):
+class WdwPeakMapWide(PeakMapWide):
     w_type: pd.StringDtype
     w_idx: int64
 
