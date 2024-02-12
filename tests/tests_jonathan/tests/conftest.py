@@ -328,7 +328,7 @@ def X(
     amp_bcorr: Series[float64],
     mw: MapWindows,
 ) -> DataFrame[X_Schema]:
-    X = DataFrame[X_Schema]({mw._X_colname: amp_bcorr})
+    X = DataFrame[X_Schema]({str(X_Schema.X): amp_bcorr})
     return X
 
 
