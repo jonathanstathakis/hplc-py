@@ -9,7 +9,7 @@ from numpy import float64, int64
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 
-from hplc_py.baseline_correct.correct_baseline import CorrectBaseline
+from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.fit_assessment import FitAssessment

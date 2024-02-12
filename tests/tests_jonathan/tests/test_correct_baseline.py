@@ -1,6 +1,7 @@
 """
 Test all aspects of the baseline correction module, which attempts to be as pure as possible, relying on numpy rather than higher level data structures, with the intention of porting to JAX at some point in the future.
 """
+
 import pandera as pa
 import numpy as np
 import pytest
@@ -8,11 +9,13 @@ from numpy import float64
 from numpy.typing import NDArray
 from pandera.typing.pandas import DataFrame, Series
 
-from hplc_py.baseline_correct.correct_baseline import CorrectBaseline
+from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.hplc_py_typing.hplc_py_typing import RawData
+
 
 def test_s_compressed_prime_exec(s_compressed_prime: NDArray[float64]):
     pass
+
 
 def test_correct_baseline(
     amp_raw: Series[float64],
@@ -26,11 +29,10 @@ def test_correct_baseline(
     assert amp_raw.abs().mean() > amp_bcorr.abs().mean()
 
 
-
-
 @pytest.fixture
 def windowsize():
     return 5
+
 
 @pytest.fixture
 def shift(
@@ -75,6 +77,12 @@ def n_iter(cb: CorrectBaseline, windowsize: int, timestep: float64):
     n_iter = cb._compute_n_iter(windowsize, timestep)
 
     return n_iter
+
+
+def test_compute_n_iter(n_iter):
+    assert n_iter > 0
+    
+    pass
 
 
 @pytest.fixture

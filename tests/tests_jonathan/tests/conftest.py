@@ -1,3 +1,4 @@
+import numpy as np
 import pandera as pa
 import os
 from typing import Any, Literal
@@ -10,7 +11,7 @@ from numpy import float64, int64
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 
-from hplc_py.baseline_correct.correct_baseline import CorrectBaseline, SignalDFBCorr
+from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.deconvolve_peaks.deconvolution import DataPrepper, PeakDeconvolver
 from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b  # noqa: F401
 from hplc_py.hplc_py_typing.hplc_py_typing import (
@@ -295,7 +296,9 @@ def amp_bcorr(
     timestep: float64,
 ) -> Series[float64]:
 
-    bcorr = cb.fit(amp_raw, timestep).transform().corrected
+    background = cb.fit(amp_raw, timestep).transform().background
+    
+    bcorr = np.subtract(amp_raw, background)
     return bcorr
 
 
