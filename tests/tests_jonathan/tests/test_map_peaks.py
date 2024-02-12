@@ -1,22 +1,12 @@
-from matplotlib.figure import Figure
-from numpy import float64, int64
+from numpy import int64
 from numpy.typing import NDArray
 
 import polars as pl
-import polars.selectors as ps
-import polars.testing as polt
 
-from typing import Any, Literal
 
-import matplotlib.pyplot as plt
-import pandas as pd
 import pytest
-from pandera.typing import Series, DataFrame
+from pandera.typing import DataFrame
 import pandera as pa
-
-from hplc_py.baseline_correct.correct_baseline import SignalDFBCorr
-
-from hplc_py.io_validation import IOValid
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     WHH,
@@ -27,9 +17,6 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 )
 
 from hplc_py.map_signals.map_peaks.map_peaks import MapPeaks, PPD
-from hplc_py.map_signals.map_peaks.map_peaks_viz import PeakMapWideViz
-from hplc_py.show import SignalPlotter
-from matplotlib.axes import Axes
 
 pl.Config(set_tbl_cols=50)
 
@@ -76,7 +63,7 @@ def prom() -> float:
 def wlen() -> None:
     return None
 
-
+from hplc_py.map_peaks im
 @pytest.fixture
 def fp(
     X: DataFrame[X_Schema],
@@ -84,7 +71,7 @@ def fp(
     mp: MapPeaks,
     wlen: None,
 ) -> DataFrame[FindPeaks]:
-    fp = mp._set_findpeaks(
+    fp = set_findpeaks(
         X=X,
         prominence=prom,
         wlen=wlen,

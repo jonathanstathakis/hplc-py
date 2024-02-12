@@ -433,3 +433,13 @@ class InP0(pa.DataFrameModel):
         name = "in_p0"
         ordered = False
         strict = True
+
+
+class ColorMap(pa.DataFrameModel):
+    """
+    A table mapping unique p_idxs to distinct colors. Use once to generate the mapping
+    then join to the table as needed.
+    """
+
+    p_idx: int = pa.Field(ge=0)
+    color: object
