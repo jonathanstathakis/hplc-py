@@ -1,3 +1,4 @@
+import polars as pl
 import numpy as np
 import pandera as pa
 
@@ -18,6 +19,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     WindowedSignal,
     RSignal,
     X_Schema,
+    X_Windowed,
 )
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_windows.map_windows import MapWindows
@@ -40,13 +42,9 @@ def prepare_dataset_for_input(
     :param amp_col: the y column to be renamed to match the schema
     :type time_col: str
     """
-    data = (
-        data.rename(
-            {time_col: RawData.time, amp_col: RawData.amp}, axis=1, errors="raise"
-        )
-        .reset_index(names="t_idx")
-        .rename_axis(index="idx")
-    )
+    data = data.rename(
+        {time_col: RawData.time, amp_col: RawData.amp}, axis=1, errors="raise"
+    ).reset_index(names="t_idx")
 
     data = DataFrame[RawData](data)
 
@@ -326,9 +324,10 @@ def peak_map(
 @pytest.fixture
 def X(
     amp_bcorr: Series[float64],
-    mw: MapWindows,
 ) -> DataFrame[X_Schema]:
-    X = DataFrame[X_Schema]({str(X_Schema.X): amp_bcorr})
+    X_ = amp_bcorr.to_frame(name="X").reset_index(names="X_idx").astype({"X_idx": int})
+
+    X = DataFrame[X_Schema](X_)
     return X
 
 
@@ -338,8 +337,30 @@ def X_w(
     mw: MapWindows,
     X: DataFrame[X_Schema],
     timestep: float,
-) -> DataFrame[WindowedSignal]:
+) -> DataFrame[X_Windowed]:
 
     X_w = mw.fit(X, timestep).transform().X_w
 
     return X_w
+
+
+@pytest.fixture
+def X_idx(X: DataFrame[X_Schema], mw: MapWindows):
+    X_idx = pl.DataFrame({X_Schema.X: np.arange(0, len(X), 1)})
+
+    return X_idx
+
+
+@pytest.fixture
+def X_idx_key():
+    return "X_idx"
+
+
+@pytest.fixture
+def w_type_key():
+    return "w_type"
+
+
+@pytest.fixture
+def w_idx_key():
+    return "w_idx"

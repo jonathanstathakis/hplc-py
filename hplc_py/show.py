@@ -26,66 +26,7 @@ Module for vizualisation, primarily the "Show" class
 """
 
 
-        
-
-class DrawPeakWindows:
-    def __init__(self):
-        self._sch_data: Type[WindowedSignal] = WindowedSignal
-
-    @pa.check_types
-    def draw_peak_windows(
-        self,
-        ws: DataFrame[WindowedSignal],
-        ax: Axes,
-        vspan_kwargs: dict = {},
-    ):
-        """
-        Plot each window as a Rectangle
-
-        height is the maxima of the signal.
-        
-        """
-        
-        ws_ = pl.from_pandas(ws)
-        
-        if not isinstance(ws_, pl.DataFrame):
-            raise TypeError("expected ws to be a polars dataframe")
-        
-        window_bounds = self._find_window_bounds(ws_)
-        
-        grpby_obj = window_bounds.filter(pl.col("w_type") == "peak").group_by([
-            str(self._sch_data.w_idx)], maintain_order=True
-        )
-        
-
-        cmap = mpl.colormaps["Set1"].resampled(len(window_bounds))
-        
-        # handles, labels = ax.get_legend_handles_labels()
-
-        for label, grp in grpby_obj:
-            x0 = grp.item(0, "start")
-            x1 = grp.item(0, "end")
-            
-            # testing axvspan
-            
-            ax.axvspan(x0, x1, label=f"peak window {label}", color = cmap.colors[label], alpha=0.25, **vspan_kwargs)
-
-
-    def _find_window_bounds(self, ws_):
-        
-        window_bounds = (
-            ws_.group_by([self._sch_data.w_type, self._sch_data.w_idx])
-            .agg(
-                start=pl.col(str(self._sch_data.time)).first(),
-                end=pl.col(str(self._sch_data.time)).last(),
-            )
-            .sort("start")
-        )
-        
-        return window_bounds
-        
-        
-
+    
 class Show(
 ):
     def __init__(self):

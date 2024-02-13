@@ -35,13 +35,6 @@ def mw() -> MapWindows:
 
 
 @pytest.fixture
-def X_idx(X: DataFrame[X_Schema], mw: MapWindows):
-    X_idx = pl.DataFrame({X_Schema.X: np.arange(0, len(X), 1)})
-
-    return X_idx
-
-
-@pytest.fixture
 def left_bases(
     peak_map: DataFrame[PeakMapWide],
     mp: MapPeaks,
@@ -160,21 +153,6 @@ def peak_wdw_intvls(
 
 
 @pytest.fixture
-def X_idx_key():
-    return "X_idx"
-
-
-@pytest.fixture
-def w_type_key():
-    return "w_type"
-
-
-@pytest.fixture
-def w_idx_key():
-    return "w_idx"
-
-
-@pytest.fixture
 def X_idx_pw(
     peak_wdw_intvls: dict[int, pd.Interval],
     X_idx_key: str,
@@ -191,9 +169,11 @@ def X_idx_pw(
 
     return X_idx_w
 
+
 @pytest.fixture
 def null_fill():
     return -9999
+
 
 @pytest.fixture
 def X_pw(
@@ -213,8 +193,6 @@ def X_pw(
         null_fill=null_fill,
     )
     return X_pw
-
-
 
 
 @pytest.fixture

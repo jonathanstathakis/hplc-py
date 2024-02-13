@@ -1,3 +1,4 @@
+from pandera.dtypes import UInt64
 from pandera.dtypes import String
 import os
 import warnings
@@ -352,7 +353,8 @@ class X_PeakWindowed(BaseDF):
     """
 
     w_type: String = pa.Field(isin=["peak", "interpeak"])
-    w_idx: int64
+    w_idx: UInt64 = pa.Field(ge=0, le=10E9)
+    X_idx: int
     X: float64
 
     class Config(HPLCBaseConfig):
@@ -363,7 +365,7 @@ class X_PeakWindowed(BaseDF):
 
 
 class X_Windowed(X_PeakWindowed):
-    w_idx: int64 = pa.Field(gt=-1)
+    w_idx: int64 = pa.Field(ge=-9999, le=10)
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -406,6 +408,7 @@ class FitAssessScores(pa.DataFrameModel):
 
 
 class X_Schema(pa.DataFrameModel):
+    X_idx: int
     X: float64
 
     class Config:

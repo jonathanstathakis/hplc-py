@@ -1,41 +1,22 @@
-import matplotlib.pyplot as plt
+import polars as pl
 import pytest
-from pandera.typing.pandas import DataFrame
+from hplc_py.map_windows.viz import UI_WindowMapViz
+from hplc_py.map_windows.viz import draw_peak_windows
+from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide, X_Windowed
+from pandera.typing import DataFrame
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    WindowedSignal,
-)
-from hplc_py.show import DrawPeakWindows, SignalPlotter
 
-
-@pytest.fixture
-def dpw() -> DrawPeakWindows:
-    dpw = DrawPeakWindows()
-    return dpw
-
-@pytest.fixture
-def sp() -> SignalPlotter:
-    sp = SignalPlotter()
-    return sp
-
-def test_map_windows_plot(
-    dpw: DrawPeakWindows,
-    sp: SignalPlotter,
-    ws_: DataFrame[WindowedSignal],
-) -> None:
-    fig, ax = plt.subplots()
-
-    sp.plot_signal(
-        ax,
-        ws_,
-        str(WindowedSignal.time),
-        str(WindowedSignal.amp_corrected),
-        "signal",
-    )
-
-    dpw.draw_peak_windows(
-        ws_,
-        ax,
-    )
-
-    plt.show()
+def test_window_map_viz(
+    X: DataFrame[X_Schema],
+    peak_map: DataFrame[PeakMapWide],
+    X_w: DataFrame[X_Windowed],
+):
+    window_viz = UI_WindowMapViz(
+        peak_map=peak_map,
+        X_w=X_w,
+        ax=plt.gca(),
+        )
+    window_viz.draw_signal().draw_peak_windows().draw_base_edges().show()

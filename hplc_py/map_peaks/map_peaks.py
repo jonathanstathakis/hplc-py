@@ -127,7 +127,8 @@ def generate_peak_mapping(
 
     peak_t_idx = fp[X_idx_key].to_numpy(np.int64)
     
-    whh = width_df_factory(
+    whh = DataFrame[WHH](
+        width_df_factory(
         X=X,
         peak_t_idx=peak_t_idx,
         peak_prom_data=peak_prom_data,
@@ -136,8 +137,10 @@ def generate_peak_mapping(
         p_idx_key=p_idx_key,
         X_key=X_key,
     )
+    )
 
-    pb = width_df_factory(
+    pb = DataFrame[PeakBases](
+        width_df_factory(
         X=X,
         peak_t_idx=peak_t_idx,
         peak_prom_data=peak_prom_data,
@@ -145,6 +148,7 @@ def generate_peak_mapping(
         prefix="pb",
         p_idx_key=p_idx_key,
         X_key=X_key,
+    )
     )
 
     peak_map = set_peak_map(
@@ -182,7 +186,7 @@ def set_findpeaks(
     if not isinstance(find_peaks_kwargs, dict):
         raise TypeError("Expect find_peaks_kwargs to be a dict")
 
-    prom_ = prominence * X.max().iat[0]
+    prom_ = prominence * X[X_key].max()
 
     X_idx, _dict = signal.find_peaks(
         x=X[X_key],
