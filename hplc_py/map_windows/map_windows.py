@@ -510,7 +510,7 @@ def sanity_check_compare_frame_dict(
     """
     idx: int
     grp: pl.DataFrame
-    for idx, grp in window_peak_map_frame.groupby("w_idx"):
+    for idx, grp in window_peak_map_frame.group_by("w_idx"):
 
         dict_peaks = window_peak_map_dict[idx]
         isin = grp.select(pl.col("p_idx").is_in(dict_peaks).all()).item()
@@ -717,7 +717,7 @@ def pivot_wdw_bounds(df: pl.DataFrame, window_key: str, time_key: str):
     sorted by start time.
     """
     window_time_bounds = (
-        df.groupby(window_key)
+        df.group_by(window_key)
         .agg(start=pl.col(time_key).first(), end=pl.col(time_key).last())
         .sort("start")
     )
