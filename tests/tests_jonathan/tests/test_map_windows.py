@@ -39,10 +39,11 @@ def mw() -> MapWindows:
     mw = MapWindows()
     return mw
 
+
 def test_mw(
     mw: MapWindows,
     X: DataFrame[X_Schema],
-)->None:
+) -> None:
     X_w = mw.fit(X=X).transform().X_w
     X_Windowed.validate(X_w, lazy=True)
     breakpoint()
