@@ -39,6 +39,18 @@ w_idx_field = pa.Field(ge=w_idx_field_min, le=w_idx_field_max)
 w_idx_field_nullable = w_idx_field.set_property('nullable', True)
 w_type_field = pa.Field(isin=w_type_values)
 
+
+class WindowPeakMap(pa.DataFrameModel):
+    p_idx: int = p_idx_field
+    w_idx: int = w_idx_field
+
+    class Config(HPLCBaseConfig):
+        strict = True
+        ordered = True
+        name = "WindowPeakMap"
+        coerce = True
+
+
 class WindowedPeakIntervals(pa.DataFrameModel):
     w_idx: int = w_idx_field
     p_idx: int = p_idx_field
@@ -73,17 +85,6 @@ class InterpeakWindowStarts(pa.DataFrameModel):
         strict = True
         ordered = True
         name = "InterpeakWindowStarts"
-        coerce = True
-
-
-class WindowPeakMap(pa.DataFrameModel):
-    p_idx: int = p_idx_field
-    w_idx: int = w_idx_field
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "WindowPeakMap"
         coerce = True
 
 

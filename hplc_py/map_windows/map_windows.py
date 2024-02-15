@@ -139,7 +139,8 @@ def map_wdws_to_peaks(
     window_peak_map: DataFrame[WindowPeakMap] = window_peak_map_as_frame(
         window_peak_mapping=wdw_peak_mapping, p_idx_key=p_idx_key, w_idx_key=w_idx_key
     )
-    windowed_intervals = join_intervals_to_window_peak_map(
+    
+    windowed_intervals: DataFrame[WindowedPeakIntervalBounds] = join_intervals_to_window_peak_map(
         intvl_frame=intvl_frame, window_peak_map=window_peak_map
     )
 
