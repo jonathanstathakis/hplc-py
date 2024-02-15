@@ -1,41 +1,25 @@
 from typing import Any, Callable, Literal, Tuple, TypeAlias
 
-import numpy as np
 import pandera as pa
-import polars as pl
-import polars.selectors as ps
 import pytest
 from numpy import float64, ndarray
-from numpy.typing import NDArray
 from pandera.typing.pandas import DataFrame
 from pytest_benchmark.fixture import BenchmarkFixture
 
-from hplc_py.deconvolve_peaks.mydeconvolution import (
-    DataPrepper,
-    InP0,
+from hplc_py.deconvolve_peaks.deconvolution import (
     PeakDeconvolver,
-    WdwPeakMapWide,
     RSignal,
 )
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    P0,
-    Bounds,
     Params,
     Popt,
     PReport,
     PSignals,
-    WindowedSignal,
-    X_Schema,
+    X_Windowed,
 )
 from hplc_py.map_peaks.map_peaks import PeakMapWide
-from test_map_peaks import TestMapPeaksFix
-from hplc_py.hplc_py_typing.interpret_model import Modelinterpreter
 
 Chromatogram: TypeAlias = None
-
-chm = None
-
-from hplc_py.hplc_py_typing.schema_io import CacheSchemaValidate
 
 
 @pytest.fixture
@@ -63,7 +47,7 @@ def fit_func_scipy():
 @pytest.fixture
 def popt_scipy(
     dc: PeakDeconvolver,
-    ws_: DataFrame[WindowedSignal],
+    ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_scipy: Callable[..., Any],
     fit_func_scipy: Callable,
@@ -88,7 +72,7 @@ def fit_func_jax():
 @pytest.fixture
 def popt(
     dc: PeakDeconvolver,
-    ws_: DataFrame[WindowedSignal],
+    ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_jax: Callable[..., Tuple[ndarray[Any, Any], ndarray[Any, Any]]],
     fit_func_jax: Callable[..., Any | Literal[0]],
@@ -105,7 +89,7 @@ def popt(
 
 def test_popt_factory_benchmark(
     dc: PeakDeconvolver,
-    ws_: DataFrame[WindowedSignal],
+    ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_jax,
     fit_func_jax,
@@ -164,7 +148,7 @@ def dc() -> PeakDeconvolver:
 @pa.check_types
 def test_deconvolve_peaks(
     dc: PeakDeconvolver,
-    ws_: DataFrame[WindowedSignal],
+    ws_: DataFrame[X_Windowed],
     peak_map: DataFrame[PeakMapWide],
     timestep: float64,
 ) -> None:

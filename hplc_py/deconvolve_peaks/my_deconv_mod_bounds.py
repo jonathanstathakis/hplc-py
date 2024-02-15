@@ -58,7 +58,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     PReport,
     PSignals,
     RSignal,
-    WindowedSignal,
+    X_Windowed,
 )
 from hplc_py.io_validation import IOValid
 from hplc_py.map_peaks.map_peaks import PeakMapWide
@@ -121,7 +121,7 @@ class PanderaMixin:
 
 @dataclass
 class DataPrepper(PanderaMixin):
-    ws_sc: Type[WindowedSignal] = WindowedSignal
+    ws_sc: Type[X_Windowed] = X_Windowed
     ws: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     pm_sc: Type[PeakMapWide] = PeakMapWide
@@ -240,7 +240,7 @@ class DataPrepper(PanderaMixin):
     def _bounds_factory(
         self,
         p0: DataFrame[P0],
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         timestep: float64,
     ) -> DataFrame[Bounds]:
         """
@@ -355,7 +355,7 @@ class DataPrepper(PanderaMixin):
     def _prepare_params(
         self,
         pm: DataFrame[PeakMapWide],
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         timestep: float64,
     ) -> DataFrame[Params]:
         wpm = self._window_peak_map(pm, ws)
@@ -443,7 +443,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
     def __init__(
         self,
         pm: DataFrame[PeakMapWide],
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         timestep: float64,
         which_opt: WhichOpt = "jax",
         which_fit_func: WhichFitFunc = "jax",
@@ -452,7 +452,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
         # internal schemas
         self.r_signal_sch = RSignal
-        self.ws_sc: Type[WindowedSignal] = WindowedSignal
+        self.ws_sc: Type[X_Windowed] = X_Windowed
         self.pm_sc: Type[PeakMapWide] = PeakMapWide
         self.wpm_sc: Type[WdwPeakMapWide] = WdwPeakMapWide
         self.inp0_sc: Type[InP0] = InP0
@@ -587,7 +587,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
     def _popt_factory(
         self,
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         params: DataFrame[Params],
         optimizer,
         fit_func,

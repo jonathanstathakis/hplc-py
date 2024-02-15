@@ -13,12 +13,14 @@ Notes:
 - reconstruction score defined as unmixed_signal_AUC+1 divided by mixed_signal_AUC+1. 
 
 """
+
 from hplc_py.io_validation import IOValid
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     FitAssessScores,
-    WindowedSignal,
     PSignals,
 )
+
+from hplc_py.map_windows.typing import X_Windowed
 
 import pandas as pd
 
@@ -62,13 +64,13 @@ class FitAssessment(IOValid):
             }
         )
 
-        self.ws_sch = WindowedSignal
+        self.ws_sch = X_Windowed
         self.sc_sch = FitAssessScores
 
     @pa.check_types
     def assess_fit(
         self,
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         rtol: float = 1e-2,
         ftol: float = 1e-2,
     ):
@@ -80,7 +82,7 @@ class FitAssessment(IOValid):
     @pa.check_types
     def calc_wdw_aggs(
         self,
-        ws: DataFrame[WindowedSignal],
+        ws: DataFrame[X_Windowed],
         rtol: float,
         ftol: float,
     ) -> DataFrame[FitAssessScores]:
@@ -92,12 +94,12 @@ class FitAssessment(IOValid):
         ws_: pl.DataFrame = pl.from_pandas(ws)
 
         t_idx: str = str(self.ws_sch.t_idx)
-        
+
         if "amp_corrected" in ws.columns:
             mxd: str = str(self.ws_sch.amp_corrected)
         else:
             mxd: str = str(self.ws_sch.amp)
-        
+
         # declare the column labels from the schemas to improve readability of following
         # method chain. Allows final names to be declared in the Schema rather than locally.
         t: str = str(self.ws_sch.time)
@@ -126,7 +128,7 @@ class FitAssessment(IOValid):
         w_grps = [w_type, w_idx]
 
         rtol_decimals = int(np.abs(np.ceil(np.log10(rtol))))
-        
+
         aggs_ = (
             ws_.group_by(w_grps)
             .agg(
@@ -154,26 +156,35 @@ class FitAssessment(IOValid):
                 }
             )
             .with_columns(
-                **{div_fano:(pl.col(mx_fano) / pl.col(u_fano)).over(w_type),}
+                **{
+                    div_fano: (pl.col(mx_fano) / pl.col(u_fano)).over(w_type),
+                }
             )
             .with_columns(
-                **{fanopass:pl.col(div_fano) <= ftol,}
+                **{
+                    fanopass: pl.col(div_fano) <= ftol,
+                }
             )
             .with_columns(
-                **{status:pl.when((pl.col(w_type) == "peak") & (pl.col(tolpass) == True))
-                .then(pl.lit("valid"))
-                .when((pl.col(w_type) == "interpeak") & (pl.col(tolpass) == True))
-                .then(pl.lit("valid"))
-                .when((pl.col(w_type) == "interpeak") & (pl.col("fanopass") == True))
-                .then(pl.lit("needs review"))
-                .otherwise(pl.lit("invalid"))
+                **{
+                    status: pl.when(
+                        (pl.col(w_type) == "peak") & (pl.col(tolpass) == True)
+                    )
+                    .then(pl.lit("valid"))
+                    .when((pl.col(w_type) == "interpeak") & (pl.col(tolpass) == True))
+                    .then(pl.lit("valid"))
+                    .when(
+                        (pl.col(w_type) == "interpeak") & (pl.col("fanopass") == True)
+                    )
+                    .then(pl.lit("needs review"))
+                    .otherwise(pl.lit("invalid"))
                 }
             )
             .join(self.grading, how="left", on="status")
             .join(self.grading_colors, how="left", on="status")
             .sort(w_type, w_idx)
         )
-        
+
         aggs__ = aggs_.to_pandas()
         FitAssessScores.validate(aggs__, lazy=True)
 

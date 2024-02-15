@@ -16,11 +16,12 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     PReport,
     PSignals,
     RawData,
-    WindowedSignal,
     RSignal,
     X_Schema,
-    X_Windowed,
 )
+
+from hplc_py.map_windows.typing import X_Windowed
+
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_windows.map_windows import MapWindows
 from hplc_py.fit_assessment import FitAssessment
@@ -135,18 +136,12 @@ def background(bcorrected_signal_df, background_colname):
 
 
 @pytest.fixture
-def dc(
-    peak_map: DataFrame[PeakMapWide],
-    asschrom_ws: DataFrame[WindowedSignal],
-    timestep: float64,
+def peak_deconvolver(
 ) -> PeakDeconvolver:
-    dc = PeakDeconvolver(
-        pm=peak_map,
-        ws=asschrom_ws,
-        timestep=timestep,
-    )
-    return dc
-
+    
+    peak_deconvolver = PeakDeconvolver()
+    
+    return peak_deconvolver
 
 @pytest.fixture
 def int_col():
@@ -193,14 +188,24 @@ def stored_popt(popt_parqpath):
     """
     return pd.read_parquet(popt_parqpath)
 
+@pytest.fixture
+def pb_left_key(
+):
+    return "pb_left"
+
+@pytest.fixture
+def pb_right_key(
+):
+    return "pb_right"
 
 @pytest.fixture
 def left_bases(
     peak_map: DataFrame[PeakMapWide],
+    pb_left_key: str,
 ) -> Series[int64]:
 
     left_bases: Series[int64] = Series[int64](
-        peak_map[PeakMapWide.pb_left_idx], dtype=int64
+        peak_map[pb_left_key], dtype=int64
     )
     return left_bases
 
@@ -208,9 +213,10 @@ def left_bases(
 @pytest.fixture
 def right_bases(
     peak_map: DataFrame[PeakMapWide],
+    pb_right_key: str,
 ) -> Series[int64]:
     right_bases: Series[int64] = Series[int64](
-        peak_map[PeakMapWide.pb_right_idx], dtype=int64
+        peak_map[pb_right_key], dtype=int64
     )
     return right_bases
 
@@ -224,24 +230,6 @@ def mw() -> MapWindows:
 @pytest.fixture
 def prom() -> float:
     return 0.01
-
-
-@pytest.fixture
-def asschrom_ws(
-    mw: MapWindows,
-    time: Series[float64],
-    amp_bcorr: Series[float64],
-    left_bases: Series[float64],
-    right_bases: Series[float64],
-) -> DataFrame[WindowedSignal]:
-    ws = mw.transform(
-        left_bases,
-        right_bases,
-        time,
-        amp_bcorr,
-    )
-
-    return ws
 
 
 @pytest.fixture
@@ -264,7 +252,7 @@ def fa() -> FitAssessment:
 @pytest.fixture
 def scores(
     fa: FitAssessment,
-    asschrom_ws: DataFrame[WindowedSignal],
+    asschrom_ws: DataFrame[X_Windowed],
     rtol: float,
     ftol: float,
 ) -> DataFrame:
@@ -345,22 +333,36 @@ def X_w(
 
 
 @pytest.fixture
-def X_idx(X: DataFrame[X_Schema], mw: MapWindows):
+def X_idx(X: DataFrame[X_Schema], mw: MapWindows)->pl.DataFrame:
     X_idx = pl.DataFrame({X_Schema.X: np.arange(0, len(X), 1)})
 
     return X_idx
 
 
 @pytest.fixture
-def X_idx_key():
+def p_idx_key() -> str:
+    return "p_idx"
+
+
+@pytest.fixture
+def X_key()->str:
+    return "X"
+
+@pytest.fixture
+def X_idx_key() -> str:
     return "X_idx"
 
 
 @pytest.fixture
-def w_type_key():
+def w_type_key() -> str:
     return "w_type"
 
 
 @pytest.fixture
-def w_idx_key():
+def w_idx_key() -> str:
     return "w_idx"
+
+
+@pytest.fixture
+def time_key() -> str:
+    return "time"

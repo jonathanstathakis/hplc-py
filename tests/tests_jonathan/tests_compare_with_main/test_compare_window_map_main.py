@@ -5,12 +5,12 @@ import numpy as np
 import polars as pl
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from pandera.typing import Series, DataFrame
-from hplc_py.hplc_py_typing.hplc_py_typing import WindowedSignal
+from hplc_py.hplc_py_typing.hplc_py_typing import X_Windowed
 import pytest
 
 
 def test_compare_window_df_main(
-    asschrom_ws: DataFrame[WindowedSignal],
+    asschrom_ws: DataFrame[X_Windowed],
     main_window_df: pd.DataFrame,
 ):
     """

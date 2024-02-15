@@ -297,82 +297,6 @@ class PReport(Popt):
         coerce = True
 
 
-class WindowedSignal(pa.DataFrameModel):
-    """
-    Inherit from data, but w_type and w_idx are compulsory
-    """
-
-    w_type: String
-    w_idx: int64
-    X: float64
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "WindowedSignal"
-        coerce = True
-
-
-class PeakWindows(BaseDF):
-    w_type: pd.StringDtype
-    w_idx: pd.Int64Dtype
-    X_idx: pd.Int64Dtype
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "PeakWindows"
-        coerce = True
-
-
-# 2024-01-29 10:50:49 JS: where is this used?
-class IPBounds(BaseDF):
-    ip_w_idx: int64
-    ip_bound: pd.StringDtype
-    t_idx: int64
-    ip_w_type: pd.StringDtype
-
-    @pa.check("ip_w_idx", name="check_w_idx_increasing")
-    def check_monotonic_increasing_w_idx(cls, s: Series[int64]) -> bool:
-        return s.is_monotonic_increasing
-
-    @pa.check("t_idx", name="check_t_idx_increasing")
-    def check_monotonic_increasing_t_idx(cls, s: Series[int64]) -> bool:
-        return s.is_monotonic_increasing
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "IPBounds"
-        coerce = True
-
-
-class X_PeakWindowed(BaseDF):
-    """
-    peak windowed time dataframe, with placeholders for nonpeak regions. An intermediate frame prior to full mapping
-    """
-
-    w_type: String = pa.Field(isin=["peak", "interpeak"])
-    w_idx: UInt64 = pa.Field(ge=0, le=10E9)
-    X_idx: int
-    X: float64
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "X_PeakWindowed"
-        coerce = True
-
-
-class X_Windowed(X_PeakWindowed):
-    w_idx: int64 = pa.Field(ge=-9999, le=10)
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "X_Windowed"
-        coerce = True
-
 
 class FitAssessScores(pa.DataFrameModel):
     """
@@ -414,6 +338,7 @@ class X_Schema(pa.DataFrameModel):
     class Config:
         strict = True
         description = "A simplistic container for the signal array"
+        unique=['X_idx']
 
 
 class WdwPeakMapWide(PeakMapWide):
@@ -423,6 +348,7 @@ class WdwPeakMapWide(PeakMapWide):
     class Config:
         ordered = False
         strict = True
+        unique=['X_idx', 'p_idx']
 
 
 class InP0(pa.DataFrameModel):

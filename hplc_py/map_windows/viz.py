@@ -3,11 +3,13 @@ import matplotlib.pyplot as plt
 import polars as pl
 from matplotlib.axes import Axes as Axes
 from ..map_peaks.viz import UI_PlotPeakMapWide
-from ..hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide, X_Windowed
+from ..hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide
+from ..map_windows.typing import X_Windowed
 from typing import Self
-
+import pandera as pa
 class UI_WindowMapViz(UI_PlotPeakMapWide):
     
+    @pa.check_types
     def __init__(
         self,
         peak_map: DataFrame[PeakMapWide],

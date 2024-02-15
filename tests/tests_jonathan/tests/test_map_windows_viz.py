@@ -2,7 +2,8 @@ import polars as pl
 import pytest
 from hplc_py.map_windows.viz import UI_WindowMapViz
 from hplc_py.map_windows.viz import draw_peak_windows
-from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide, X_Windowed
+from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide
+from hplc_py.map_windows.typing import X_Windowed
 from pandera.typing import DataFrame
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -19,4 +20,4 @@ def test_window_map_viz(
         X_w=X_w,
         ax=plt.gca(),
         )
-    window_viz.draw_signal().draw_peak_windows().draw_base_edges().show()
+    window_viz.draw_signal().draw_maxima().draw_peak_windows().draw_base_edges().show()

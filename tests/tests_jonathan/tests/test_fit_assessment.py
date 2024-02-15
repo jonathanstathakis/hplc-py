@@ -1,5 +1,5 @@
 from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, FitAssessScores
-from hplc_py.map_windows.map_windows import WindowedSignal
+from hplc_py.map_windows.map_windows import X_Windowed
 from typing import Any
 
 from pandera.typing import DataFrame
@@ -38,13 +38,11 @@ class TestScores:
     ):
         pass
 
-
     @pa.check_types
     def test_fit_report_print(
         self,
         fa: FitAssessment,
         scores: DataFrame[FitAssessScores],
     ):
-        
-        pass
 
+        pass

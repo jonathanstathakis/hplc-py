@@ -16,7 +16,7 @@ from numpy import float64
 from pandera.typing import DataFrame
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    WindowedSignal,
+    X_Windowed,
 )
 
 from hplc_py.io_validation import IOValid
@@ -26,9 +26,7 @@ Module for vizualisation, primarily the "Show" class
 """
 
 
-    
-class Show(
-):
+class Show:
     def __init__(self):
         pass
 

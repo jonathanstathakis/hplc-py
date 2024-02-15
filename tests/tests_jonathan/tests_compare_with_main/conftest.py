@@ -13,7 +13,7 @@ from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.fit_assessment import FitAssessment
-from hplc_py.hplc_py_typing.hplc_py_typing import Popt, WindowedSignal
+from hplc_py.hplc_py_typing.hplc_py_typing import Popt, X_Windowed
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_windows.map_windows import MapWindows
 
@@ -115,7 +115,7 @@ def asschrom_ws(
     asschrom_amp_bcorr: Series[float64],
     asschrom_left_bases: Series[float64],
     asschrom_right_bases: Series[float64],
-) -> DataFrame[WindowedSignal]:
+) -> DataFrame[X_Windowed]:
     ws = mw.transform(
         asschrom_left_bases,
         asschrom_right_bases,
@@ -475,7 +475,7 @@ def ftol():
 @pytest.fixture
 def asschrom_scores(
     fa: FitAssessment,
-    asschrom_ws: DataFrame[WindowedSignal],
+    asschrom_ws: DataFrame[X_Windowed],
     rtol: float,
     ftol: float,
 ) -> DataFrame:
