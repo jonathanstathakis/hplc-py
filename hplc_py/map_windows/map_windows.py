@@ -11,16 +11,16 @@ from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 from scipy.ndimage import label  # type: ignore
 
-from .typing import PeakWindows, X_PeakWindowed, X_Windowed, WindowBounds
+from .schemas import PeakWindows, X_PeakWindowed, X_Windowed, WindowBounds
 
-from ..hplc_py_typing.hplc_py_typing import X_Schema
+from ..common_schemas import X_Schema
 
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
 
 from ..map_peaks.map_peaks import MapPeaks
 
-from .typing import (
+from .schemas import (
     WindowedPeakIntervals,
     InterpeakWindowStarts,
     WindowPeakMap,
@@ -550,9 +550,8 @@ def sanity_check_compare_frame_dict(
     the p_idx values are equal.
     """
 
-    for idx, grp in window_peak_map_frame.group_by("w_idx"):
-
-        dict_peaks = window_peak_map_dict[idx]  # type: ignore
+    for idx, grp in window_peak_map_frame.group_by(["w_idx"]):
+        dict_peaks = window_peak_map_dict[idx[0]]  # type: ignore
         isin = grp.select(pl.col("p_idx").is_in(dict_peaks).all()).item()
         assert isin
 

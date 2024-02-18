@@ -13,7 +13,8 @@ from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.fit_assessment import FitAssessment
-from hplc_py.hplc_py_typing.hplc_py_typing import Popt, X_Windowed
+from hplc_py.hplc_py_typing.hplc_py_typing import Popt
+from hplc_py.map_windows.schemas import X_Windowed
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_windows.map_windows import MapWindows
 
@@ -78,7 +79,7 @@ def asschrom_peak_map(
 ) -> DataFrame[PeakMapWide]:
     pm = mw.transform(
         X=asschrom_amp_bcorr,
-        X=asschrom_time,
+        X_idx=asschrom_time,
         timestep=asschrom_timestep,
         prominence=prom,
         wlen=None,

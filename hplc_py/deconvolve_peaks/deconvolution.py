@@ -7,22 +7,24 @@ import tqdm
 from numpy import float64, int64
 from pandera.typing import DataFrame, Series
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
+from ..common_schemas import X_Schema
+from .schemas import (
     Params,
     Popt,
     PReport,
     PSignals,
     RSignal,
-    X_Schema,
 )
 
-from ..map_windows.typing import X_Windowed
+from ..map_windows.schemas import X_Windowed
 
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
 from hplc_py.map_windows.map_windows import MapWindows
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
+
+from .prepare_popt_input import DataPrepper
 
 WhichOpt = Literal["jax", "scipy"]
 WhichFitFunc = Literal["jax", "scipy"]
@@ -122,7 +124,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
     ) -> Self:
         self.timestep = timestep
         self.X = X
-        self.__mw.fit(X=X, timestep=timestep, y=y)
+        self.__mw.fit(X=X, y=y)
         return self
 
     def transform(
@@ -135,7 +137,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         self.X_w: DataFrame[X_Windowed] = self.__mw.transform().X_w
 
         # checks
-        params = self.__dp.transform(self.__mw.pm.peak_map, self.X_w, self.timestep)
+        params = self.__dp.transform()
 
         popt_df: pd.DataFrame = popt_factory(
             self.X_w,

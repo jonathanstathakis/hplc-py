@@ -8,7 +8,10 @@ import pytest
 from matplotlib.figure import Figure
 from pandera.typing import DataFrame
 
-from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, RawData, RSignal
+
+from hplc_py.hplc_py_typing.hplc_py_typing import RawData
+from hplc_py.deconvolve_peaks.schemas import RSignal, PSignals
+
 from hplc_py.show import Show, SignalPlotter
 
 from matplotlib.axes import Axes as Axes

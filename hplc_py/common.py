@@ -20,3 +20,4 @@ def set_peak_color_table(
     colors = idx_u.with_columns(pl.Series("color", colors))
 
     return colors
+

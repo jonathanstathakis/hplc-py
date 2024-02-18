@@ -1,9 +1,10 @@
 import polars as pl
 import pytest
+from hplc_py.common_schemas import X_Schema
 from hplc_py.map_windows.viz import UI_WindowMapViz
 from hplc_py.map_windows.viz import draw_peak_windows
-from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema, PeakMapWide
-from hplc_py.map_windows.typing import X_Windowed
+from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWide
+from hplc_py.map_windows.schemas import X_Windowed
 from pandera.typing import DataFrame
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes

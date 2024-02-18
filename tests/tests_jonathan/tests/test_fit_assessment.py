@@ -1,5 +1,4 @@
-from hplc_py.hplc_py_typing.hplc_py_typing import PSignals, FitAssessScores
-from hplc_py.map_windows.map_windows import X_Windowed
+from hplc_py.hplc_py_typing.hplc_py_typing import FitAssessScores
 from typing import Any
 
 from pandera.typing import DataFrame

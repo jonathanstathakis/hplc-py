@@ -8,13 +8,13 @@ import polars as pl
 import pytest
 from pandera.typing import DataFrame
 import pandera as pa
+from hplc_py.common_schemas import X_Schema
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     WHH,
     FindPeaks,
     PeakBases,
     PeakMapWide,
-    X_Schema,
 )
 
 from hplc_py.map_peaks.map_peaks import (

@@ -47,11 +47,20 @@ import tqdm
 from numpy import float64, int64
 from pandera.api.pandas.model_config import BaseConfig
 from pandera.typing import DataFrame, Series
+from hplc_py.common_schemas import BaseDF
+from .definitions import (
+    LB_KEY,
+    MAXIMA_KEY,
+    P0_KEY,
+    PARAM_KEY,
+    SKEW_KEY,
+    UB_KEY,
+    WHH_WIDTH_HALF_KEY,
+    WHH_WIDTH_KEY,
+)
 
-from hplc_py import P0AMP, P0SKEW, P0TIME, P0WIDTH
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     P0,
-    BaseDF,
     Bounds,
     Params,
     Popt,
@@ -142,15 +151,6 @@ class DataPrepper(PanderaMixin):
     prm_sc: Type[Bounds] = Params
     params: pd.DataFrame = field(default_factory=pd.DataFrame)
 
-    p0_param_cats = pd.CategoricalDtype(
-        [
-            P0AMP,
-            P0TIME,
-            P0WIDTH,
-            P0SKEW,
-        ],
-        ordered=True,
-    )
 
     """
     class containing methods to prepare the data for deconvolution

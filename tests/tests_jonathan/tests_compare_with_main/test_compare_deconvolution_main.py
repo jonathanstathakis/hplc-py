@@ -1,6 +1,6 @@
 import polars as pl
 from pandera.typing import DataFrame
-from hplc_py.hplc_py_typing.hplc_py_typing import PSignals
+from hplc_py.deconvolve_peaks.schemas import PSignals
 import polars.selectors as ps
 import pytest
 from typing import Any

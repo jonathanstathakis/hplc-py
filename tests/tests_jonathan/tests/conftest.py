@@ -7,20 +7,21 @@ import pytest
 from numpy import float64, int64
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
+from hplc_py.common_schemas import X_Schema
 
 from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b  # noqa: F401
-from hplc_py.hplc_py_typing.hplc_py_typing import (
+
+from hplc_py.hplc_py_typing.hplc_py_typing import RawData
+from hplc_py.deconvolve_peaks.schemas import (
     Popt,
     PReport,
     PSignals,
-    RawData,
     RSignal,
-    X_Schema,
 )
 
-from hplc_py.map_windows.typing import X_Windowed
+from hplc_py.map_windows.schemas import X_Windowed
 
 from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
 from hplc_py.map_windows.map_windows import MapWindows
@@ -136,12 +137,12 @@ def background(bcorrected_signal_df, background_colname):
 
 
 @pytest.fixture
-def peak_deconvolver(
-) -> PeakDeconvolver:
-    
+def peak_deconvolver() -> PeakDeconvolver:
+
     peak_deconvolver = PeakDeconvolver()
-    
+
     return peak_deconvolver
+
 
 @pytest.fixture
 def int_col():
@@ -188,15 +189,16 @@ def stored_popt(popt_parqpath):
     """
     return pd.read_parquet(popt_parqpath)
 
-@pytest.fixture
-def pb_left_key(
-):
-    return "pb_left"
 
 @pytest.fixture
-def pb_right_key(
-):
+def pb_left_key():
+    return "pb_left"
+
+
+@pytest.fixture
+def pb_right_key():
     return "pb_right"
+
 
 @pytest.fixture
 def left_bases(
@@ -204,9 +206,7 @@ def left_bases(
     pb_left_key: str,
 ) -> Series[int64]:
 
-    left_bases: Series[int64] = Series[int64](
-        peak_map[pb_left_key], dtype=int64
-    )
+    left_bases: Series[int64] = Series[int64](peak_map[pb_left_key], dtype=int64)
     return left_bases
 
 
@@ -215,9 +215,7 @@ def right_bases(
     peak_map: DataFrame[PeakMapWide],
     pb_right_key: str,
 ) -> Series[int64]:
-    right_bases: Series[int64] = Series[int64](
-        peak_map[pb_right_key], dtype=int64
-    )
+    right_bases: Series[int64] = Series[int64](peak_map[pb_right_key], dtype=int64)
     return right_bases
 
 
@@ -333,36 +331,11 @@ def X_w(
 
 
 @pytest.fixture
-def X_idx(X: DataFrame[X_Schema], mw: MapWindows)->pl.DataFrame:
+def X_idx(X: DataFrame[X_Schema], mw: MapWindows) -> pl.DataFrame:
     X_idx = pl.DataFrame({X_Schema.X: np.arange(0, len(X), 1)})
 
     return X_idx
 
 
-@pytest.fixture
-def p_idx_key() -> str:
-    return "p_idx"
 
 
-@pytest.fixture
-def X_key()->str:
-    return "X"
-
-@pytest.fixture
-def X_idx_key() -> str:
-    return "X_idx"
-
-
-@pytest.fixture
-def w_type_key() -> str:
-    return "w_type"
-
-
-@pytest.fixture
-def w_idx_key() -> str:
-    return "w_idx"
-
-
-@pytest.fixture
-def time_key() -> str:
-    return "time"

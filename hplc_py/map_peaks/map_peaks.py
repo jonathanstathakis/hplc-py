@@ -8,7 +8,8 @@ import pandas as pd
 import pandera as pa
 from matplotlib.axes import Axes as Axes
 from pandera.typing import DataFrame
-from scipy import signal  # type: ignore
+from scipy import signal
+from hplc_py.common_schemas import X_Schema  # type: ignore
 
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 
@@ -17,7 +18,6 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
     FindPeaks,
     PeakBases,
     PeakMapWide,
-    X_Schema,
 )
 
 from typing import Tuple

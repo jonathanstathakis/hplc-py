@@ -1,20 +1,35 @@
 from typing import Self
-import numpy as np
+
 import pandas as pd
 import polars as pl
-from numpy import float64
 from pandera.typing import DataFrame
 
-from hplc_py import P0AMP, P0SKEW, P0TIME, P0WIDTH
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    P0,
-    Bounds,
-    InP0,
-    Params,
     WdwPeakMapWide,
-    X_Windowed,
 )
 from hplc_py.map_peaks.map_peaks import PeakMapWide
+
+from ..map_windows.schemas import X_Windowed
+from .definitions import (
+    LB_KEY,
+    MAXIMA_KEY,
+    P0_KEY,
+    PARAM_KEY,
+    SKEW_KEY,
+    UB_KEY,
+    WHH_WIDTH_HALF_KEY,
+    WHH_WIDTH_KEY,
+    AMP_LB_MULT,
+    AMP_UB_MULT,
+    PARAM_VAL_LOC,
+    PARAM_VAL_MAX,
+    PARAM_VAL_SKEW,
+    PARAM_VAL_WIDTH,
+    SKEW_LB_SCALAR,
+    SKEW_UB_SCALAR,
+)
+from .schemas import P0, Bounds, InP0, Params
+from .typing import p0_param_cats
 
 
 class DataPrepper:
@@ -24,22 +39,16 @@ class DataPrepper:
 
     def __init__(self):
 
-        self._p0_param_cats = pd.CategoricalDtype(
-            [
-                P0AMP,
-                P0TIME,
-                P0WIDTH,
-                P0SKEW,
-            ],
-            ordered=True,
-        )
+        self._p0_param_cats = p0_param_cats
 
-        self._p0_key = "p0"
-        self._params_key = "params"
-        self._lb_key = "lb"
-        self._ub_key = "ub"
-        self._skew_key = "skew"
-        self._whh_half_key = "whh_half"
+        self._p0_key = P0_KEY
+        self._params_key = PARAM_KEY
+        self._lb_key = LB_KEY
+        self._ub_key = UB_KEY
+        self._skew_key = SKEW_KEY
+        self._whh_half_key = WHH_WIDTH_HALF_KEY
+        self._maxima_key = MAXIMA_KEY
+        self._whh_key = WHH_WIDTH_KEY
 
     def fit(
         self,
@@ -88,7 +97,17 @@ class DataPrepper:
             p0_param_cats=self._p0_param_cats,
             skew_key=self._skew_key,
             ub_key=self._ub_key,
-            whh_half_key=self._whh_half_key,
+            whh_width_half_key=self._whh_half_key,
+            maxima_key=self._maxima_key,
+            whh_width_key=self._whh_key,
+            amp_lb_mult=AMP_LB_MULT,
+            amp_ub_mult=AMP_UB_MULT,
+            param_val_loc=PARAM_VAL_LOC,
+            param_val_maxima=PARAM_VAL_MAX,
+            param_val_skew=PARAM_VAL_SKEW,
+            param_val_width=PARAM_VAL_WIDTH,
+            skew_lb_scalar=SKEW_LB_SCALAR,
+            skew_ub_scalar=SKEW_UB_SCALAR,
         )
 
         return self
@@ -100,18 +119,28 @@ def params_factory(
     timestep: float,
     X_key: str,
     time_key: str,
+    whh_key: str,
+    p0_param_cats: pl.Enum,
+    whh_width_key: str,
     X_idx_key: str,
-    p_idx_key: str,
     w_idx_key: str,
     w_type_key: str,
-    whh_key: str,
-    p0_key: str,
+    p_idx_key: str,
     param_key: str,
-    whh_half_key: str,
-    p0_param_cats: pd.CategoricalDtype,
-    skew_key: str,
+    p0_key: str,
     lb_key: str,
     ub_key: str,
+    whh_width_half_key: str,
+    maxima_key: str,
+    skew_key: str,
+    amp_ub_mult: float,
+    amp_lb_mult: float,
+    skew_lb_scalar: float,
+    skew_ub_scalar: float,
+    param_val_maxima: str,
+    param_val_loc: str,
+    param_val_width: str,
+    param_val_skew: str,
 ):
     """
     Prepare the parameter input to `optimize`, i.e. the lb, p0 and ub for each parameter
@@ -129,7 +158,7 @@ def params_factory(
     """
 
     wpm = window_peak_map(
-        pm=pm,
+        peak_map=pm,
         X_w=X_w,
         t_idx_key=X_idx_key,
         w_idx_key=w_idx_key,
@@ -140,28 +169,24 @@ def params_factory(
     # the input to `p0_factory` is depicted in the In_p0 schema. Use it to subset
     # the wpm then submit to to `p0_factory`
 
-    in_p0_ = wpm.loc[:, [w_idx_key, p_idx_key, X_key, time_key, whh_key]]
-
-    InP0.validate(in_p0_, lazy=True)
-
-    in_p0 = DataFrame[InP0](in_p0_)
-
     p0 = p0_factory(
-        wpm=in_p0,
+        wpm=wpm,
+        maxima_key=maxima_key,
+        X_idx_key=X_idx_key,
         p0_key=p0_key,
         p_idx_key=p_idx_key,
         param_key=param_key,
         timestep=timestep,
         w_idx_key=w_idx_key,
-        whh_key=whh_key,
+        whh_width_key=whh_width_key,
         skew_key=skew_key,
-        whh_half_key=whh_half_key,
-        p0_param_cats=p0_param_cats,
+        whh_width_half_key=whh_width_half_key,
+        p0_param_cat_dtype=p0_param_cats,
     )
 
     bounds = bounds_factory(
         p0=p0,
-        ws=X_w,
+        X_w=X_w,
         timestep=timestep,
         X_key=X_key,
         X_idx_key=X_idx_key,
@@ -172,7 +197,17 @@ def params_factory(
         p0_key=p0_key,
         lb_key=lb_key,
         ub_key=ub_key,
-        time_key=time_key,
+        whh_width_half_key=whh_width_half_key,
+        skew_key=skew_key,
+        amp_ub_mult=amp_ub_mult,
+        amp_lb_mult=amp_lb_mult,
+        maxima_key=maxima_key,
+        param_val_loc=param_val_loc,
+        param_val_maxima=param_val_maxima,
+        param_val_skew=param_val_skew,
+        param_val_width=param_val_width,
+        skew_lb_scalar=skew_lb_scalar,
+        skew_ub_scalar=skew_ub_scalar,
     )
 
     # join the p0 and bounds tables
@@ -190,7 +225,7 @@ def params_factory(
 
 def bounds_factory(
     p0: DataFrame[P0],
-    ws: DataFrame[X_Windowed],
+    X_w: DataFrame[X_Windowed],
     timestep: float,
     X_key: str,
     X_idx_key: str,
@@ -201,15 +236,20 @@ def bounds_factory(
     p0_key: str,
     lb_key: str,
     ub_key: str,
-    time_key: str,
+    whh_width_half_key: str,
+    maxima_key: str,
+    skew_key: str,
+    amp_ub_mult: float,
+    amp_lb_mult: float,
+    skew_lb_scalar: float,
+    skew_ub_scalar: float,
+    param_val_maxima: str,
+    param_val_loc: str,
+    param_val_width: str,
+    param_val_skew: str,
 ) -> DataFrame[Bounds]:
     """
-    Build a default bounds df from the `signal_df`, `peak_df`, and `window_df` in the following format:
-
-    | # | table_name | window | p_idx | bound |  amp | location | width | skew |
-    |---|------------|--------|----------|-------|------|----------|-------|------|
-    | 0 |    bounds  |    1   |     1    |   lb  |   7  |    100   | 0.009 | -inf |
-    | 1 |    bounds  |    1   |     1    |   ub  |  70  |    300   |  100  | +inf |
+    Build a default bounds df from the `signal_df`, `peak_df`, and `window_df`, intended for joining with the p0 table. Structure is depicted in `.schemas.Bounds`
 
     The bounds are defined as follows:
 
@@ -230,82 +270,233 @@ def bounds_factory(
             - skew: between negative and positive infinity
     """
 
-    bound_cols = [w_idx_key, p_idx_key, param_key]
-    bounds = pd.DataFrame(p0.loc[:, bound_cols], index=p0.index)
+    idx_cols = [w_idx_key, p_idx_key]
 
-    bounds[lb_key] = pd.Series([np.nan * len(p0)], dtype=float64)
-    bounds[ub_key] = pd.Series([np.nan * len(p0)], dtype=float64)
-
-    bounds = bounds.set_index([w_idx_key, p_idx_key, param_key])
-
-    # amp
-    amp = p0.set_index([param_key]).loc[X_key].reset_index()
-    amp = (
-        amp.groupby([w_idx_key, p_idx_key, param_key], observed=True)[p0_key]
-        .agg([(lb_key, lambda x: x * 0.1), (ub_key, lambda x: x * 10)])  # type: ignore
-        .dropna()
-    )
-    # loc
-
-    bounds.loc[amp.index, [lb_key, ub_key]] = amp
-
-    loc_b = (
-        ws.loc[ws[w_type_key] == "peak"]
-        .groupby(str(w_idx_key))[time_key]
-        .agg([(lb_key, "min"), (ub_key, "max")])  # type: ignore
-        .reset_index()
-        .assign(param=P0TIME)
-        .set_index([str(w_idx_key), param_key])
+    window_bounds = find_window_bounds(
+        X_w=X_w, w_idx_key=w_idx_key, lb_key=lb_key, ub_key=ub_key, X_idx_key=X_idx_key
     )
 
-    # get the peak idx from p0
-    loc_b = (
-        p0.set_index([w_idx_key, param_key])
-        .drop(p0_key, axis=1)
-        .join(loc_b.reset_index().set_index([w_idx_key, param_key]), how="right")
-        .reset_index()
+    bounds_maxima = set_bounds_maxima(
+        p0=p0,
+        idx_cols=idx_cols,
+        maxima_key=maxima_key,
+        lb_key=lb_key,
+        ub_key=ub_key,
+        amp_lb_mult=amp_lb_mult,
+        amp_ub_mult=amp_ub_mult,
+        p0_key=p0_key,
+        param_key=param_key,
+        param_val=param_val_maxima,
     )
 
-    loc_b = loc_b.set_index([w_idx_key, p_idx_key, param_key])
-    bounds.loc[loc_b.index, [lb_key, ub_key]] = loc_b
-
-    bounds.loc[pd.IndexSlice[:, :, P0WIDTH], lb_key] = timestep  # type: ignore
-
-    width_ub = (
-        ws.loc[ws[w_type_key] == "peak"]
-        .groupby(w_idx_key)[time_key]
-        .agg(lambda x: (x.max() - x.min()) / 2)
-        .rename(ub_key)
-        .reset_index()
-        .assign(param=P0WIDTH)
-        .set_index([w_idx_key, param_key])
+    bounds_loc = set_bounds_loc(
+        window_bounds=window_bounds,
+        p0=p0,
+        idx_cols=idx_cols,
+        lb_key=lb_key,
+        ub_key=ub_key,
+        param_val=param_val_loc,
+        param_key=param_key,
+        p0_key=p0_key,
     )
 
-    width_ub = (
-        p0.set_index([w_idx_key, param_key])
-        .drop(p0_key, axis=1)
-        .join(width_ub.reset_index().set_index([w_idx_key, param_key]), how="right")
-        .reset_index()
-        .set_index([w_idx_key, p_idx_key, param_key])
+    bounds_width = set_bounds_width(
+        p0=p0,
+        window_bounds=window_bounds,
+        timestep=timestep,
+        idx_cols=idx_cols,
+        lb_key=lb_key,
+        ub_key=ub_key,
+        param_key=param_key,
+        param_val=param_val_width,
+        p_idx_key=p_idx_key,
+        w_idx_key=w_idx_key,
     )
 
-    bounds.loc[width_ub.index, ub_key] = width_ub
-
-    # skew
-
-    bounds.loc[pd.IndexSlice[:, :, P0SKEW], lb_key] = -np.inf
-    bounds.loc[pd.IndexSlice[:, :, P0SKEW], ub_key] = np.inf
-
-    column_ordering = [w_idx_key, p_idx_key, param_key, lb_key, ub_key]
-    bounds = bounds.reset_index.reindex(column_ordering, axis=1)
+    bounds_skew = set_bounds_skew(
+        p0=p0,
+        p_idx_key=p_idx_key,
+        w_idx_key=w_idx_key,
+        idx_cols=idx_cols,
+        lb_key=lb_key,
+        ub_key=ub_key,
+        skew_lb_scalar=skew_lb_scalar,
+        skew_ub_scalar=skew_ub_scalar,
+        param_val=param_val_skew,
+        param_key=param_key,
+    )
+    bounds = pl.concat(
+        [
+            df.with_columns(pl.col([lb_key, ub_key]).cast(float))
+            for df in [bounds_maxima, bounds_loc, bounds_width, bounds_skew]
+        ]
+    ).to_pandas()
 
     Bounds.validate(bounds, lazy=True)
-
+    
     return DataFrame[Bounds](bounds)
 
 
+def find_window_bounds(
+    X_w: DataFrame[X_Windowed],
+    w_idx_key: str,
+    X_idx_key: str,
+    lb_key: str,
+    ub_key: str,
+) -> pl.DataFrame:
+    """
+    Find the lower and upper loc bounds for each window.
+
+    Note: this behavior is the same as map_windows.get_window_X_idx_bounds, but that function currently includes the p_idx in the input schema. As it is not a complicated calculation I will essentially recreate it here until a commonality can be determined
+    """
+
+    bounds_loc = (
+        X_w.pipe(pl.from_pandas)
+        .group_by([w_idx_key])
+        .agg(
+            pl.col(X_idx_key).min().alias(lb_key),
+            pl.col(X_idx_key).max().alias(ub_key),
+        )
+    )
+
+    return bounds_loc
+
+
+def set_bounds_skew(
+    p0: DataFrame[P0],
+    w_idx_key: str,
+    p_idx_key: str,
+    idx_cols: list[str],
+    ub_key: str,
+    lb_key: str,
+    skew_lb_scalar: float,
+    skew_ub_scalar: float,
+    param_key: str,
+    param_val: str,
+) -> pl.DataFrame:
+
+    bounds_skew = (
+        p0
+        .pipe(pl.from_pandas)
+        .select(pl.col([w_idx_key,p_idx_key]))
+        .unique()
+        .with_columns(
+            pl.lit(param_val)
+            .alias(param_key)
+        )
+        .select(
+            pl.col(idx_cols),
+            pl.col(param_key),
+            pl.lit(skew_lb_scalar)
+            .alias(lb_key),
+            pl.lit(skew_ub_scalar)
+            .alias(ub_key),
+    )
+        )  # fmt: skip
+    return bounds_skew
+
+
+def set_bounds_width(
+    p0: DataFrame[P0],
+    window_bounds: pl.DataFrame,
+    timestep: float,
+    ub_key: str,
+    lb_key: str,
+    idx_cols: list[str],
+    param_key: str,
+    param_val: str,
+    p_idx_key: str,
+    w_idx_key: str,
+) -> pl.DataFrame:
+    """
+    set the bounds on the half of the width measured at half height. The bounds are defined as the timestep for the lower bound and half the length of the window for the upper.
+
+    """
+
+    width_bounds: pl.DataFrame = window_bounds.with_columns(
+        pl.lit(timestep).alias(lb_key)
+    ).select(pl.col(w_idx_key), pl.col(lb_key), pl.col(ub_key).truediv(2).alias(ub_key))
+
+    bounds_width: pl.DataFrame = (
+        p0
+            .pipe(pl.from_pandas)
+            .select([w_idx_key,p_idx_key])
+            .unique()
+            .with_columns(
+                pl.lit(param_val)
+                .alias(param_key)
+                          )
+            .join(
+                width_bounds,
+                on=w_idx_key,
+                how='left',
+                # validate="m:1",
+            
+        )
+    )  # fmt: skip
+
+    return bounds_width
+
+
+def set_bounds_loc(
+    idx_cols: list[str],
+    p0: DataFrame[P0],
+    window_bounds: pl.DataFrame,
+    lb_key: str,
+    ub_key: str,
+    param_val: str,
+    param_key: str,
+    p0_key: str,
+):
+    """
+        location (time or otherwise) bounds are defined as the minimum and maximum time of each window.
+    ZA
+        This is achieved by taking the pre-calculated window bounds and joining to each p_idx via their associated w_idx.
+    """
+
+    bounds_loc: pl.DataFrame = (
+        p0.pipe(pl.from_pandas)
+        .pivot(index=idx_cols, columns=param_key, values=p0_key)
+        .select(pl.col(idx_cols))
+        .with_columns(pl.lit(param_val).alias(param_key))
+        .join(window_bounds, how="left", on="w_idx", validate="m:1")
+    )
+
+    return bounds_loc
+
+
+def set_bounds_maxima(
+    p0: DataFrame[P0],
+    idx_cols: list[str],
+    maxima_key: str,
+    amp_lb_mult: float,
+    amp_ub_mult: float,
+    lb_key: str,
+    ub_key: str,
+    param_key: str,
+    p0_key: str,
+    param_val: str,
+) -> pl.DataFrame:
+    """
+    The amplitude bounds are defined as a multiple up and down of the maxima
+    """
+
+    bounds_maxima = (
+            pl.from_pandas(p0)
+            .pivot(index=idx_cols, columns=param_key, values=p0_key)
+            .select(
+                pl.col(idx_cols),
+                pl.lit(param_val).alias(param_key),
+                pl.col(maxima_key).mul(amp_lb_mult).alias(lb_key),
+                pl.col(maxima_key).mul(amp_ub_mult).alias(ub_key)
+                )
+        )  # fmt: skip
+
+    return bounds_maxima
+
+
 def window_peak_map(
-    pm: DataFrame[PeakMapWide],
+    peak_map: DataFrame[PeakMapWide],
     X_w: DataFrame[X_Windowed],
     t_idx_key: str,
     X_idx_key: str,
@@ -316,44 +507,39 @@ def window_peak_map(
     add w_idx to to peak map for later lookups
     """
 
-    X_w_pl: pl.DataFrame = pl.from_pandas(X_w)
-    pm_pl: pl.DataFrame = pl.from_pandas(pm)
-
-    breakpoint()
     wpm: pl.DataFrame = (
-        pm_pl.rename({t_idx_key: X_idx_key})
+        peak_map
+        .pipe(pl.from_pandas)
+        .rename({t_idx_key: X_idx_key})
         .join(
-            X_w_pl.select([w_type_key, w_idx_key, X_idx_key]),
+            pl.from_pandas(X_w)
+            .select([w_type_key, w_idx_key, X_idx_key]),
             how="left",
             on=X_idx_key,
             validate="1:1",
         )
-        .pipe(lambda df: df if breakpoint() else df)
         .select(pl.col([w_type_key, w_idx_key]), pl.exclude([w_type_key, w_idx_key]))
-    )
+    )  # fmt: skip
 
     if wpm.select(pl.col(w_type_key).is_in(["interpeak"]).any()).item():
         raise ValueError("peak has been assigned to interpeak region.")
 
-    breakpoint()
-
-    wpm_pd = wpm.to_pandas()
-    WdwPeakMapWide.validate(wpm_pd, lazy=True)
-
-    return WdwPeakMapWide[DataFrame](wpm_pd)  # false error?
+    return DataFrame[WdwPeakMapWide](wpm.to_pandas())
 
 
 def p0_factory(
-    wpm: DataFrame[InP0],
+    wpm: DataFrame[WdwPeakMapWide],
     timestep: float,
-    whh_key: str,
+    maxima_key: str,
+    X_idx_key: str,
+    whh_width_key: str,
     w_idx_key: str,
     p_idx_key: str,
     param_key: str,
     p0_key: str,
     skew_key: str,
-    whh_half_key: str,
-    p0_param_cats: pd.CategoricalDtype,
+    whh_width_half_key: str,
+    p0_param_cat_dtype: pl.Enum,
 ) -> DataFrame[P0]:
     """
     Build a table of initial guesses for each peak in each window.
@@ -362,35 +548,21 @@ def p0_factory(
     # assign skew as zero as per definition
     # assign whh as half peak whh as per definition, in time units
 
-    p0_ = wpm.copy(deep=True)
-    p0_[whh_half_key] = pd.Series([0.0] * len(p0_), dtype=float64)
-    p0_[skew_key] = p0_.pop(whh_key).div(2).mul(float(timestep))
+    p0: DataFrame[P0] = (
+        wpm
+            .loc[:, [w_idx_key, p_idx_key, maxima_key, X_idx_key, whh_width_key]]
+            .pipe(DataFrame[InP0])
+            .pipe(pl.from_pandas) #type: ignore
+            .select(
+                pl.col([w_idx_key, p_idx_key, maxima_key, X_idx_key]),
+                pl.col(whh_width_key).truediv(2).alias(whh_width_half_key),
+                pl.lit(0).cast(float).alias(skew_key),
+                          )
+            .melt(id_vars=[w_idx_key,p_idx_key], variable_name=param_key, value_name=p0_key)
+            .with_columns(pl.col(param_key).cast(p0_param_cats))
+            .sort([w_idx_key, p_idx_key, param_key])
+            .to_pandas()
+            .pipe(DataFrame[P0])
+            )  # fmt: skip
 
-    # set index as idx, w_idx, p_idx
-    p0_ = p0_.set_index([w_idx_key, p_idx_key], append=True)
-
-    # go from wide to long with index as above + a param col, 1 value col p0
-    p0_ = (
-        p0_.stack()
-        .reset_index(level=3)
-        .rename(
-            {"level_3": param_key, 0: p0_key},
-            axis=1,
-            errors="raise",
-        )
-    )
-
-    # set the param col as an ordered categorical
-    p0_[param_key] = pd.Categorical(p0_[param_key], dtype=p0_param_cats)
-
-    # add the param col to index and sort
-    p0_ = p0_.set_index(param_key, append=True).sort_index()
-
-    # return index cols to columns
-    p0 = p0_.reset_index([w_idx_key, p_idx_key, param_key]).reset_index(drop=True)
-
-    # reset to range index
-
-    P0.validate(p0, lazy=True)
-
-    return DataFrame[P0](p0)
+    return p0

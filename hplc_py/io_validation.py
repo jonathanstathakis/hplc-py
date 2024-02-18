@@ -2,8 +2,6 @@
 Contains common IO validation methods
 """
 import pandas as pd
-from numpy import float64
-from numpy import int64
 from pandera.typing import Series
 from typing import Any, Optional, Type
 

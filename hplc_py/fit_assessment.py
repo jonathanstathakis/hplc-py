@@ -15,12 +15,13 @@ Notes:
 """
 
 from hplc_py.io_validation import IOValid
+from .deconvolve_peaks.schemas import PSignals
+
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     FitAssessScores,
-    PSignals,
 )
 
-from hplc_py.map_windows.typing import X_Windowed
+from hplc_py.map_windows.schemas import X_Windowed
 
 import pandas as pd
 

@@ -10,12 +10,10 @@ from numpy import float64, int64
 from numpy.typing import NDArray
 from hplc_py.misc.misc import compute_timestep
 from .hplc_py_typing.hplc_py_typing import RawData, PeakMapWide, Data
-from .show import Show, SignalPlotter
 import polars as pl
 from typing import Self
 from pandera.typing import Series, DataFrame
-
-from hplc_py.hplc_py_typing.hplc_py_typing import X_Windowed
+from .map_windows.schemas import X_Windowed
 
 
 class Chromatogram(IOValid):

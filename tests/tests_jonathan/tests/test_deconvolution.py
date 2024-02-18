@@ -10,13 +10,9 @@ from hplc_py.deconvolve_peaks.deconvolution import (
     PeakDeconvolver,
     RSignal,
 )
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    Params,
-    Popt,
-    PReport,
-    PSignals,
-    X_Windowed,
-)
+from hplc_py.map_windows.schemas import X_Windowed
+from hplc_py.deconvolve_peaks.schemas import Params, Popt, PReport, PSignals
+
 from hplc_py.map_peaks.map_peaks import PeakMapWide
 
 Chromatogram: TypeAlias = None

@@ -4,33 +4,17 @@ TODO:
     - [ ] write test for MapWindows class transform
 """
 
-from numpy import int64
-import polars as pl
-import numpy as np
-import pandas as pd
 import pytest
-from pandera.typing.pandas import DataFrame, Series
-
-from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from pandera.typing.pandas import DataFrame
+from hplc_py.common_schemas import X_Schema
 
 
 from hplc_py.map_windows.map_windows import (
     MapWindows,
-    p_wdw_intvl_factory,
-    peak_base_intvl_factory,
-    map_wdws_to_peaks,
-    set_wdw_intvls_from_peak_intvls,
-    label_interpeaks,
-    set_peak_wndwd_X_idx,
-    peak_intvls_as_frame,
-    window_X,
 )
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    PeakWindows,
-    X_PeakWindowed,
+from hplc_py.map_windows.schemas import (
     X_Windowed,
-    X_Schema,
 )
 
 

@@ -17,7 +17,7 @@ from typeguard import typechecked
 
 from hplc_py.hplc_py_typing.hplc_py_typing import PeakMapWideColored, ColorMap
 from typing import Self
-from hplc_py.hplc_py_typing.hplc_py_typing import X_Schema
+from hplc_py.common_schemas import X_Schema
 
 import matplotlib.pyplot as plt
 

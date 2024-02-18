@@ -1,51 +1,22 @@
-from pandera.dtypes import UInt64
-from pandera.dtypes import String
-import os
-import warnings
-from hplc_py import SCHEMA_CACHE
 from typing import Optional
-
-from numpy import float64, int64
-from pandera.api.pandas.model_config import BaseConfig
-
-from hplc_py import P0AMP, P0TIME, P0WIDTH, P0SKEW, AMPRAW, AMPCORR, AMP
-from hplc_py.hplc_py_typing.custom_checks import col_a_less_than_col_b
 
 import pandas as pd
 import pandera as pa
-from pandera.typing import Index, Series
+from numpy import float64, int64
+from pandera.dtypes import String
+
+from hplc_py.common_schemas import BaseDF
+from hplc_py.common_schemas import HPLCBaseConfig
 
 
-class HPLCBaseConfig(BaseConfig):
-    strict = True
-    ordered = True
-    name = "!!PLEASE PROVIDE NAME!!"
-    coerce = True
 
 
-class BaseDF(pa.DataFrameModel):
-    """
-    Lowest level class for basic DataFrame assumptions - for example, they will all
-    contain a index named 'idx' which is the default RangedIndex
-    """
-
-    # idx: Index[int] = pa.Field(check_name=True)
-
-    # @pa.check(
-    #     "idx", name="idx_check", error="expected range index bounded by 0 and len(df)"
-    # )
-    # def check_is_range_index(cls, idx: Series[int]) -> bool:
-    #     left_idx = pd.RangeIndex(0, len(idx) - 1)
-    #     right_idx = pd.RangeIndex(idx.iloc[0], idx.iloc[-1])
-    #     check = left_idx.equals(right_idx)
-    #     return check
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "BaseDF"
-        coerce = True
-
+from ..common_schemas import (
+    X_idx_field_max,
+    X_idx_field_min,
+    w_idx_field,
+    w_type_field,
+)
 
 class Data(pa.DataFrameModel):
     """
@@ -95,12 +66,12 @@ class SignalDFBCorr(Data):
 
 
 class FindPeaks(BaseDF):
-    p_idx: int64 = pa.Field(ge=0, le=100)
-    X_idx: int64 = pa.Field(ge=0, le=5000)
+    p_idx: int64 = pa.Field(ge=0, le=100, unique=True)
+    X_idx: int64 = pa.Field(ge=0, le=5000, unique=True)
     maxima: float64 = pa.Field(ge=-1e-10, le=1000)
     prom: float64 = pa.Field(ge=0)
-    prom_left: int64
-    prom_right: int64
+    prom_left: int64 = pa.Field(ge=X_idx_field_min, le=X_idx_field_max)
+    prom_right: int64 = pa.Field(ge=X_idx_field_min, le=X_idx_field_max)
 
     class Config(HPLCBaseConfig):
         strict = True
@@ -190,114 +161,6 @@ class PeakMapWideColored(
         name = "PeakMapWide"
 
 
-class P0(BaseDF):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
-
-    w_idx: int64 = pa.Field()
-    p_idx: int64 = pa.Field()
-    param: pd.CategoricalDtype = pa.Field(isin=[P0AMP, P0TIME, P0WIDTH, P0SKEW])
-    p0: float64 = pa.Field()
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "P0"
-        coerce = True
-
-
-class Bounds(BaseDF):
-    w_idx: int64
-    p_idx: int64
-    param: pd.CategoricalDtype
-    lb: float64 = pa.Field(nullable=False)
-    ub: float64 = pa.Field(nullable=False)
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "Bounds"
-        coerce = True
-
-
-class Params(Bounds, P0):
-    pass
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "Params"
-        coerce = True
-
-        col_in_lb = {"col": "p0", "col_lb": "lb"}
-        col_in_ub = {"col": "p0", "col_ub": "ub"}
-
-
-class Popt(BaseDF):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
-
-    w_idx: int64 = pa.Field()
-    p_idx: int64 = pa.Field()
-    amp: float64 = pa.Field()
-    time: float64 = pa.Field()
-    whh_half: float64 = pa.Field()
-    skew: float64 = pa.Field()
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "Popt"
-        coerce = True
-
-
-class PSignals(pa.DataFrameModel):
-    """
-    An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
-    """
-
-    p_idx: int64 = pa.Field()
-    t_idx: int64 = pa.Field()
-    time: float64 = pa.Field()
-    amp_unmixed: float64 = pa.Field()
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "PSignals"
-        coerce = True
-
-
-class RSignal(BaseDF):
-    t_idx: int64
-    time: float64
-    amp_unmixed: float64
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "RSignal"
-        coerce = True
-        description = (
-            "The reconstituted signal, summation of the individual peak signals"
-        )
-
-
-class PReport(Popt):
-    retention_time: float64
-    area_unmixed: float64
-    maxima_unmixed: float64
-
-    class Config(HPLCBaseConfig):
-        strict = True
-        ordered = False
-        name = "PReport"
-        coerce = True
-
-
-
 class FitAssessScores(pa.DataFrameModel):
     """
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
@@ -331,38 +194,13 @@ class FitAssessScores(pa.DataFrameModel):
         strict = True
 
 
-class X_Schema(pa.DataFrameModel):
-    X_idx: int
-    X: float64
-
-    class Config:
-        strict = True
-        description = "A simplistic container for the signal array"
-        unique=['X_idx']
-
-
 class WdwPeakMapWide(PeakMapWide):
-    w_type: pd.StringDtype
-    w_idx: int64
+    w_type: pd.StringDtype = w_type_field
+    w_idx: int64 = w_idx_field
 
     class Config:
         ordered = False
         strict = True
-        unique=['X_idx', 'p_idx']
-
-
-class InP0(pa.DataFrameModel):
-    w_idx: int64
-    p_idx: int64
-    amp: float64
-    time: float64
-    whh: float64 = pa.Field(alias="whh_width")
-
-    class Config(BaseConfig):
-        name = "in_p0"
-        ordered = False
-        strict = True
-
 
 class ColorMap(pa.DataFrameModel):
     """
