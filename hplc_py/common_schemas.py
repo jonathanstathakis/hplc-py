@@ -1,4 +1,4 @@
-from numpy import float64
+from typing import Any
 import pandera as pa
 from pandera.api.pandas.model_config import BaseConfig
 from .common_definitions import w_type_values
@@ -7,27 +7,30 @@ from .common_definitions import w_type_values
 p_idx_min = 0
 p_idx_max = 100
 X_field_min = -100
-X_field_max = 5000
+X_field_max = 200
 X_idx_field_min = 0
-X_idx_field_max = 5000
+X_idx_field_max = 15000
 
-X_idx_min = 0
-X_idx_max = 5000
-
-left_base_field_min = X_idx_min
-left_base_field_max = X_idx_max
-right_base_field_min = X_idx_min
-right_base_field_max = X_idx_max
+left_base_field_min = X_idx_field_min
+left_base_field_max = X_idx_field_max
+right_base_field_min = X_idx_field_min
+right_base_field_max = X_idx_field_max
 
 w_idx_field_min = 0
 w_idx_field_max = 100
 
+# note: current version of pandera instantiates the field objects are persistant classes in the pandera scope, making it impossible to reuse
 
-p_idx_field = pa.Field(ge=p_idx_min, le=p_idx_max, unique=True)
+p_idx_field_kwargs: dict[str, Any] = dict(ge=p_idx_min, le=p_idx_max, unique=True)
+p_idx_field = pa.Field(**p_idx_field_kwargs)
 
-X_field = pa.Field(ge=X_field_min, le=X_field_max)
+X_field_kwargs: dict[str, Any] = dict(ge=X_field_min, le=X_field_max)
+X_field = pa.Field(**X_field_kwargs)
 
-X_idx_field = pa.Field(ge=X_idx_field_min, le=X_idx_field_max, unique=True)
+X_idx_field_kwargs: dict[str, Any] = dict(
+    ge=X_idx_field_min, le=X_idx_field_max, unique=True
+)
+X_idx_field = pa.Field(**X_idx_field_kwargs)
 
 left_base_field = pa.Field(ge=left_base_field_min, le=left_base_field_max)
 
@@ -73,7 +76,7 @@ class BaseDF(pa.DataFrameModel):
 
 class X_Schema(pa.DataFrameModel):
     X_idx: int
-    X: float64
+    X: float
 
     class Config:
         strict = True

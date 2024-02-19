@@ -1,7 +1,7 @@
-from numpy import float64
 from numpy.typing import NDArray
 import scipy
 import numpy as np
+from numpy import float64
 
 import jax.numpy as jnp
 import jax.scipy as jscipy

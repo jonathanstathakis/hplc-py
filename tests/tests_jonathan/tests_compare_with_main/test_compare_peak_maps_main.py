@@ -3,6 +3,8 @@
 """
 
 import polars as pl
+import polars.selectors as ps
+
 def test_compare_main_input_amp(
     main_peak_widths_amp_input, asschrom_amp_bcorr, main_chm_asschrom_fitted_pk
 ):
@@ -27,6 +29,7 @@ def test_compare_main_input_amp(
 
     pt.assert_frame_equal(left, right)
 
+
 def test_peak_map_compare(peak_map, main_pm_, timestep: float):
     """
     Compare my peak map to the main module version of the peak map.
@@ -34,13 +37,11 @@ def test_peak_map_compare(peak_map, main_pm_, timestep: float):
     main_peak_map_ = pl.from_pandas(main_pm_)
     peak_map = pl.from_pandas(peak_map)
 
-    # cast the 'idx' type columns to int64 and suffix with "idx"
+    # cast the 'idx' type columns to int and suffix with "idx"
 
     idx_unit_cols = ps.matches("^*._left$|^*._right$")
     main_peak_map_ = (
-        main_peak_map_.with_columns(
-            idx_unit_cols.cast(pl.Int64).name.suffix("_idx")
-        )
+        main_peak_map_.with_columns(idx_unit_cols.cast(pl.Int64).name.suffix("_idx"))
         .with_columns(idx_unit_cols.mul(timestep).name.suffix("_time"))
         .drop(idx_unit_cols)
         .with_columns(time=pl.col("t_idx") * timestep)
@@ -54,18 +55,17 @@ def test_peak_map_compare(peak_map, main_pm_, timestep: float):
         ]
     )
 
-    peak_map = peak_map.melt(id_vars=["p_idx"], value_name='mine',)
+    peak_map = peak_map.melt(
+        id_vars=["p_idx"],
+        value_name="mine",
+    )
 
-    main_peak_map = main_peak_map_.melt(id_vars=["p_idx"], value_name='main')
+    main_peak_map = main_peak_map_.melt(id_vars=["p_idx"], value_name="main")
 
     # inspect to see why the join might fail
 
-    aj_my_to_main = peak_map.join(
-        main_peak_map, how="anti", on=["p_idx", "variable"]
-    )
-    aj_main_to_my = main_peak_map.join(
-        peak_map, how="anti", on=["p_idx", "variable"]
-    )
+    aj_my_to_main = peak_map.join(main_peak_map, how="anti", on=["p_idx", "variable"])
+    aj_main_to_my = main_peak_map.join(peak_map, how="anti", on=["p_idx", "variable"])
 
     if not aj_main_to_my.is_empty() or not aj_my_to_main.is_empty():
         raise ValueError(
@@ -75,8 +75,7 @@ def test_peak_map_compare(peak_map, main_pm_, timestep: float):
     df = peak_map.join(main_peak_map, on=["p_idx", "variable"], how="left")
 
     df = (
-        df
-        .with_columns(
+        df.with_columns(
             diff=(pl.col("mine") - pl.col("main")).abs(),
             tol_perc=pl.lit(0.05),
             av_hz=pl.sum_horizontal("mine", "main") / 2,
@@ -89,4 +88,4 @@ def test_peak_map_compare(peak_map, main_pm_, timestep: float):
         )
     )
 
-    assert df.filter(pl.col('tolpass')==False).is_empty()  # noqa: E712
+    assert df.filter(pl.col("tolpass") == False).is_empty()  # noqa: E712

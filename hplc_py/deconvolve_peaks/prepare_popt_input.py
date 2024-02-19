@@ -1,13 +1,12 @@
 from typing import Self
 
-import pandas as pd
 import polars as pl
 from pandera.typing import DataFrame
 
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     WdwPeakMapWide,
 )
-from hplc_py.map_peaks.map_peaks import PeakMapWide
+from hplc_py.map_peaks.schemas import PeakMapWide
 
 from ..map_windows.schemas import X_Windowed
 from .definitions import (
@@ -59,7 +58,7 @@ class DataPrepper:
         w_idx_key: str,
         w_type_key: str,
         p_idx_key: str,
-        whh_key: str,
+        whh_width_key: str,
         time_key: str,
         timestep: float,
     ) -> Self:
@@ -72,7 +71,7 @@ class DataPrepper:
         self._X_idx_key = X_idx_key
         self._X_key = X_key
         self._time_key = time_key
-        self._whh_key = whh_key
+        self._whh_key = whh_width_key
 
         return self
 
@@ -151,7 +150,7 @@ def params_factory(
     :param ws: windowed signal table
     :type ws: DataFrame[X_Windowed]
     :param timestep: the timestep
-    :type timestep: float64
+    :type timestep: float
     :return: the parameter table in long form with the 4 parameters of each peak of
     each window
     :rtype: DataFrame[Params]
@@ -182,6 +181,10 @@ def params_factory(
         skew_key=skew_key,
         whh_width_half_key=whh_width_half_key,
         p0_param_cat_dtype=p0_param_cats,
+        param_val_loc=param_val_loc,
+        param_val_maxima=param_val_maxima,
+        param_val_skew=param_val_skew,
+        param_val_width=param_val_width,
     )
 
     bounds = bounds_factory(
@@ -208,19 +211,27 @@ def params_factory(
         param_val_width=param_val_width,
         skew_lb_scalar=skew_lb_scalar,
         skew_ub_scalar=skew_ub_scalar,
+        param_cats=p0_param_cats,
     )
 
     # join the p0 and bounds tables
 
     join_cols = [w_idx_key, p_idx_key, param_key]
+    params: DataFrame[Params] = (
+        p0
+        .pipe(pl.from_pandas)
+        .join(
+            bounds
+            .pipe(pl.from_pandas),
+            on=join_cols,
+            how="left",
+        )
+        .to_pandas()
+        .pipe(Params.validate, lazy=True)
+        .pipe(DataFrame[Params])
+    )  # fmt: skip
 
-    p0_ = p0.reset_index().set_index(join_cols)
-    bounds_ = bounds.set_index(join_cols)
-
-    params = p0_.join(bounds_, how="left", validate="1:1").reset_index()
-
-    Params.validate(params, lazy=True)
-    return DataFrame[Params](params)
+    return params
 
 
 def bounds_factory(
@@ -247,6 +258,7 @@ def bounds_factory(
     param_val_loc: str,
     param_val_width: str,
     param_val_skew: str,
+    param_cats: pl.Enum,
 ) -> DataFrame[Bounds]:
     """
     Build a default bounds df from the `signal_df`, `peak_df`, and `window_df`, intended for joining with the p0 table. Structure is depicted in `.schemas.Bounds`
@@ -268,6 +280,14 @@ def bounds_factory(
             - location: peak window time min, peak window time max
             - width: the timestep, half the range of the window
             - skew: between negative and positive infinity
+
+    # The Skewnorm Distribution
+
+    The following is a description of the parameters of the skewnorm distribution.
+
+    ## Skew
+
+    skew is determined by alpha, and right skewed if alpha > 0, left skewed if alpha < 0.
     """
 
     idx_cols = [w_idx_key, p_idx_key]
@@ -325,16 +345,21 @@ def bounds_factory(
         param_val=param_val_skew,
         param_key=param_key,
     )
-    bounds = pl.concat(
-        [
-            df.with_columns(pl.col([lb_key, ub_key]).cast(float))
-            for df in [bounds_maxima, bounds_loc, bounds_width, bounds_skew]
-        ]
-    ).to_pandas()
+    bounds = (
+        pl.concat(
+            [
+                df.with_columns(pl.col([lb_key, ub_key]).cast(float))
+                for df in [bounds_maxima, bounds_loc, bounds_width, bounds_skew]
+            ]
+        )
+        .with_columns(pl.col(param_key).cast(param_cats))
+        .sort([w_idx_key, p_idx_key, param_key])
+        .to_pandas()
+        .pipe(Bounds.validate, lazy=True)
+        .pipe(DataFrame[Bounds])
+    )
 
-    Bounds.validate(bounds, lazy=True)
-    
-    return DataFrame[Bounds](bounds)
+    return bounds
 
 
 def find_window_bounds(
@@ -540,6 +565,10 @@ def p0_factory(
     skew_key: str,
     whh_width_half_key: str,
     p0_param_cat_dtype: pl.Enum,
+    param_val_maxima: str,
+    param_val_width: str,
+    param_val_loc: str,
+    param_val_skew: str,
 ) -> DataFrame[P0]:
     """
     Build a table of initial guesses for each peak in each window.
@@ -547,22 +576,25 @@ def p0_factory(
     # window the peak map
     # assign skew as zero as per definition
     # assign whh as half peak whh as per definition, in time units
+    in_p0_keys = [w_idx_key, p_idx_key, maxima_key, X_idx_key, whh_width_key]
 
     p0: DataFrame[P0] = (
         wpm
-            .loc[:, [w_idx_key, p_idx_key, maxima_key, X_idx_key, whh_width_key]]
+            .loc[:, in_p0_keys]
             .pipe(DataFrame[InP0])
             .pipe(pl.from_pandas) #type: ignore
             .select(
-                pl.col([w_idx_key, p_idx_key, maxima_key, X_idx_key]),
-                pl.col(whh_width_key).truediv(2).alias(whh_width_half_key),
-                pl.lit(0).cast(float).alias(skew_key),
+                pl.col([w_idx_key, p_idx_key]),
+                pl.col(maxima_key).alias(param_val_maxima),
+                pl.col(X_idx_key).alias(param_val_loc),
+                pl.col(whh_width_key).truediv(2).alias(param_val_width),
+                pl.lit(0).cast(float).alias(param_val_skew),
                           )
             .melt(id_vars=[w_idx_key,p_idx_key], variable_name=param_key, value_name=p0_key)
             .with_columns(pl.col(param_key).cast(p0_param_cats))
             .sort([w_idx_key, p_idx_key, param_key])
             .to_pandas()
-            .pipe(DataFrame[P0])
+            .pipe(P0.validate, lazy=True)
             )  # fmt: skip
 
     return p0

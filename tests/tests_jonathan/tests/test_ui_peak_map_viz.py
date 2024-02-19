@@ -5,10 +5,9 @@ import pytest
 from pandera.typing import DataFrame
 from hplc_py.common_schemas import X_Schema
 from hplc_py.hplc_py_typing.hplc_py_typing import (
-    PeakMapWide,
-    PeakMapWideColored,
     ColorMap,
 )
+from hplc_py.map_peaks.schemas import PeakMapWide, PeakMapWideColored
 
 from hplc_py.map_peaks.viz import (
     assign_colors_to_p_idx,

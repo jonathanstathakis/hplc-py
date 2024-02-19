@@ -2,7 +2,6 @@ from dataclasses import dataclass, asdict
 from numpy import int64
 from numpy.typing import NDArray
 
-import polars as pl
 
 
 import pytest
@@ -10,10 +9,7 @@ from pandera.typing import DataFrame
 import pandera as pa
 from hplc_py.common_schemas import X_Schema
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    WHH,
-    FindPeaks,
-    PeakBases,
+from hplc_py.map_peaks.schemas import (
     PeakMapWide,
 )
 
@@ -24,6 +20,7 @@ from hplc_py.map_peaks.map_peaks import (
     get_peak_prom_data,
     width_df_factory,
 )
+from hplc_py.map_peaks.schemas import WHH, FindPeaks, PeakBases
 
 
 def test_set_fp(
@@ -95,6 +92,7 @@ def fp(
         prominence=prom,
         wlen=wlen,
         **fp_cols,
+        find_peaks_kwargs={},
     )
 
     return fp
@@ -120,7 +118,7 @@ def pt_idx(
     fp: DataFrame[FindPeaks],
     pt_idx_col: str,
 ) -> NDArray[int64]:
-    return fp[pt_idx_col].to_numpy(int64)
+    return fp[pt_idx_col].to_numpy(int)
 
 
 @dataclass
@@ -187,8 +185,8 @@ def pb(
         peak_prom_data=ppd,
         rel_height=pb_rel_height,
         prefix="pb",
-        p_idx_key='p_idx',
-        X_key='X'
+        p_idx_key="p_idx",
+        X_key="X",
     )
 
     pb = DataFrame[PeakBases](pb_)

@@ -2,9 +2,10 @@ from typing import Any, Callable, Literal, Tuple, TypeAlias
 
 import pandera as pa
 import pytest
-from numpy import float64, ndarray
+from numpy import ndarray
 from pandera.typing.pandas import DataFrame
 from pytest_benchmark.fixture import BenchmarkFixture
+from hplc_py.common_schemas import X_Schema
 
 from hplc_py.deconvolve_peaks.deconvolution import (
     PeakDeconvolver,
@@ -12,14 +13,25 @@ from hplc_py.deconvolve_peaks.deconvolution import (
 )
 from hplc_py.map_windows.schemas import X_Windowed
 from hplc_py.deconvolve_peaks.schemas import Params, Popt, PReport, PSignals
-
-from hplc_py.map_peaks.map_peaks import PeakMapWide
+from hplc_py.deconvolve_peaks.deconvolution import popt_factory
+from hplc_py.deconvolve_peaks.definitions import (
+    LB_KEY,
+    P0_KEY,
+    P_IDX_KEY,
+    PARAM_KEY,
+    POPT_IDX_KEY,
+    UB_KEY,
+    VALUE_KEY,
+    W_IDX_KEY,
+    X_IDX_KEY,
+    X_KEY,
+)
 
 Chromatogram: TypeAlias = None
 
 
 @pytest.fixture
-def optimizer_jax():
+def optimizer_jax() -> Callable:
     from jaxfit import CurveFit
 
     cf = CurveFit()
@@ -42,17 +54,28 @@ def fit_func_scipy():
 
 @pytest.fixture
 def popt_scipy(
-    dc: PeakDeconvolver,
     ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_scipy: Callable[..., Any],
     fit_func_scipy: Callable,
 ) -> DataFrame[Popt]:
-    popt = dc._popt_factory(
-        ws_,
-        params,
-        optimizer_scipy,
-        fit_func_scipy,
+    popt = popt_factory(
+        X_w=ws_,
+        params=params,
+        optimizer=optimizer_scipy,
+        fit_func=fit_func_scipy,
+        lb_key=LB_KEY,
+        optimizer_kwargs={},
+        p0_key=P0_KEY,
+        p_idx_key=P_IDX_KEY,
+        param_key=PARAM_KEY,
+        popt_idx_key=POPT_IDX_KEY,
+        ub_key=UB_KEY,
+        value_key=VALUE_KEY,
+        verbose=True,
+        w_idx_key=W_IDX_KEY,
+        X_idx_key=X_IDX_KEY,
+        X_key=X_KEY,
     )
 
     return popt
@@ -67,24 +90,35 @@ def fit_func_jax():
 
 @pytest.fixture
 def popt(
-    dc: PeakDeconvolver,
     ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_jax: Callable[..., Tuple[ndarray[Any, Any], ndarray[Any, Any]]],
     fit_func_jax: Callable[..., Any | Literal[0]],
 ) -> DataFrame[Popt]:
-    popt = dc._popt_factory(
-        ws_,
-        params,
-        optimizer_jax,
-        fit_func_jax,
+    popt = popt_factory(
+        X_w=ws_,
+        params=params,
+        optimizer=optimizer_jax,
+        fit_func=fit_func_jax,
+        lb_key=LB_KEY,
+        optimizer_kwargs={},
+        p0_key=P0_KEY,
+        p_idx_key=P_IDX_KEY,
+        param_key=PARAM_KEY,
+        popt_idx_key=POPT_IDX_KEY,
+        ub_key=UB_KEY,
+        value_key=VALUE_KEY,
+        verbose=True,
+        w_idx_key=W_IDX_KEY,
+        X_idx_key=X_IDX_KEY,
+        X_key=X_KEY,
     )
 
     return popt
 
 
 def test_popt_factory_benchmark(
-    dc: PeakDeconvolver,
+    peak_deconvolver: PeakDeconvolver,
     ws_: DataFrame[X_Windowed],
     params: DataFrame[Params],
     optimizer_jax,
@@ -92,7 +126,7 @@ def test_popt_factory_benchmark(
     benchmark: BenchmarkFixture,
 ):
     benchmark(
-        dc._popt_factory,
+        popt_factory,
         ws_,
         params,
         optimizer_jax,
@@ -143,13 +177,16 @@ def dc() -> PeakDeconvolver:
 
 @pa.check_types
 def test_deconvolve_peaks(
-    dc: PeakDeconvolver,
-    ws_: DataFrame[X_Windowed],
-    peak_map: DataFrame[PeakMapWide],
-    timestep: float64,
+    X: DataFrame[X_Schema],
+    timestep: float,
 ) -> None:
-    dc.deconvolve_peaks(
-        peak_map,
-        ws_,
-        timestep,
-    )
+    dcp = PeakDeconvolver(which_opt="jax",
+                          which_fit_func="jax",
+                          )
+    dcp.fit(
+        X=X,
+        timestep=timestep,)
+    dcp.transform()
+    
+    breakpoint()
+    

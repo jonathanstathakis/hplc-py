@@ -14,7 +14,6 @@ from hplc_py.deconvolve_peaks.definitions import (
     UB_KEY,
     W_IDX_KEY,
     W_TYPE_KEY,
-    WB_KEY,
     WHH_WIDTH_HALF_KEY,
     WHH_WIDTH_KEY,
     X_IDX_KEY,
@@ -32,12 +31,13 @@ from hplc_py.deconvolve_peaks.prepare_popt_input import (
     p0_factory,
     window_peak_map,
 )
-from hplc_py.deconvolve_peaks.schemas import P0, Bounds, InP0, Params
+from hplc_py.deconvolve_peaks.schemas import P0, Bounds, Params
 from hplc_py.deconvolve_peaks.typing import p0_param_cats
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     WdwPeakMapWide,
 )
-from hplc_py.map_peaks.map_peaks import PeakMapWide
+
+from hplc_py.map_peaks.schemas import PeakMapWide
 from hplc_py.map_windows.schemas import X_Windowed
 
 
@@ -91,6 +91,10 @@ def p0(
         skew_key=SKEW_KEY,
         whh_width_half_key=WHH_WIDTH_HALF_KEY,
         p0_param_cat_dtype=p0_param_cats,
+        param_val_loc=PARAM_VAL_LOC,
+        param_val_maxima=PARAM_VAL_MAX,
+        param_val_skew=PARAM_VAL_SKEW,
+        param_val_width=PARAM_VAL_WIDTH,
     )
 
     return p0
@@ -106,6 +110,7 @@ def bounds(
     X_w: DataFrame[X_Windowed],
     timestep: float,
 ) -> DataFrame[Bounds]:
+    
     default_bounds: DataFrame[Bounds] = bounds_factory(
         p0=p0,
         X_w=X_w,
@@ -130,6 +135,7 @@ def bounds(
         param_val_loc=PARAM_VAL_LOC,
         param_val_width=PARAM_VAL_WIDTH,
         param_val_skew=PARAM_VAL_SKEW,
+        param_cats=p0_param_cats,
     )
     return default_bounds
 
@@ -138,47 +144,37 @@ def test_bounds_factory(bounds: DataFrame[Bounds]) -> None:
     pass
 
 
-# @pytest.fixture
-# def params(
-#     dp: DataPrepper,
-#     peak_map: DataFrame[PeakMapWide],
-#     X_w: DataFrame[X_Windowed],
-#     timestep: float64,
-# ) -> DataFrame[Params]:
-#     params = dp.transform(peak_map, X_w, timestep)
+def test_DataPrepper_pipeline(
+    peak_map: DataFrame[PeakMapWide],
+    X_w: DataFrame[X_Windowed],
+    timestep: float,
+    w_idx_key: str,
+    w_type_key: str,
+    p_idx_key: str,
+    X_idx_key: str,
+    X_key: str,
+    time_key: str,
+    whh_ha: str,
+) -> None:
 
-#     return params
+    dp = DataPrepper()
 
-
-# def test_DataPrepper_pipeline(
-#     peak_map: DataFrame[PeakMapWide],
-#     X_w: DataFrame[X_Windowed],
-#     timestep: float,
-#     w_idx_key: str,
-#     w_type_key: str,
-#     p_idx_key: str,
-#     X_idx_key: str,
-#     X_key: str,
-#     time_key: str,
-#     whh_ha: str,
-# ) -> None:
-
-#     dp = DataPrepper()
-
-#     params = (
-#         dp.fit(
-#             pm=peak_map,
-#             X_w=X_w,
-#             X_key=X_key,
-#             p_idx_key=p_idx_key,
-#             time_key=time_key,
-#             timestep=timestep,
-#             w_idx_key=w_idx_key,
-#             w_type_key=w_type_key,
-#             whh_key=whh_key,
-#             X_idx_key=X_idx_key,
-#         )
-#         .transform()
-#         .params
-#     )
-#     breakpoint()
+    params = (
+        dp.fit(
+            pm=peak_map,
+            X_w=X_w,
+            X_key=X_key,
+            p_idx_key=p_idx_key,
+            time_key=time_key,
+            timestep=timestep,
+            w_idx_key=w_idx_key,
+            w_type_key=w_type_key,
+            whh_width_key=WHH_WIDTH_KEY,
+            X_idx_key=X_idx_key,
+        )
+        .transform()
+        .params
+    )
+    
+    Params.validate(params)
+    breakpoint()

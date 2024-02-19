@@ -1,13 +1,13 @@
 
-from .definitions import MAXIMA_KEY, X_IDX_KEY, WHH_WIDTH_HALF_KEY, SKEW_KEY
+from .definitions import PARAM_VAL_LOC, PARAM_VAL_MAX, PARAM_VAL_SKEW, PARAM_VAL_WIDTH
 
 import polars as pl
 
 categories = [
-    MAXIMA_KEY,
-    X_IDX_KEY,
-    WHH_WIDTH_HALF_KEY,
-    SKEW_KEY,
+    PARAM_VAL_MAX,
+    PARAM_VAL_LOC,
+    PARAM_VAL_WIDTH,
+    PARAM_VAL_SKEW,
 ]
 
 p0_param_cats = pl.Enum(categories)

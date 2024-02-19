@@ -1,9 +1,8 @@
-from typeguard import typechecked
 from numpy import float64, int64
+from typeguard import typechecked
 from numpy.typing import NDArray
 from typing import Literal, Optional, TypeAlias, Self
 
-import numpy as np
 import pandas as pd
 import pandera as pa
 from matplotlib.axes import Axes as Axes
@@ -13,18 +12,17 @@ from hplc_py.common_schemas import X_Schema  # type: ignore
 
 from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 
-from hplc_py.hplc_py_typing.hplc_py_typing import (
-    WHH,
-    FindPeaks,
-    PeakBases,
+from hplc_py.map_peaks.schemas import (
     PeakMapWide,
 )
 
 from typing import Tuple
 
 from hplc_py.io_validation import IOValid
+from hplc_py.map_peaks.schemas import WHH, FindPeaks, PeakBases
 
 PPD: TypeAlias = Tuple[NDArray[float64], NDArray[int64], NDArray[int64]]
+
 
 class MapPeaks(IOValid):
     def __init__(
@@ -78,10 +76,11 @@ class MapPeaks(IOValid):
     def transform(
         self,
     ) -> Self:
-        
+
         self.peak_map = generate_peak_mapping(X=self.X, prominence=0.01)
 
         return self
+
 
 def generate_peak_mapping(
     X: DataFrame[X_Schema],
@@ -119,44 +118,36 @@ def generate_peak_mapping(
     )
 
     peak_prom_data = get_peak_prom_data(
-        fp=fp,
-        prom_key=prom_key,
-        prom_lb_key=prom_lb_key,
-        prom_rb_key=prom_rb_key
+        fp=fp, prom_key=prom_key, prom_lb_key=prom_lb_key, prom_rb_key=prom_rb_key
     )
 
-    peak_t_idx = fp[X_idx_key].to_numpy(np.int64)
-    
+    peak_t_idx = fp[X_idx_key].to_numpy(int)
+
     whh = DataFrame[WHH](
         width_df_factory(
-        X=X,
-        peak_t_idx=peak_t_idx,
-        peak_prom_data=peak_prom_data,
-        rel_height=0.5,
-        prefix="whh",
-        p_idx_key=p_idx_key,
-        X_key=X_key,
-    )
+            X=X,
+            peak_t_idx=peak_t_idx,
+            peak_prom_data=peak_prom_data,
+            rel_height=0.5,
+            prefix="whh",
+            p_idx_key=p_idx_key,
+            X_key=X_key,
+        )
     )
 
     pb = DataFrame[PeakBases](
         width_df_factory(
-        X=X,
-        peak_t_idx=peak_t_idx,
-        peak_prom_data=peak_prom_data,
-        rel_height=1,
-        prefix="pb",
-        p_idx_key=p_idx_key,
-        X_key=X_key,
-    )
+            X=X,
+            peak_t_idx=peak_t_idx,
+            peak_prom_data=peak_prom_data,
+            rel_height=1,
+            prefix="pb",
+            p_idx_key=p_idx_key,
+            X_key=X_key,
+        )
     )
 
-    peak_map = set_peak_map(
-        fp=fp,
-        whh=whh,
-        pb=pb,
-        p_idx_key=p_idx_key
-    )
+    peak_map = set_peak_map(fp=fp, whh=whh, pb=pb, p_idx_key=p_idx_key)
 
     return peak_map
 
@@ -194,13 +185,13 @@ def set_findpeaks(
         wlen=wlen,
         **find_peaks_kwargs,
     )
-    
+
     fp = (
         X.loc[X_idx]
         .assign(**{X_idx_key: X_idx, **_dict})
         .reset_index(drop=True)
         .reset_index(names=p_idx_key)
-        .reset_index(drop=True) # set each row number as the p_idx
+        .reset_index(drop=True)  # set each row number as the p_idx
         .rename(
             {
                 "prominences": prom_key,
@@ -214,6 +205,7 @@ def set_findpeaks(
             :,
             lambda df: df.columns.drop(maxima_key).insert(2, maxima_key),
         ]
+        .pipe(FindPeaks.validate, lazy=True)
         .pipe(DataFrame[FindPeaks])
     )
 
@@ -230,7 +222,6 @@ def width_df_factory(
     p_idx_key: str,
     X_key: str,
     prefix: str = "width",
-    
 ) -> pd.DataFrame:
     """
     width is calculated by first identifying a height to measure the width at, calculated as:
@@ -270,6 +261,7 @@ def width_df_factory(
     wdf: pd.DataFrame = wdf_.reset_index(names=p_idx_key)
     return wdf
 
+
 @pa.check_types
 def set_peak_map(
     fp: DataFrame[FindPeaks],
@@ -285,9 +277,10 @@ def set_peak_map(
             pb.drop([p_idx_key], axis=1),
         ],
         axis=1,
-    )
+    ).pipe(DataFrame[PeakMapWide])
 
     return pm
+
 
 def get_peak_prom_data(
     fp: DataFrame[FindPeaks],
@@ -297,9 +290,9 @@ def get_peak_prom_data(
 ) -> PPD:
     peak_prom_data: PPD = tuple(
         [
-            fp[prom_key].to_numpy(float64),
-            fp[prom_lb_key].to_numpy(np.int64),
-            fp[prom_rb_key].to_numpy(np.int64),
+            fp[prom_key].to_numpy(float),
+            fp[prom_lb_key].to_numpy(int),
+            fp[prom_rb_key].to_numpy(int),
         ]
     )  # type: ignore
     return peak_prom_data

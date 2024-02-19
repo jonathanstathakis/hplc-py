@@ -6,7 +6,7 @@ import pytest
 from hplc_py.hplcpy import HPLCPY
 import numpy as np
 from numpy.typing import NDArray
-from numpy import float64, int64
+, int
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -25,9 +25,9 @@ class TestHPLCPY:
     def hpy_loaded(
         self,
         time:NDArray[float64],
-        amp_raw: Series[float64],
+        amp_raw: Series[float],
     )->HPLCPY:
-        return HPLCPY(time.to_numpy(float64), amp_raw.to_numpy(float64))
+        return HPLCPY(time.to_numpy(float), amp_raw.to_numpy(float))
     
     def test_plot_signal(
      self,

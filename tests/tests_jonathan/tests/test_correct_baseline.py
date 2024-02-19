@@ -2,15 +2,14 @@
 Test all aspects of the baseline correction module, which attempts to be as pure as possible, relying on numpy rather than higher level data structures, with the intention of porting to JAX at some point in the future.
 """
 
-import pandera as pa
 import numpy as np
 import pytest
+
 from numpy import float64
 from numpy.typing import NDArray
-from pandera.typing.pandas import DataFrame, Series
+from pandera.typing.pandas import Series
 
 from hplc_py.baseline_correction import CorrectBaseline
-from hplc_py.hplc_py_typing.hplc_py_typing import RawData
 
 
 def test_s_compressed_prime_exec(s_compressed_prime: NDArray[float64]):
@@ -18,8 +17,8 @@ def test_s_compressed_prime_exec(s_compressed_prime: NDArray[float64]):
 
 
 def test_correct_baseline(
-    amp_raw: Series[float64],
-    amp_bcorr: Series[float64],
+    amp_raw: Series[float],
+    amp_bcorr: Series[float],
 ):
     """
     Tests if the average amplitude in amp_bcorr is less than the average amplitude
@@ -38,7 +37,7 @@ def windowsize():
 def shift(
     amp_raw,
     cb: CorrectBaseline,
-) -> float64:
+) -> float:
     shift = cb._compute_shift(amp_raw)
     return shift
 
@@ -47,7 +46,7 @@ def shift(
 def amp_shifted_clipped(
     cb: CorrectBaseline,
     amp_raw: NDArray[float64],
-    shift: float64,
+    shift: float,
 ) -> NDArray[float64]:
     amp_shifted = cb._shift_amp(amp_raw, shift)
 
@@ -73,7 +72,7 @@ def test_amp_compressed_exists_and_is_array(
 
 
 @pytest.fixture
-def n_iter(cb: CorrectBaseline, windowsize: int, timestep: float64):
+def n_iter(cb: CorrectBaseline, windowsize: int, timestep: float):
     n_iter = cb._compute_n_iter(windowsize, timestep)
 
     return n_iter
@@ -81,7 +80,7 @@ def n_iter(cb: CorrectBaseline, windowsize: int, timestep: float64):
 
 def test_compute_n_iter(n_iter):
     assert n_iter > 0
-    
+
     pass
 
 

@@ -1,3 +1,4 @@
+from numpy import float64, int64
 import os
 from typing import Any
 
@@ -5,7 +6,8 @@ import hplc
 import pandas as pd
 import polars as pl
 import pytest
-from numpy import float64, int64
+
+from hplc_py.map_peaks.schemas import PeakMapWide
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 
@@ -13,9 +15,9 @@ from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
 from hplc_py.fit_assessment import FitAssessment
-from hplc_py.hplc_py_typing.hplc_py_typing import Popt
+from hplc_py.deconvolve_peaks.schemas import Popt
 from hplc_py.map_windows.schemas import X_Windowed
-from hplc_py.map_peaks.map_peaks import MapPeaks, PeakMapWide
+from hplc_py.map_peaks.map_peaks import MapPeaks
 from hplc_py.map_windows.map_windows import MapWindows
 
 from ..tests.conftest import prepare_dataset_for_input
@@ -35,7 +37,7 @@ def asschrom_dset():
 @pytest.fixture
 def asschrom_chm(asschrom_dset: pd.DataFrame):
     asschrom_chm = Chromatogram(
-        asschrom_dset.time.to_numpy(float64), asschrom_dset.amp.to_numpy(float64)
+        asschrom_dset.time.to_numpy(float), asschrom_dset.amp.to_numpy(float)
     )
     return asschrom_chm
 
@@ -59,10 +61,10 @@ def asschrom_time(asschrom_chm):
 def asschrom_amp_bcorr(
     cb: CorrectBaseline,
     asschrom_amp_raw: NDArray[float64],
-    asschrom_timestep: float64,
-) -> Series[float64]:
+    asschrom_timestep: float,
+) -> Series[float]:
 
-    bcorr: Series[float64] = (
+    bcorr: Series[float] = (
         cb.fit(asschrom_amp_raw, asschrom_timestep).transform().corrected
     )
 
@@ -71,13 +73,13 @@ def asschrom_amp_bcorr(
 
 @pytest.fixture
 def asschrom_peak_map(
-    mp: MapPeaks,
-    asschrom_amp_bcorr: Series[float64],
+    asschrom_amp_bcorr: Series[float],
     prom: float,
     asschrom_timestep: float,
-    asschrom_time: Series[float64],
+    asschrom_time: Series[float],
 ) -> DataFrame[PeakMapWide]:
-    pm = mw.transform(
+
+    pm = mp.transform(
         X=asschrom_amp_bcorr,
         X_idx=asschrom_time,
         timestep=asschrom_timestep,
@@ -91,10 +93,10 @@ def asschrom_peak_map(
 @pytest.fixture
 def asschrom_left_bases(
     asschrom_peak_map: DataFrame[PeakMapWide],
-) -> Series[int64]:
+) -> Series[int]:
 
-    left_bases: Series[int64] = Series[int64](
-        asschrom_peak_map[PeakMapWide.pb_left_idx], dtype=int64
+    left_bases: Series[int] = Series[int](
+        asschrom_peak_map[PeakMapWide.pb_left_idx], dtype=int
     )
     return left_bases
 
@@ -102,9 +104,9 @@ def asschrom_left_bases(
 @pytest.fixture
 def asschrom_right_bases(
     asschrom_peak_map: DataFrame[PeakMapWide],
-) -> Series[int64]:
-    right_bases: Series[int64] = Series[int64](
-        asschrom_peak_map[PeakMapWide.pb_right_idx], dtype=int64
+) -> Series[int]:
+    right_bases: Series[int] = Series[int](
+        asschrom_peak_map[PeakMapWide.pb_right_idx], dtype=int
     )
     return right_bases
 
@@ -112,10 +114,10 @@ def asschrom_right_bases(
 @pytest.fixture
 def asschrom_ws(
     mw: MapWindows,
-    asschrom_time: Series[float64],
-    asschrom_amp_bcorr: Series[float64],
-    asschrom_left_bases: Series[float64],
-    asschrom_right_bases: Series[float64],
+    asschrom_time: Series[float],
+    asschrom_amp_bcorr: Series[float],
+    asschrom_left_bases: Series[float],
+    asschrom_right_bases: Series[float],
 ) -> DataFrame[X_Windowed]:
     ws = mw.transform(
         asschrom_left_bases,
@@ -130,11 +132,11 @@ def asschrom_ws(
 
 @pytest.fixture
 def psignals(
-    dc: PeakDeconvolver,
-    asschrom_time: Series[float64],
+    peak_deconvolver: PeakDeconvolver,
+    asschrom_time: Series[float],
     stored_popt: DataFrame[Popt],
 ):
-    psignals = dc._construct_peak_signals(asschrom_time, stored_popt)
+    psignals = peak_deconvolver._construct_peak_signals(asschrom_time, stored_popt)
 
     return psignals
 

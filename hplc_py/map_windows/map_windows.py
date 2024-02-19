@@ -1,3 +1,4 @@
+from numpy import int64
 import duckdb as db
 from typing import Optional, Self
 
@@ -6,7 +7,6 @@ import pandas as pd
 import pandera as pa
 import polars as pl
 from matplotlib.axes import Axes as Axes
-from numpy import int64
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 from scipy.ndimage import label  # type: ignore
@@ -42,6 +42,7 @@ class MapWindows(IOValid):
         self.w_idx_key = "w_idx"
 
         self.w_type_interpeak_label: int = -999
+
         self.mp = MapPeaks(
             prominence=prominence, wlen=wlen, find_peaks_kwargs=find_peaks_kwargs
         )
@@ -139,9 +140,11 @@ def map_wdws_to_peaks(
     window_peak_map: DataFrame[WindowPeakMap] = window_peak_map_as_frame(
         window_peak_mapping=wdw_peak_mapping, p_idx_key=p_idx_key, w_idx_key=w_idx_key
     )
-    
-    windowed_intervals: DataFrame[WindowedPeakIntervalBounds] = join_intervals_to_window_peak_map(
-        intvl_frame=intvl_frame, window_peak_map=window_peak_map
+
+    windowed_intervals: DataFrame[WindowedPeakIntervalBounds] = (
+        join_intervals_to_window_peak_map(
+            intvl_frame=intvl_frame, window_peak_map=window_peak_map
+        )
     )
 
     return DataFrame[WindowedPeakIntervals](windowed_intervals)
@@ -266,9 +269,9 @@ def peak_intvls_as_frame(
             }
         ).astype(
             {
-                w_idx_key: int64,
+                w_idx_key: int,
                 w_type_key: pd.StringDtype(),
-                X_idx_key: int64,
+                X_idx_key: int,
             }
         )
         p_wdw_list.append(p_wdw)
@@ -331,7 +334,7 @@ def _get_interpeak_w_idxs(
 ) -> NDArray[int64]:
     labels = []
     labels, num_features = label(pwdwd_time[w_idx_key] == null_fill)  # type: ignore
-    labels = np.asarray(labels, dtype=np.int64)
+    labels = np.asarray(labels, dtype=int)
     return labels
 
 
@@ -566,15 +569,20 @@ def intervals_to_columns(intvls: Series[pd.Interval]) -> DataFrame[PeakIntervalB
 
     intvl_idx = pd.IntervalIndex(intvls)  # type: ignore
 
-    intvl_df = pl.DataFrame(
-        {
-            "p_idx": list(intvls.index),
-            "left": list(intvl_idx.left),
-            "right": list(intvl_idx.right),
-        }
+    intvl_df = (
+        pl.DataFrame(
+            {
+                "p_idx": list(intvls.index),
+                "left": list(intvl_idx.left),
+                "right": list(intvl_idx.right),
+            }
+        )
+        .to_pandas()
+        .pipe(PeakIntervalBounds.validate, lazy=True)
+        .pipe(DataFrame[PeakIntervalBounds])
     )
 
-    return DataFrame[PeakIntervalBounds](intvl_df.to_pandas())
+    return intvl_df
 
 
 def window_peak_map_as_frame(

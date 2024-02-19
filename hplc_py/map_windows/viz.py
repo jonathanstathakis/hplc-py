@@ -5,7 +5,7 @@ from matplotlib.axes import Axes as Axes
 
 from ..common_schemas import X_Schema
 from ..map_peaks.viz import UI_PlotPeakMapWide
-from ..hplc_py_typing.hplc_py_typing import PeakMapWide
+from ..map_peaks.schemas import PeakMapWide
 from .schemas import X_Windowed
 from typing import Self
 import pandera as pa

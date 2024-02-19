@@ -1,10 +1,11 @@
+from numpy import float64
 import warnings
-from typing import TypedDict, Optional
+from typing import TypedDict
 import numpy as np
 import tqdm
 from hplc_py.io_validation import IOValid
 from numpy.typing import NDArray
-from numpy import float64
+
 from typing import Self
 
 
@@ -18,16 +19,16 @@ class CorrectBaseline(IOValid):
     def __init__(
         self,
         window_size: float = 5.0,
-        verbose: bool=True,
+        verbose: bool = True,
     ):
 
         self.background: NDArray[float64] = np.ndarray(0)
-        
+
         self._window_size = window_size
 
         self._amp = NDArray[float64] = np.ndarray(0)
         self._timestep: float = 0.0
-        
+
         self._verbose = verbose
 
     def fit(
@@ -42,7 +43,7 @@ class CorrectBaseline(IOValid):
         :param amp_raw: input raw signal with background to be fitted
         :type amp_raw: NDArray[float64]
         :param timestep: the average difference of the observation intervals in the time unit
-        :type timestep: float64
+        :type timestep: float
         :param windowsize: size of the filter window
         :type windowsize: float
         :param verbose: whether to report fit progress to console, defaults to False
@@ -100,7 +101,7 @@ def compute_background(amp: NDArray[float64], n_iter: int, verbose: bool = True)
 
 def shift_amp(
     amp: NDArray[float64],
-    shift: float64,
+    shift: float,
 ) -> NDArray[float64]:
 
     amp_shifted = amp - shift
@@ -110,11 +111,11 @@ def shift_amp(
 def clip_amp(
     amp: NDArray[float64],
 ) -> NDArray[float64]:
-    amp_ = np.asarray(amp, dtype=float64)
+    amp_: NDArray[float64] = np.asarray(amp, dtype=float)
 
-    heaviside_sf = np.heaviside(amp_, 0)
+    heaviside_sf: NDArray[float64] = np.heaviside(amp_, 0)
 
-    amp_clipped = amp_ * heaviside_sf
+    amp_clipped: NDArray[float64] = amp_ * heaviside_sf
     return amp_clipped
 
 
@@ -127,7 +128,7 @@ def compute_compressed_signal(signal: NDArray[float64]) -> NDArray[float64]:
     """
     return a compressed signal using the LLS operator.
     """
-    signal_ = np.asarray(signal, dtype=float64)
+    signal_ = np.asarray(signal, dtype=float)
 
     tform = np.log(np.log(np.sqrt(signal_ + 1) + 1) + 1)
 
@@ -137,17 +138,17 @@ def compute_compressed_signal(signal: NDArray[float64]) -> NDArray[float64]:
 def compute_inv_tform(tform: NDArray[float64]) -> NDArray[float64]:
     # invert the transformer
     inv_tform = (np.exp(np.exp(tform) - 1) - 1) ** 2 - 1
-    return inv_tform.astype(float64)
+    return inv_tform.astype(float)
 
 
 def subtract_background(
     signal: NDArray[float64],
     inv_tform: NDArray[float64],
-    shift: float64,
+    shift: float,
 ) -> NDArray[float64]:
     transformed_signal = np.subtract(np.subtract(signal, shift), inv_tform)
 
-    return transformed_signal.astype(float64)
+    return transformed_signal.astype(float)
 
 
 def check_for_negatives(signal: NDArray[float64]) -> bool:
@@ -173,18 +174,18 @@ def check_for_negatives(signal: NDArray[float64]) -> bool:
     return has_negatives
 
 
-def compute_shift(signal: NDArray[float64]) -> float64:
+def compute_shift(signal: NDArray[float64]) -> float:
     # the shift is computed as the median of the negative signal values
     signal_ = signal
-    # signal_ = np.asarray(signal, dtype=float64)
+    # signal_ = np.asarray(signal, dtype=float)
 
     has_negatives = check_for_negatives(signal_)
 
     if has_negatives:
 
-        shift = np.median(signal_[signal_ < 0]).astype(float64)
+        shift = np.median(signal_[signal_ < 0]).astype(float)
     else:
-        shift = float64(0.0)
+        shift = float(0.0)
 
     return shift
 
@@ -210,7 +211,7 @@ def compute_s_compressed_minimum(
 
     # Compute the number of iterations given the window size.
 
-    _s_compressed = np.asarray(s_compressed, dtype=float64)
+    _s_compressed = np.asarray(s_compressed, dtype=float)
 
     if _s_compressed.ndim != 1:
         raise ValueError(f"s_compressed must be 1D array, got {_s_compressed.ndim}")

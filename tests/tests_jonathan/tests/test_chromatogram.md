@@ -3,7 +3,7 @@ Tests for the Chromatogram class
 """
 import pytest
 import numpy as np
-from numpy import int64, float64
+from numpy import int, float
 from numpy.typing import NDArray
 from pandera.typing import Series, DataFrame
 
@@ -25,11 +25,11 @@ class TestChromatogram:
     
     @pytest.fixture
     def int_array(self)->NDArray[int64]:
-        return np.arange(0, 10, 1, dtype=int64)
+        return np.arange(0, 10, 1, dtype=int)
     
     @pytest.fixture
     def float_array(self)->NDArray[float64]:
-        return np.arange(0, 10, 1, dtype=float64)
+        return np.arange(0, 10, 1, dtype=float)
 
     def test_chm_init(
         self,
@@ -41,11 +41,11 @@ class TestChromatogram:
     @pytest.fixture
     def chm_loaded(
         self,
-        time: Series[float64],
-        amp_raw: Series[float64],
+        time: Series[float],
+        amp_raw: Series[float],
     )-> Chromatogram:
         
-        chm = Chromatogram(time=time.to_numpy(float64), amp=amp_raw.to_numpy(float64))
+        chm = Chromatogram(time=time.to_numpy(float), amp=amp_raw.to_numpy(float))
         return chm
         
     def test_plot_signal(

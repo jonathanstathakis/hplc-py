@@ -4,7 +4,7 @@ columns:
   w_idx:
     title: null
     description: null
-    dtype: int64
+    dtype: int
     nullable: false
     checks:
       greater_than_or_equal_to: 0.0
@@ -16,7 +16,7 @@ columns:
   p_idx:
     title: null
     description: null
-    dtype: int64
+    dtype: int
     nullable: false
     checks:
       greater_than_or_equal_to: 0.0
@@ -43,7 +43,7 @@ columns:
   lb:
     title: null
     description: null
-    dtype: float64
+    dtype: float
     nullable: false
     checks:
       greater_than_or_equal_to: -.inf
@@ -55,7 +55,7 @@ columns:
   ub:
     title: null
     description: null
-    dtype: float64
+    dtype: float
     nullable: false
     checks:
       greater_than_or_equal_to: 7.394999999999996
@@ -68,7 +68,7 @@ checks: null
 index:
 - title: null
   description: null
-  dtype: int64
+  dtype: int
   nullable: false
   checks:
     greater_than_or_equal_to: 0.0

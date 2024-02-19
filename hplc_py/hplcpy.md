@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from numpy import float64, int64
+, int
 from .chromatogram import Chromatogram
 from .show import Show
 from typing import Self, Optional
@@ -46,7 +46,7 @@ class HPLCPY(IOValid):
             verbose=verbose,
         )
 
-        amp = self.chm._data["amp"].to_numpy(float64)
+        amp = self.chm._data["amp"].to_numpy(float)
         timestep = self.chm.timestep
 
         bcorr = (

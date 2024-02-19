@@ -1,11 +1,14 @@
 from typing import Literal, Optional, Self
+from numpy import float64
+from numpy.typing import NDArray
 
 import pandas as pd
 import pandera as pa
 import polars as pl
 import tqdm
-from numpy import float64, int64
 from pandera.typing import DataFrame, Series
+
+from hplc_py.map_peaks.schemas import PeakMapWide
 
 from ..common_schemas import X_Schema
 from .schemas import (
@@ -18,16 +21,41 @@ from .schemas import (
 
 from ..map_windows.schemas import X_Windowed
 
-from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
-from hplc_py.io_validation import IOValid
-from hplc_py.map_windows.map_windows import MapWindows
-from hplc_py.pandera_helpers import PanderaSchemaMethods
-from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
+from ..hplc_py_typing.typed_dicts import FindPeaksKwargs
+from ..io_validation import IOValid
+from ..map_windows.map_windows import MapWindows
+from ..pandera_helpers import PanderaSchemaMethods
+from ..skewnorms.skewnorms import _compute_skewnorm_scipy
 
 from .prepare_popt_input import DataPrepper
 
+from .definitions import (
+    W_TYPE_KEY,
+    X_KEY,
+    X_IDX_KEY,
+    W_IDX_KEY,
+    P0_KEY,
+    LB_KEY,
+    P_IDX_KEY,
+    UB_KEY,
+    PARAM_KEY,
+    WHH_WIDTH_HALF_KEY,
+    WHH_WIDTH_KEY,
+    SKEW_KEY,
+    UNMIXED_KEY,
+    RETENTION_TIME_KEY,
+    AREA_UNMIXED_KEY,
+    MAXIMA_UNMIXED_KEY,
+    PARAM_VAL_LOC,
+    PARAM_VAL_MAX,
+    PARAM_VAL_SKEW,
+    PARAM_VAL_WIDTH,
+    RECON_KEY,
+)
+
 WhichOpt = Literal["jax", "scipy"]
 WhichFitFunc = Literal["jax", "scipy"]
+
 
 class OptFuncReg:
     def __init__(
@@ -84,22 +112,39 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         prominence: float = 0.01,
         wlen: Optional[int] = None,
         find_peaks_kwargs: FindPeaksKwargs = {},
+        optimizer_kwargs: dict = {},
     ):
         self.__mw = MapWindows(
             prominence=prominence, wlen=wlen, find_peaks_kwargs=find_peaks_kwargs
         )
         self.__dp = DataPrepper()
 
-        self.X_key = "X"
-        self._X_idx_key = "X_idx"
-        self._w_idx_key = "w_idx"
-        self._p0_key = "p0"
-        self._lb_key = "lb"
-        self._ub_key = "ub"
-        self._p_idx_key = "p_idx"
-        self._param_key = "param"
-        self._value_key = "values"
+        self._X_key = X_KEY
+        self._X_idx_key = X_IDX_KEY
+        self._w_idx_key = W_IDX_KEY
+        self._p0_key = P0_KEY
+        self._lb_key = LB_KEY
+        self._ub_key = UB_KEY
+        self._p_idx_key = P_IDX_KEY
+        self._param_key = PARAM_KEY
+        self._optimizer_kwargs = optimizer_kwargs
         self._popt_idx_key = "idx"
+        self._value_key = "value"
+        self._verbose = True
+        self._whh_width_key = WHH_WIDTH_KEY
+        self._whh_width_half_key = WHH_WIDTH_HALF_KEY
+        self._skew_key = SKEW_KEY
+        self._unmixed_key = UNMIXED_KEY
+        self._recon_key = RECON_KEY
+        self._time_key = "time"
+        self._area_unmixed_key = AREA_UNMIXED_KEY
+        self._maxima_unmixed_key = MAXIMA_UNMIXED_KEY
+        self._retention_time_key = RETENTION_TIME_KEY
+        self._w_type_key = W_TYPE_KEY
+        self._param_val_loc = PARAM_VAL_LOC
+        self._param_val_max = PARAM_VAL_MAX
+        self._param_val_width = PARAM_VAL_WIDTH
+        self._param_val_skew = PARAM_VAL_SKEW
 
         if which_opt not in WhichOpt.__args__:  # type: ignore
             raise ValueError(f"Please provide one of {WhichOpt} to 'optimizer' kw")
@@ -113,8 +158,8 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
                 "Please pair the fit func with its corresponding optimizer"
             )
 
-        self.optfunc = self._get_optimizer(which_opt)
-        self.fit_func = self._get_fit_func(which_fit_func)
+        self._optfunc = self._get_optimizer(which_opt)
+        self._fit_func = self._get_fit_func(which_fit_func)
 
     def fit(
         self,
@@ -122,7 +167,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         timestep: float,
         y=None,
     ) -> Self:
-        self.timestep = timestep
+        self._timestep = timestep
         self.X = X
         self.__mw.fit(X=X, y=y)
         return self
@@ -134,38 +179,85 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         :optimizer: string to decide which optimizer to use. Currently only 'jax' and 'scipy' are supported.
         """
 
-        self.X_w: DataFrame[X_Windowed] = self.__mw.transform().X_w
+        mw_tform = self.__mw.transform()
+        self._X_w: DataFrame[X_Windowed] = mw_tform.X_w
+        self._pm: DataFrame[PeakMapWide] = mw_tform.mp.peak_map
 
-        # checks
-        params = self.__dp.transform()
-
-        popt_df: pd.DataFrame = popt_factory(
-            self.X_w,
-            params,
-            self.optfunc,
-            self.fit_func,
+        _params = (
+            self.__dp.fit(
+                pm=self._pm,
+                X_w=self._X_w,
+                X_key=self._X_key,
+                X_idx_key=self._X_idx_key,
+                w_idx_key=self._w_idx_key,
+                w_type_key=self._w_type_key,
+                p_idx_key=self._p_idx_key,
+                whh_width_key=self._whh_width_key,
+                time_key=self._time_key,
+                timestep=self._timestep,
+            )
+            .transform()
+            .params
         )
 
-        time = Series[float64](self.ws[str(self.ws_sc.time)])
+        popt_df: pd.DataFrame = popt_factory(
+            X_w=self._X_w,
+            params=_params,
+            optimizer=self._optfunc,
+            fit_func=self._fit_func,
+            X_idx_key=self._X_idx_key,
+            w_idx_key=self._w_idx_key,
+            p0_key=self._p0_key,
+            lb_key=self._lb_key,
+            ub_key=self._ub_key,
+            X_key=self._X_key,
+            p_idx_key=self._p_idx_key,
+            param_key=self._param_key,
+            popt_idx_key=self._popt_idx_key,
+            value_key=self._value_key,
+            optimizer_kwargs=self._optimizer_kwargs,
+            verbose=self._verbose,
+        )
 
-        recon_ = construct_peak_signals(time, popt_df)
+        recon_ = construct_peak_signals(
+            X_w=self._X_w,
+            popt_df=popt_df,
+            maxima_key=self._param_val_max,
+            loc_key=self._param_val_loc,
+            width_key=self._param_val_width,
+            skew_key=self._param_val_skew,
+            p_idx_key=self._p_idx_key,
+            X_idx_key=self._X_idx_key,
+            unmixed_key=self._unmixed_key,
+        )
 
         popt_df = DataFrame[Popt](popt_df)
         psignals = DataFrame[PSignals](recon_)
 
         self.popt_df = popt_df
         self.psignals = psignals
-        self.rsignal = reconstruct_signal(psignals)
 
-        rs = pl.from_pandas(self.rsignal)
-        ws = pl.from_pandas(self.ws)
-
-        self.ws = (
-            ws.join(rs.select([t_idx_key, unmixed_key]), on=t_idx_key, how="left")
-            .to_pandas()
-            .rename_axis(index="idx")
+        self.recon = reconstruct_signal(
+            peak_signals=psignals,
+            p_idx_key=self._p_idx_key,
+            unmixed_key=self._unmixed_key,
+            X_idx_key=self._X_idx_key,
+            recon_key=self._recon_key,
         )
-        self.preport = get_peak_report(self.popt_df, self.psignals)
+
+        self.preport = build_peak_report(
+            popt=self.popt_df,
+            unmixed_df=self.psignals,
+            area_unmixed_key=self._area_unmixed_key,
+            maxima_unmixed_key=self._maxima_unmixed_key,
+            p_idx_key=self._p_idx_key,
+            loc_key=self._param_val_loc,
+            amp_key=self._param_val_max,
+            skew_key=self._param_val_skew,
+            unmixed_key=self._unmixed_key,
+            w_idx_key=self._w_idx_key,
+            whh_half_key=self._param_val_width,
+        )
 
         return self
 
@@ -175,15 +267,15 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
     def _get_optimizer(self, optimizer: WhichOpt):
         return OptFuncReg(optimizer).opt_func
 
-def get_peak_report(
+
+def build_peak_report(
     popt: DataFrame[Popt],
     unmixed_df: DataFrame[PSignals],
     unmixed_key: str,
     area_unmixed_key: str,
     maxima_unmixed_key: str,
     p_idx_key: str,
-    time_key: str,
-    retention_time_key: str,
+    loc_key: str,
     w_idx_key: str,
     amp_key: str,
     whh_half_key: str,
@@ -204,25 +296,17 @@ def get_peak_report(
         )
     )
 
-    peak_report_ = (
+    peak_report = (
         popt.copy(deep=True)
         .set_index(p_idx_key)
         .join(unmixed_mst)
         .reset_index()
-        # express loc as retention time
-        .assign(retention_time=lambda df: df[time_key])
-        .astype(
-            {
-                retention_time_key: float64,
-            }
-        )
         .loc[
             :,
             [
                 w_idx_key,
                 p_idx_key,
-                retention_time_key,
-                time_key,
+                loc_key,
                 amp_key,
                 whh_half_key,
                 skew_key,
@@ -230,13 +314,12 @@ def get_peak_report(
                 maxima_unmixed_key,
             ],
         ]
+        .pipe(PReport.validate, lazy=True)
+        .pipe(DataFrame[PReport])
     )
 
-    # PReport.validate(peak_report_, lazy=True)
-
-    peak_report = DataFrame[PReport](peak_report_)
-
     return peak_report
+
 
 def popt_factory(
     X_w: DataFrame[X_Windowed],
@@ -258,11 +341,13 @@ def popt_factory(
 ) -> DataFrame[Popt]:
     popt_list = []
 
-    ws_: pl.DataFrame = pl.from_pandas(X_w).with_row_index(X_idx_key)
-    params_ = pl.from_pandas(params)
+    X_w_pl: pl.DataFrame = X_w.pipe(pl.from_pandas)
+    params_pl = params.pipe(pl.from_pandas)
 
-    wdw_grpby = params_.partition_by(
-        w_idx_key, maintain_order=True, as_dict=True
+    # returns a dict of dict[Any, DataFrame] where the key is the partition value.
+
+    wdw_grpby = params_pl.partition_by(
+        [w_idx_key], maintain_order=True, as_dict=True
     ).items()
 
     if verbose:
@@ -276,19 +361,26 @@ def popt_factory(
 
     from copy import deepcopy
 
+    wix: int
+    wdw: pl.DataFrame
     for wix, wdw in windows_grpby:
+
         optimizer_ = deepcopy(optimizer)
-        p0 = wdw[p0_key].to_numpy()
-        bounds = (
-            wdw[lb_key].to_numpy(),
-            wdw[ub_key].to_numpy(),
+
+        p0: NDArray[float64] = wdw.select(p0_key).to_numpy().ravel()
+
+        bounds: tuple[NDArray[float64], NDArray[float64]] = (
+            wdw.select(lb_key).to_numpy().ravel(),
+            wdw.select(ub_key).to_numpy().ravel(),
         )
-        x = ws_.filter(pl.col(w_idx_key) == wix)[
-            X_idx_key
-        ].to_numpy()
-        y = ws_.filter(pl.col(w_idx_key) == wix)[
-            X_key
-        ].to_numpy()
+
+        x: NDArray[float64] = (
+            X_w_pl.filter(pl.col(w_idx_key) == wix)[X_idx_key].to_numpy().ravel()
+        )
+
+        y: NDArray[float64] = (
+            X_w_pl.filter(pl.col(w_idx_key) == wix)[X_key].to_numpy().ravel()
+        )
 
         results = optimizer_(
             fit_func,
@@ -306,106 +398,115 @@ def popt_factory(
 
         # the output of `curve_fit` appears to not match the input ordering. Could
 
-        results_ = (
-            wdw.select(
-                [w_idx_key, p_idx_key, param_key]
-            )
+        results_pl: pl.DataFrame = (
+            wdw.select([w_idx_key, p_idx_key, param_key])
             .clone()
-            .with_columns(values=results[0])
+            .with_columns(pl.Series(name=value_key, values=results[0]))
         )
+        popt_list.append(results_pl)
 
-        popt_list.append(results_)
-
-    popt_df_ = pl.concat(popt_list)
-    popt_df_ = popt_df_.pivot(
-        columns=param_key,
-        index=[w_idx_key, p_idx_key],
-        values=value_key,
-    )
-
-    popt_df = DataFrame[Popt](
-        popt_df_.with_row_index(popt_idx_key)
+    popt_df: DataFrame[Popt] = (
+        pl.concat(popt_list)
+        .pivot(
+            columns=param_key,
+            index=[w_idx_key, p_idx_key],
+            values=value_key,
+        )
+        .with_row_index(popt_idx_key)
         .to_pandas()
-        .astype({popt_idx_key: int64})
+        .astype({popt_idx_key: int})
         .set_index(popt_idx_key)
+        .pipe(Popt.validate, lazy=True)
+        .pipe(DataFrame[Popt])
     )
+
     return popt_df
+
 
 @pa.check_types
 def construct_peak_signals(
-    time: Series[float64],
+    X_w: DataFrame[X_Windowed],
     popt_df: DataFrame[Popt],
-    amp_key: str,
-    time_key: str,
-    whh_half_key: str,
+    maxima_key: str,
+    loc_key: str,
+    width_key: str,
     skew_key: str,
     p_idx_key: str,
-    t_idx_key: str,
+    X_idx_key: str,
     unmixed_key: str,
 ) -> DataFrame[PSignals]:
-    
-    def construct_peak_signal(
+
+    def _construct_peak_signal(
         popt_df: DataFrame[Popt],
-        time: Series[float64],
+        X_idx: Series[int],
     ) -> pd.DataFrame:
-        
 
-        params = popt_df.loc[
-            :, [amp_key, time_key, whh_half_key, skew_key]
-        ].values.flatten()
+        param_keys = [maxima_key, loc_key, width_key, skew_key]
 
-        unmixed_signal = _compute_skewnorm_scipy(time, params)
+        params: NDArray[float64] = (
+            popt_df
+            .pipe(pl.from_pandas)
+            .select(pl.col(param_keys))
+            .to_numpy()
+            .ravel()
+        )  # fmt: skip
 
-        # expect that time contains the same index columns as input popt_df
-        popt_ = popt_df.loc[:, [p_idx_key]]
+        unmixed_signal: NDArray[float64] = _compute_skewnorm_scipy(X_idx, params)
 
-        unmixed_signal_df = pd.merge(popt_, time, how="cross")
-        unmixed_signal_df = unmixed_signal_df.assign(amp_unmixed=unmixed_signal)
-        unmixed_signal_df = unmixed_signal_df.reset_index(names=t_idx_key)
-        unmixed_signal_df[t_idx_key] = unmixed_signal_df[t_idx_key].astype(int64)
-        unmixed_signal_df = unmixed_signal_df.loc[
-            :, ["p_idx", t_idx_key, time_key, unmixed_key]
-        ]
-
-        unmixed_signal_df = unmixed_signal_df.reset_index(drop=True)
+        unmixed_signal_df = (
+            pl.DataFrame(data={unmixed_key: unmixed_signal})
+            .with_row_index(name=X_idx_key)
+            .select(
+                popt_df[p_idx_key].pipe(pl.from_pandas),
+                X_idx.pipe(pl.from_pandas),
+                pl.col(unmixed_key),
+            )
+            .to_pandas()
+            .pipe(PSignals.validate, lazy=True)
+            .pipe(DataFrame[PSignals])
+        )
 
         return unmixed_signal_df
 
-    # remove w_idx from identifier to avoid multiindexed column
+    X_idx: Series[int] = Series[int](X_w[X_idx_key])
 
-    p_signals_ = popt_df.groupby(
-        by=["p_idx"],
-        group_keys=False,
-    ).apply(
-        construct_peak_signal, time
-    )  # type: ignore
-
-    peak_signals = p_signals_.reset_index(drop=True)
+    peak_signals = (
+        popt_df.groupby(
+            by=[p_idx_key],
+            group_keys=False,
+        )
+        .apply(_construct_peak_signal, X_idx)  # type: ignore
+        .pipe(PSignals.validate, lazy=True)
+        .pipe(DataFrame[PSignals])
+    )
 
     return peak_signals
+
 
 @pa.check_types
 def reconstruct_signal(
     peak_signals: DataFrame[PSignals],
     p_idx_key: str,
     X_idx_key: str,
-    time_key: str,
-    unmx_values_key: str,
-    
+    unmixed_key: str,
+    recon_key: str,
 ) -> DataFrame[RSignal]:
-    peak_signals_: pl.DataFrame = pl.from_pandas(peak_signals)  # type: ignore
 
-    recon_sig = peak_signals_.pivot(
-        columns=p_idx_key, index=X_idx_key, values=unmx_values_key,
-    ).select(
-        pl.col(X_idx_key, time_key),
-        pl.sum_horizontal(pl.exclude([X_idx_key, time_key])).alias(unmx_values_key),
+    recon = (
+        peak_signals.pipe(pl.from_pandas)
+        .pivot(
+            columns=p_idx_key,
+            index=X_idx_key,
+            values=unmixed_key,
+        )
+        .select(
+            pl.col(X_idx_key),
+            pl.sum_horizontal(pl.exclude([X_idx_key])).alias(recon_key),
+        )
+        .to_pandas()
+        .pipe(RSignal.validate, lazy=True)
+        .pipe(DataFrame[RSignal])
     )
-
-    recon_sig_ = recon_sig.to_pandas()
-
-    RSignal.validate(recon_sig_, lazy=True)
-    recon = DataFrame[RSignal](recon_sig_)
 
     return recon
 
