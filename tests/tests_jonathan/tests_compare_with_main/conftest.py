@@ -14,7 +14,7 @@ from pandera.typing import DataFrame, Series
 from hplc_py.baseline_correction import CorrectBaseline
 from hplc_py.chromatogram import Chromatogram
 from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
-from hplc_py.fit_assessment import FitAssessment
+from hplc_py.deconvolve_peaks.fit_assessment import FitAssessment
 from hplc_py.deconvolve_peaks.schemas import Popt
 from hplc_py.map_windows.schemas import X_Windowed
 from hplc_py.map_peaks.map_peaks import MapPeaks

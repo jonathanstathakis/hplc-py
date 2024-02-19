@@ -19,8 +19,7 @@ from hplc_py.map_windows.schemas import X_Windowed
 
 from hplc_py.map_peaks.map_peaks import MapPeaks
 from hplc_py.map_windows.map_windows import MapWindows
-from hplc_py.fit_assessment import FitAssessment
-from hplc_py.misc.misc import compute_timestep
+from hplc_py.common.misc import compute_timestep
 
 def prepare_dataset_for_input(
     data: pd.DataFrame,
@@ -59,7 +58,6 @@ def ringland_shz_dset():
 @pytest.fixture
 def asschrom_dset():
     path = "tests/test_data/test_assessment_chrom.csv"
-
     dset = pd.read_csv(path)
 
     cleaned_dset = prepare_dataset_for_input(dset, "x", "y")
@@ -76,9 +74,9 @@ def asschrom_dset():
 @pytest.fixture
 @pa.check_types
 def in_signal(
-    ringland_shz_dset,
+    asschrom_dset,
 ) -> DataFrame[RawData]:
-    return ringland_shz_dset
+    return asschrom_dset
 
 
 @pytest.fixture
@@ -172,25 +170,6 @@ def mw() -> MapWindows:
 @pytest.fixture
 def prom() -> float:
     return 0.01
-
-
-@pytest.fixture
-def fa() -> FitAssessment:
-    fa = FitAssessment()
-    return fa
-
-
-@pytest.fixture
-def scores(
-    fa: FitAssessment,
-    asschrom_ws: DataFrame[X_Windowed],
-    rtol: float,
-    ftol: float,
-) -> DataFrame:
-    scores = fa.calc_wdw_aggs(asschrom_ws, rtol, ftol)
-
-    return scores
-
 
 @pytest.fixture
 def amp_raw(

@@ -321,6 +321,10 @@ def build_peak_report(
     return peak_report
 
 
+from ..common.caching import custom_param_hasher, CACHE_PATH
+from cachier import cachier
+
+@cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
 def popt_factory(
     X_w: DataFrame[X_Windowed],
     params: DataFrame[Params],

@@ -187,6 +187,5 @@ def test_deconvolve_peaks(
         X=X,
         timestep=timestep,)
     dcp.transform()
-    
-    breakpoint()
-    
+    print(dcp.recon)
+"/Users/jonathan/hplc-py/tests/tests_jonathan/tests/test_peak_deconvolution.ringland_fitted.pickle"

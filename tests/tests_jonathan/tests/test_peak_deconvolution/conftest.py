@@ -102,11 +102,11 @@ def r_signal(
 ) -> DataFrame[RSignal]:
 
     r_signal = reconstruct_signal(
-            peak_signals=psignals,
-            p_idx_key=P_IDX_KEY,
-            X_idx_key=X_IDX_KEY,
-            unmixed_key=UNMIXED_KEY,
-            recon_key=RECON_KEY,
-        )
+        peak_signals=psignals,
+        p_idx_key=P_IDX_KEY,
+        X_idx_key=X_IDX_KEY,
+        unmixed_key=UNMIXED_KEY,
+        recon_key=RECON_KEY,
+    )
 
     return r_signal

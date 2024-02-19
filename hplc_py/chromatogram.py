@@ -10,7 +10,7 @@ import numpy as np
 
 from .map_peaks.schemas import PeakMapWide
 from numpy.typing import NDArray
-from hplc_py.misc.misc import compute_timestep
+from hplc_py.common.misc import compute_timestep
 from .hplc_py_typing.hplc_py_typing import RawData, Data
 import polars as pl
 from typing import Self
