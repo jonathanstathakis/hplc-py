@@ -1,3 +1,4 @@
+from typing import Any, Iterable
 import pandas as pd
 import hashlib
 import os
@@ -5,7 +6,8 @@ from cachier import cachier
 
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache")
 
-def custom_param_hasher(args, kwargs):
+
+def custom_param_hasher(args: list[Any], kwargs: dict[str, Any]) -> str:
     """
     2024-02-19 20:45:51
 
@@ -21,22 +23,73 @@ def custom_param_hasher(args, kwargs):
     """
     # if lists, extract for conversion to tuples
 
-    tupled_kwargs = {
-        k: tuple(v) if isinstance(v, list) else v for k, v in kwargs.items()
-    }
-    dframe_kwargs = {k: v for k, v in kwargs.items() if isinstance(v, pd.DataFrame)}
+    list_hash: dict[str, str] = hash_lists(kwargs)
 
-    df_hash = sum(pd.util.hash_pandas_object(v).sum() for v in dframe_kwargs.values())
+    df_hashes: dict[str, str] = hash_dataframes(kwargs)
 
-    callables = {k:v for k, v in tupled_kwargs.items() if callable(v)}
+    callable_hashes: dict[str, str] = hash_callables(kwargs=kwargs)
 
-    hashable_args_hash = {
-        k: hashlib.sha256(str(v).encode()).hexdigest()
-        for k, v in tupled_kwargs.items()
-        if (k not in dframe_kwargs.keys()) & (k not in callables.keys())
-    }
+    exclude_keys: list[str] = list(list_hash.keys()) + list(df_hashes.keys())
 
-    hash_inp = (df_hash, hashable_args_hash)
-    out_hash = hashlib.sha256(str(hash_inp).encode()).hexdigest()
-    
+    other_args_hashes: dict[str, str] = hash_other_args(
+        exclude_keys=exclude_keys, kwargs=kwargs
+    )
+
+    hashes: dict[str, str] = df_hashes | callable_hashes | other_args_hashes
+
+    out_hash: str = sha_256_hash(hashes)
+
     return out_hash
+
+
+def hash_other_args(
+    exclude_keys: Iterable[str], kwargs: dict[str, Any]
+) -> dict[str, str]:
+
+    other_args_hashes: dict[str, str] = {
+        k: sha_256_hash(v) for k, v in kwargs.items() if k not in exclude_keys
+    }
+
+    return other_args_hashes
+
+
+def hash_dataframes(kwargs) -> dict[str, str]:
+    df_hashes = {
+        k: sha_256_hash(pd.util.hash_pandas_object(v).sum())
+        for k, v in kwargs.items()
+        if isinstance(v, pd.DataFrame)
+    }
+
+    return df_hashes
+
+
+def hash_callables(kwargs: dict[str, Any]) -> dict[str, str]:
+    """
+    WARNING: this is a hack until i figure out a better method. repr of bound methods return the memory addresss of the class, which changes on every run, thus the hash changes every run, rendering the cache unusable. As the current implementation (2024-02-20 10:49:12) of `popt_factoy` passes the optimizer and fit_func as callable objects, they need to be hashable. The current work-around will use the docstring of the function as the hash input. THIS REQUIRES THE INPUT TO HAVE DOCSTRINGS.
+    """
+    callables = {k: v for k, v in kwargs.items() if callable(v)}
+
+    try:
+        callable_hashes = {k: sha_256_hash(v.__doc__) for k, v in callables.items()}
+    except AttributeError as e:
+        e.add_note(
+            "this error is raised when an input func (optimizer or fit func) doesnt have a docstring. Here we are attempting to hash the docstring. Please add a docstring"
+        )
+        raise e
+    return callable_hashes
+
+
+def hash_lists(kwargs: dict[str, Any]) -> dict[str, str]:
+    list_hash = {
+        k: (sha_256_hash(tuple(v)) if isinstance(v, list) else v)
+        for k, v in kwargs.items()
+    }
+
+    return list_hash
+
+
+def sha_256_hash(x: Any) -> str:
+    """
+    return the SHA-256 hash string of the input. Note: object must have a __str__ or __repr__
+    """
+    return hashlib.sha256(str(x).encode()).hexdigest()
