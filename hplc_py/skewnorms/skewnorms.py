@@ -34,6 +34,9 @@ def fit_skewnorms_jax(
     x,
     *params,
 ):
+    """
+    Reproduce the behavior of `fit_skewnorms` but in JAX.
+    """
     # Get the number of peaks and reshape for easy indexing
     n_peaks = int(len(params) / 4)
     params_ = jnp.reshape(jnp.asarray(params), (n_peaks, 4))
