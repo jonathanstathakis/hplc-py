@@ -285,24 +285,52 @@ class DeconvolutionPipeline:
             .pipe(dc_schs.PeakMsntsWindowed.validate, lazy=True)
         )
 
-        
         self.tbls.peak_map = (
-            self.tbls.peak_map
-            .with_columns(
-                pl.when(pl.col('unit')=='mins').then(pl.lit('x')).when(pl.col('unit')=='X').then(pl.lit('y')).otherwise(pl.lit('unassigned')).alias('dim')
+            self.tbls.peak_map.with_columns(
+                pl.when(pl.col("unit") == "mins")
+                .then(pl.lit("x"))
+                .when(pl.col("unit") == "X")
+                .then(pl.lit("y"))
+                .otherwise(pl.lit("unassigned"))
+                .alias("dim")
             )
-            .pivot(index=['w_type','w_idx','p_idx','idx','msnt','side','dim'], columns='unit', values='value')
-            .rename({"X":"amp"})
-            .with_columns(pl.col('mins').truediv(self._timestep).round(0).cast(int).alias("unit_idx"))
-            .melt(id_vars=['w_type','w_idx','p_idx','idx','msnt','side','dim'], value_vars=['mins','amp','unit_idx'], value_name='value', variable_name='unit')
-            .drop_nulls()
+            .pivot(
+                index=["w_type", "w_idx", "p_idx", "idx", "msnt", "side", "dim"],
+                columns="unit",
+                values="value",
+            )
+            .rename({"X": "amp"})
+            .with_columns(
+                pl.col("mins")
+                .truediv(self._timestep)
+                .round(0)
+                .cast(int)
+                .alias("unit_idx")
+            )
+            .melt(
+                id_vars=["w_type", "w_idx", "p_idx", "idx", "msnt", "side", "dim"],
+                value_vars=["mins", "amp", "unit_idx"],
+                value_name="value",
+                variable_name="unit",
+            )
+            .filter(~pl.col("value").is_null())
+            .with_columns(
+                pl.when(pl.col("msnt").str.contains("width"))
+                .then(pl.lit("width"))
+                .when(pl.col("msnt") == "maxima")
+                .then(pl.lit("point"))
+                .when(pl.col('side').is_not_null())
+                .then(pl.lit('contour_line_bound'))
+                .otherwise(pl.lit('unassigned'))
+                .alias("type"),
+                pl.col('msnt').str.replace("width_","")
+            )
             .pipe(lambda df: df if breakpoint() else df)
         )
         # deconvolution
-        breakpoint()
         # peak_msnts_windowed - a table of p_idx, loc, dim, and value columns.
         params: DataFrame[dc_schs.Params] = self.dataprepper_pipeline(
-            peak_msnts_windowed=peak_msnts_windowed,
+            peak_map=self.tbls.peak_map,
             X_windowed=self.X_w,
         )
         breakpoint()
@@ -328,17 +356,27 @@ class DeconvolutionPipeline:
 
     def dataprepper_pipeline(
         self,
-        peak_msnts_windowed,#: DataFrame[dc_schs.PeakMsntsWindowed],
+        peak_map,  #: DataFrame[dc_schs.PeakMsntsWindowed],
         X_windowed: DataFrame[mw_schs.X_Windowed],
     ):
+        """
+        2024-03-02 00:52:05
+
+        `params_factory` doesnt need the dim or unit columns, and only operates on the maxima x and y and whh_width. So first filter to that.
+        """
+
+        pf_input = (
+            peak_map.pipe(lambda df: df if breakpoint() else df)
+            .filter(pl.col("msnt").is_in(["maxima", "whh_width"]))
+            .pipe(lambda df: df if breakpoint() else df)
+        )
+        breakpoint()
 
         params: DataFrame[dc_schs.Params] = opt_params.params_factory(
-            peak_msnts_windowed=peak_msnts_windowed,
+            peak_map=peak_map,
             X_w=X_windowed,
             timestep=self._timestep,
         )
-        
-        
 
         breakpoint()
         return params
@@ -492,16 +530,11 @@ class DeconvolutionPipeline:
         )
 
         correct_baseline_input = (
-            signal_store
-            .select(
-                pl.col('X_idx'),
-                pl.col('X')
-            )
+            signal_store.select(pl.col("X_idx"), pl.col("X"))
             .to_pandas()
             .pipe(DataFrame[com_schs.X_Schema])
-            
         )
-        
+
         if correct_baseline:
             data_X: pd.DataFrame
             bcorr_plot: Any
