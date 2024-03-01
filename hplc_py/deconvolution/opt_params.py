@@ -38,7 +38,7 @@ class DataPrepper:
 
 
 def params_factory(
-    peak_msnts_windowed: DataFrame[dc_schs.PeakMsntsWindowed],
+    peak_msnts_windowed,  #: DataFrame[dc_schs.PeakMsntsWindowed],
     X_w: DataFrame[mw_schs.X_Windowed],
     timestep: float,
     amp_lb_mult: float = dc_defs.VAL_AMP_LB_MULT,
@@ -67,9 +67,8 @@ def params_factory(
 
     p0: DataFrame[dc_schs.P0] = p0_factory(
         peak_msnts_windowed=peak_msnts_windowed,
-        timestep=timestep,
     )
-
+    breakpoint()
     bounds: DataFrame[dc_schs.Bounds] = bounds_factory(
         p0=p0,
         X_w=X_w,
@@ -340,8 +339,7 @@ def set_bounds_maxima(
 
 
 def p0_factory(
-    peak_msnts_windowed: DataFrame[dc_schs.PeakMsntsWindowed],
-    timestep: float,
+    peak_msnts_windowed,  #: DataFrame[dc_schs.PeakMsntsWindowed],
 ) -> DataFrame[dc_schs.P0]:
     """
     Build a table of initial guesses for each peak in each window using the peak maxima, the peak width at half height, peak time location (X_idx), and default skews of zero.
@@ -349,7 +347,9 @@ def p0_factory(
     # window the peak map
     # assign skew as zero as per definition
     # assign whh as half peak whh as per definition, in time units
-
+    breakpoint()
+    # todo: manually add dim, unit columns such that dim is x or y, unit is for example idx, time, amp etc.
+    
     p0: DataFrame[dc_schs.P0] = (
         peak_msnts_windowed
             .pipe(pl.from_pandas) #type: ignore
