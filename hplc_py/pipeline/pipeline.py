@@ -320,23 +320,14 @@ class DeconvolutionPipeline:
         X_windowed: DataFrame[mw_schs.X_Windowed],
         timestep: float,
     ):
-        data_prepper = DataPrepper()
-
-        params: DataFrame[dc_schs.Params] = (
-            data_prepper.fit(
-                peak_msnts_windowed=peak_msnts_windowed,
-                X_w=X_windowed,
-                timestep=timestep,
-            )
-            .transform()
-            .params
-        )
 
         params: DataFrame[dc_schs.Params] = opt_params.params_factory(
             peak_msnts_windowed=peak_msnts_windowed,
             X_w=X_windowed,
             timestep=self._timestep,
         )
+        
+        
 
         breakpoint()
         return params
@@ -489,11 +480,22 @@ class DeconvolutionPipeline:
             )
         )
 
+        correct_baseline_input = (
+            signal_store
+            .select(
+                pl.col('X_idx'),
+                pl.col('X')
+            )
+            .to_pandas()
+            .pipe(DataFrame[com_schs.X_Schema])
+            
+        )
+        
         if correct_baseline:
             data_X: pd.DataFrame
             bcorr_plot: Any
             data_X, bcorr_plot = self.pipe_correct_baseline(
-                data=DataFrame[com_schs.X_Schema](signal_store.to_pandas()),
+                data=correct_baseline_input,
                 **bcorr_kwargs,
             )
 
