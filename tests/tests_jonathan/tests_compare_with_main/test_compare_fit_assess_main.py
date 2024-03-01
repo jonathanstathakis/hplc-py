@@ -6,8 +6,8 @@ import polars.selectors as ps
 import pytest
 from pandera.typing import DataFrame
 
-from hplc_py.hplc_py_typing.hplc_py_typing import FitAssessScores
-from hplc_py.deconvolve_peaks.schemas import PSignals
+from hplc_py.deconvolution.schemas import FitAssessScores
+from hplc_py.deconvolution.schemas import PSignals
 
 @pa.check_types
 def test_compare_scores(

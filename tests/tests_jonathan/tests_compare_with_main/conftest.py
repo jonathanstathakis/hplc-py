@@ -7,20 +7,18 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from hplc_py.map_peaks.schemas import PeakMapWide
+from hplc_py.map_peaks.schemas import PeakMap
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
 
-from hplc_py.baseline_correction import CorrectBaseline
+from hplc_py.baseline_correction.baseline_correction import BaselineCorrection
 from hplc_py.chromatogram import Chromatogram
-from hplc_py.deconvolve_peaks.deconvolution import PeakDeconvolver
-from hplc_py.deconvolve_peaks.fit_assessment import FitAssessment
-from hplc_py.deconvolve_peaks.schemas import Popt
+from hplc_py.deconvolution.deconvolution import PeakDeconvolver
+from hplc_py.deconvolution.fit_assessment import FitAssessment
+from hplc_py.deconvolution.schemas import Popt
 from hplc_py.map_windows.schemas import X_Windowed
-from hplc_py.map_peaks.map_peaks import MapPeaks
+from hplc_py.map_peaks.map_peaks import PeakMapper
 from hplc_py.map_windows.map_windows import MapWindows
-
-from ..tests.conftest import prepare_dataset_for_input
 
 
 @pytest.fixture
@@ -59,14 +57,12 @@ def asschrom_time(asschrom_chm):
 
 @pytest.fixture
 def asschrom_amp_bcorr(
-    cb: CorrectBaseline,
+    cb: BaselineCorrection,
     asschrom_amp_raw: NDArray[float64],
     asschrom_timestep: float,
 ) -> Series[float]:
 
-    bcorr: Series[float] = (
-        cb.fit(asschrom_amp_raw, asschrom_timestep).transform().corrected
-    )
+    bcorr: Series[float] = cb.fit(asschrom_amp_raw).transform().corrected
 
     return bcorr
 
@@ -77,7 +73,7 @@ def asschrom_peak_map(
     prom: float,
     asschrom_timestep: float,
     asschrom_time: Series[float],
-) -> DataFrame[PeakMapWide]:
+) -> DataFrame[PeakMap]:
 
     pm = mp.transform(
         X=asschrom_amp_bcorr,
@@ -92,21 +88,21 @@ def asschrom_peak_map(
 
 @pytest.fixture
 def asschrom_left_bases(
-    asschrom_peak_map: DataFrame[PeakMapWide],
+    asschrom_peak_map: DataFrame[PeakMap],
 ) -> Series[int]:
 
     left_bases: Series[int] = Series[int](
-        asschrom_peak_map[PeakMapWide.pb_left_idx], dtype=int
+        asschrom_peak_map[PeakMap.pb_left_idx], dtype=int
     )
     return left_bases
 
 
 @pytest.fixture
 def asschrom_right_bases(
-    asschrom_peak_map: DataFrame[PeakMapWide],
+    asschrom_peak_map: DataFrame[PeakMap],
 ) -> Series[int]:
     right_bases: Series[int] = Series[int](
-        asschrom_peak_map[PeakMapWide.pb_right_idx], dtype=int
+        asschrom_peak_map[PeakMap.pb_right_idx], dtype=int
     )
     return right_bases
 
@@ -119,7 +115,7 @@ def asschrom_ws(
     asschrom_left_bases: Series[float],
     asschrom_right_bases: Series[float],
 ) -> DataFrame[X_Windowed]:
-    ws = mw.transform(
+    ws = mw.map_windows(
         asschrom_left_bases,
         asschrom_right_bases,
         asschrom_time,

@@ -4,27 +4,27 @@ Pandera typing for `map_windows`. Fields are parametrized as much as possible an
 
 import pandera as pa
 from pandera.dtypes import String
-
-from ..common_schemas import BaseDF
-from ..common_schemas import HPLCBaseConfig
 import pandas as pd
 
-from ..common_schemas import (
-    p_idx_field,
-    w_idx_field,
-    left_base_field,
-    right_base_field,
-    w_type_field,
-    X_idx_field,
-    X_field,
-    w_idx_field_nullable
-)
+import hplc_py.common.common_schemas as com_schs
+from hplc_py.common.definitions import LABEL_INTERPEAK, LABEL_PEAK
+
+
+w_idx_field_min = 0
+w_idx_field_max = 100
+
+
+w_idx_field_kwargs = dict(ge=w_idx_field_min, le=w_idx_field_max)
+
+
+w_idx_field = pa.Field(**w_idx_field_kwargs)
+
 
 class WindowPeakMap(pa.DataFrameModel):
-    p_idx: int = p_idx_field
+    p_idx: int = com_schs.p_idx_field
     w_idx: int = w_idx_field
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "WindowPeakMap"
@@ -33,35 +33,42 @@ class WindowPeakMap(pa.DataFrameModel):
 
 class WindowedPeakIntervals(pa.DataFrameModel):
     w_idx: int = w_idx_field
-    p_idx: int = p_idx_field
-    left: int = left_base_field
-    right: int = right_base_field
+    p_idx: int = com_schs.p_idx_field
+    left: int = com_schs.left_base_field
+    right: int = com_schs.right_base_field
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "WindowedPeakIntervals"
         coerce = True
 
+
 class WindowBounds(pa.DataFrameModel):
     w_idx: int = w_idx_field
-    left: int = left_base_field
-    right: int = right_base_field
+    left: int = com_schs.left_base_field
+    right: int = com_schs.right_base_field
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "WindowBounds"
         coerce = True
 
 
+VALUES_W_TYPE = [LABEL_INTERPEAK, LABEL_PEAK]
+
+
+w_type_field = pa.Field(isin=VALUES_W_TYPE)
+
+
 class InterpeakWindowStarts(pa.DataFrameModel):
     w_type: String = w_type_field
     w_idx: int = w_idx_field
-    X_idx: int = X_idx_field
-    X: float = X_field
-    
-    class Config(HPLCBaseConfig):
+    X_idx: int = com_schs.X_idx_field
+    X: float = com_schs.X_field
+
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "InterpeakWindowStarts"
@@ -69,63 +76,74 @@ class InterpeakWindowStarts(pa.DataFrameModel):
 
 
 class PeakIntervalBounds(pa.DataFrameModel):
-    p_idx: int = p_idx_field
-    left: int = left_base_field
-    right: int = right_base_field
+    p_idx: int = com_schs.p_idx_field
+    left: int = com_schs.left_base_field
+    right: int = com_schs.right_base_field
 
-class Config(HPLCBaseConfig):
-        strict = True
-        ordered = True
-        name = "PeakIntervalBounds"
-        coerce = True
+
+class Config(com_schs.HPLCBaseConfig):
+    strict = True
+    ordered = True
+    name = "PeakIntervalBounds"
+    coerce = True
 
 
 class WindowedPeakIntervalBounds(pa.DataFrameModel):
     w_idx: int = w_idx_field
-    p_idx: int = p_idx_field
-    left: int = left_base_field
-    right: int = right_base_field
+    p_idx: int = com_schs.p_idx_field
+    left: int = com_schs.left_base_field
+    right: int = com_schs.right_base_field
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "WindowedPeakIntervalBounds"
         coerce = True
 
 
-class PeakWindows(BaseDF):
+class PeakWindows(com_schs.BaseDF):
     w_type: pd.StringDtype
     w_idx: pd.Int64Dtype
     X_idx: pd.Int64Dtype
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "PeakWindows"
         coerce = True
 
 
-class X_PeakWindowed(BaseDF):
+w_idx_field_kwargs_nullable = {
+    k: v for k, v in w_idx_field_kwargs.items() if k != "nullable"
+} | {"nullable": True}
+
+w_idx_field_nullable = pa.Field(**w_idx_field_kwargs_nullable)
+
+
+class X_PeakWindowed(com_schs.BaseDF):
     """
     peak windowed time dataframe, with placeholders for nonpeak regions. An intermediate frame prior to full mapping
     """
 
     w_type: String = w_type_field
     w_idx: pd.Int64Dtype = w_idx_field_nullable
-    X_idx: int = X_idx_field
+    X_idx: int = com_schs.X_idx_field
     X: float
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "X_PeakWindowed"
         coerce = True
 
+class WindowFields(pa.DataFrameModel):
+    w_type: str = w_type_field
+    w_idx: int = w_idx_field
 
-class X_Windowed(X_PeakWindowed):
-    w_idx: int = pa.Field(ge=-9999, le=10)
+class X_Windowed(X_PeakWindowed, WindowFields):
+    pass
 
-    class Config(HPLCBaseConfig):
+    class Config(com_schs.HPLCBaseConfig):
         strict = True
         ordered = True
         name = "X_Windowed"

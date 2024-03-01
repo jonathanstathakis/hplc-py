@@ -1,3 +1,10 @@
+"""
+Contains methods relevant to mapping the peaks present in a signal, relying on `scipy.signal` for calculations.
+
+NOTE: 2024-02-23 15:53:24 the `find_peaks` method of peak detection and base detection is VERY sensitive to the baseline smoothness. For example in the assessment_chrom dataset, even though the baseline correction produces no noticable adjustment in the signal, forgoing that stage results in the peak bases to be almost the length of the signal, on several of the peaks. This is presumably due to curvature and roughness in the baseline permitting the peak window lines to extend much further than they otherwise should. As SNIP smooths and corrects at the same time, it provides both functions. In conclusion, always correct and smooth, as if the peaks/peak regions do not return to zero (the implicit baseline) the windows will be much wider than desired and makes deconvolution impractical.
+"""
+
+from matplotlib.pyplot import contour
 from numpy import float64, int64
 from typeguard import typechecked
 from numpy.typing import NDArray
@@ -8,12 +15,19 @@ import pandera as pa
 from matplotlib.axes import Axes as Axes
 from pandera.typing import DataFrame
 from scipy import signal
-from hplc_py.common_schemas import X_Schema  # type: ignore
+from hplc_py.map_peaks.definitions import map_peaks_kwargs_defaults
+from hplc_py.common.common_schemas import X_Schema
 
-from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
+from hplc_py.map_peaks.definitions import MapPeaksKwargs
+from hplc_py.map_peaks import definitions as mp_defs
+from hplc_py.map_peaks import schemas as mp_schs
+from hplc_py.map_peaks import viz as mp_viz
 
 from hplc_py.map_peaks.schemas import (
-    PeakMapWide,
+    ContourLineBounds,
+    Maxima,
+    PeakMap,
+    PeakMapOutput,
 )
 
 from typing import Tuple
@@ -22,41 +36,42 @@ from hplc_py.io_validation import IOValid
 from hplc_py.map_peaks.schemas import WHH, FindPeaks, PeakBases
 
 PPD: TypeAlias = Tuple[NDArray[float64], NDArray[int64], NDArray[int64]]
+import polars as pl
 
 
-class MapPeaks(IOValid):
+class MapPeaks:
+    """
+    For a 1D array treatable as a signal, map peak properties returned as normalised dataframe tables and provide plotting methods.
+
+    Notes:
+
+    - Peak bases are measured twice - once in `find_peaks`, returned in the peak prominence data, and again with `find_widths` using a rel height of 1. For default settings, the bases as measured by `prominence` are wider than the latter, and do not correspond to the apparent profile of the peaks.
+    """
+
     def __init__(
         self,
-        prominence: float = 0.01,
-        wlen: Optional[int] = None,
-        find_peaks_kwargs: FindPeaksKwargs = {},
+        X: DataFrame[X_Schema],
+        find_peaks_kwargs: MapPeaksKwargs = map_peaks_kwargs_defaults,
+    ):
+        peak_mapper = PeakMapper(find_peaks_kwargs=find_peaks_kwargs)
+        peak_mapper.fit(X=X)
+        peak_mapper.transform()
+
+        self.peak_map: PeakMapOutput = peak_mapper.peak_map
+
+        self.plot = mp_viz.VizPeakMapFactory(X=X, peak_map=self.peak_map)
+
+
+class PeakMapper(IOValid):
+
+    def __init__(
+        self,
+        find_peaks_kwargs: MapPeaksKwargs = map_peaks_kwargs_defaults,
     ):
         """
         Use to map peaks, i.e. locate maxima, whh, peak bases for a given set of user inputs. Includes plotting functionality inherited from MapPeakPlots
         """
-        self._prominence = prominence
-        self._wlen = wlen
         self._find_peaks_kwargs = find_peaks_kwargs
-
-        self._X_key: str = "X"
-
-        self._idx_name: Literal["idx"] = "idx"
-        self._p_idx_key: Literal["p_idx"] = "p_idx"
-        self._X_idx_key: Literal["X_idx"] = "X_idx"
-        self._maxima_key: Literal["maxima"] = "maxima"
-        self._prom_key: Literal["prom"] = "prom"
-        self._prom_lb_key: Literal["prom_left"] = "prom_left"
-        self._prom_rb_key: Literal["prom_right"] = "prom_right"
-        self._whh_rel_height_key: Literal["whh_rel_height"] = "whh_rel_height"
-        self._whh_h_key: Literal["whh_height"] = "whh_height"
-        self._whh_w_key: Literal["whh_width"] = "whh_width"
-        self._whh_l_key: Literal["whh_left"] = "whh_left"
-        self._whh_r_key: Literal["whh_right"] = "whh_right"
-        self._pb_rel_height_key: Literal["pb_rel_height"] = "pb_rel_height"
-        self._pb_h_key: Literal["pb_height"] = "pb_height"
-        self._pb_w_key: Literal["pb_width"] = "pb_width"
-        self._pb_l_key: Literal["pb_left"] = "pb_left"
-        self._pb_r_key: Literal["pb_right"] = "pb_right"
 
     @pa.check_types()
     def fit(
@@ -68,7 +83,7 @@ class MapPeaks(IOValid):
         In this case, simply stores X and the timestep
         """
 
-        self.X = X
+        self._X = X
 
         return self
 
@@ -77,77 +92,62 @@ class MapPeaks(IOValid):
         self,
     ) -> Self:
 
-        self.peak_map = generate_peak_mapping(X=self.X, prominence=0.01)
+        self.peak_map = map_peaks(X=self._X, find_peaks_kwargs=self._find_peaks_kwargs)
 
         return self
 
 
-def generate_peak_mapping(
+def map_peaks(
     X: DataFrame[X_Schema],
-    prominence: float,
-    X_key: str = "X",
-    X_idx_key: str = "X_idx",
-    p_idx_key: str = "p_idx",
-    prom_key: str = "prom",
-    prom_lb_key: str = "prom_left",
-    prom_rb_key: str = "prom_right",
-    maxima_key: str = "maxima",
-    wlen: Optional[int] = None,
-    find_peaks_kwargs: FindPeaksKwargs = {},
+    find_peaks_kwargs: mp_defs.MapPeaksKwargs = map_peaks_kwargs_defaults,
 ):
     """
     Map An input signal with peaks, providing peak height, prominence, and width data.
+
     From scipy.peak_widths docs:
     <https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.peak_widths.html>
     "wlen : int, optional A window length in samples passed to peak_prominences as an optional argument for internal calculation of prominence_data. This argument is ignored if prominence_data is given." - this is only used in the initial findpeaks
     then the results are propagated to the other profilings.
     """
-
     fp = set_findpeaks(
         X=X,
-        prominence=prominence,
-        X_key=X_key,
-        X_idx_key=X_idx_key,
-        p_idx_key=p_idx_key,
-        prom_key=prom_key,
-        prom_lb_key=prom_lb_key,
-        prom_rb_key=prom_rb_key,
-        maxima_key=maxima_key,
-        wlen=wlen,
         find_peaks_kwargs=find_peaks_kwargs,
     )
 
-    peak_prom_data = get_peak_prom_data(
-        fp=fp, prom_key=prom_key, prom_lb_key=prom_lb_key, prom_rb_key=prom_rb_key
+    peak_prom_data = cast_peak_prom_data_to_tuple_of_numpy(fp=fp)
+
+    peak_t_idx = fp[mp_defs.X_IDX].to_numpy(int)
+
+    whh = width_df_factory(
+        X=X,
+        peak_t_idx=peak_t_idx,
+        peak_prom_data=peak_prom_data,
+        rel_height=0.5,
+        key_X=mp_defs.X,
+        key_width=mp_defs.KEY_WIDTH_WHH,
+        key_left_ips=mp_defs.KEY_LEFT_WHH,
+        key_right_ips=mp_defs.KEY_RIGHT_WHH,
+        key_height=mp_defs.KEY_HEIGHT_WHH,
     )
 
-    peak_t_idx = fp[X_idx_key].to_numpy(int)
-
-    whh = DataFrame[WHH](
-        width_df_factory(
-            X=X,
-            peak_t_idx=peak_t_idx,
-            peak_prom_data=peak_prom_data,
-            rel_height=0.5,
-            prefix="whh",
-            p_idx_key=p_idx_key,
-            X_key=X_key,
-        )
+    pb = width_df_factory(
+        X=X,
+        key_X=mp_defs.X,
+        peak_t_idx=peak_t_idx,
+        peak_prom_data=peak_prom_data,
+        rel_height=1,
+        key_width=mp_defs.KEY_WIDTH_PB,
+        key_left_ips=mp_defs.KEY_LEFT_PB,
+        key_right_ips=mp_defs.KEY_RIGHT_PB,
+        key_height=mp_defs.KEY_HEIGHT_PB,
     )
 
-    pb = DataFrame[PeakBases](
-        width_df_factory(
-            X=X,
-            peak_t_idx=peak_t_idx,
-            peak_prom_data=peak_prom_data,
-            rel_height=1,
-            prefix="pb",
-            p_idx_key=p_idx_key,
-            X_key=X_key,
-        )
+    peak_map: PeakMapOutput = set_peak_map(
+        X=X,
+        fp=fp,
+        whh=whh,
+        pb=pb,
     )
-
-    peak_map = set_peak_map(fp=fp, whh=whh, pb=pb, p_idx_key=p_idx_key)
 
     return peak_map
 
@@ -155,55 +155,40 @@ def generate_peak_mapping(
 @pa.check_types
 def set_findpeaks(
     X: DataFrame[X_Schema],
-    prominence: float,
-    X_key: str,
-    p_idx_key: str,
-    X_idx_key: str,
-    prom_key: str,
-    prom_lb_key: str,
-    prom_rb_key: str,
-    maxima_key: str,
-    wlen: Optional[int] = None,
-    find_peaks_kwargs: FindPeaksKwargs = {},
+    find_peaks_kwargs: MapPeaksKwargs = MapPeaksKwargs(),
 ) -> DataFrame[FindPeaks]:
     # 'denormalize' the prominence input to put it on the scale of amp
-
-    if not isinstance(prominence, float):
-        raise TypeError(f"expected prominance to be {float}")
-
-    if (prominence < 0) | (prominence > 1):
-        raise ValueError("expect prominence to be a float between 0 and 1")
 
     if not isinstance(find_peaks_kwargs, dict):
         raise TypeError("Expect find_peaks_kwargs to be a dict")
 
-    prom_ = prominence * X[X_key].max()
-
-    X_idx, _dict = signal.find_peaks(
-        x=X[X_key],
-        prominence=prom_,
-        wlen=wlen,
-        **find_peaks_kwargs,
+    # move prominence to the X scale to avoid normalizing the signal
+    find_peaks_kwargs[mp_defs.KEY_PROMINENCE] = (
+        dict(find_peaks_kwargs).pop(mp_defs.KEY_PROMINENCE) * X[mp_defs.X].max()
     )
 
+    X_idx, _dict = signal.find_peaks(
+        x=X[mp_defs.X],
+        **find_peaks_kwargs,
+    )
     fp = (
         X.loc[X_idx]
-        .assign(**{X_idx_key: X_idx, **_dict})
+        .assign(**{mp_defs.X_IDX: X_idx, **_dict})
         .reset_index(drop=True)
-        .reset_index(names=p_idx_key)
+        .reset_index(names=mp_defs.P_IDX)
         .reset_index(drop=True)  # set each row number as the p_idx
         .rename(
             {
-                "prominences": prom_key,
-                "left_bases": prom_lb_key,
-                "right_bases": prom_rb_key,
-                X_key: maxima_key,
+                "prominences": mp_defs.KEY_PROMINENCE,
+                "left_bases": mp_defs.KEY_LEFT_PROM,
+                "right_bases": mp_defs.KEY_RIGHT_PROM,
+                mp_defs.X: mp_defs.MAXIMA,
             },
             axis=1,
         )
         .loc[
             :,
-            lambda df: df.columns.drop(maxima_key).insert(2, maxima_key),
+            lambda df: df.columns.drop(mp_defs.MAXIMA).insert(2, mp_defs.MAXIMA),
         ]
         .pipe(FindPeaks.validate, lazy=True)
         .pipe(DataFrame[FindPeaks])
@@ -212,39 +197,33 @@ def set_findpeaks(
     return fp
 
 
-@pa.check_types
+@pa.check_types(lazy=True)
 @typechecked
 def width_df_factory(
     X: DataFrame[X_Schema],
     peak_t_idx: NDArray[int64],
     peak_prom_data: PPD,
     rel_height: float,
-    p_idx_key: str,
-    X_key: str,
-    prefix: str = "width",
+    key_X: str,
+    key_width: str,
+    key_height: str,
+    key_left_ips: str,
+    key_right_ips: str,
 ) -> pd.DataFrame:
     """
     width is calculated by first identifying a height to measure the width at, calculated as:
-    (peak height) - ((peak prominance) * (relative height))
+    (peak height) - ((peak prominence) * (relative height))
 
-    width half height, width half height height
-    measure the width at half the hieght for a better approximation of
-    the latent peak
+    prominence is defined as the vertical distance between the peak and its lowest contour line.
 
-    this measurement defines the 'scale' paramter of the skewnorm distribution
-    for the signal peak reconstruction
-
-    :prefix: is used to prefix the column labels, i.e. measured at half is 'whh'
+    prominence is calculated by:
+    - from the peak maxima, extend a line left and right until it intersects with the wlen defined window bound or the slope of a higher peak, ignoring peaks the same height.
+    - within this line interval, find the minima on either side. The minima is defined as the prominance bases.
+    - The larger value of the pair of minima marks the lowest contour line. prominence is then calculated as the vertical difference between the peak height and the height of the contour line.
     """
 
-    rel_h_key = prefix + "_rel_height"
-    w_key = prefix + "_width"
-    h_key = prefix + "_height"
-    left_ips_key = prefix + "_left"
-    right_ips_key = prefix + "_right"
-
     w, h, left_ips, right_ips = signal.peak_widths(
-        x=X[X_key],
+        x=X[key_X],
         peaks=peak_t_idx,
         rel_height=rel_height,
         prominence_data=peak_prom_data,
@@ -252,47 +231,162 @@ def width_df_factory(
 
     wdf_: pd.DataFrame = pd.DataFrame().rename_axis(index="idx")
 
-    wdf_[rel_h_key] = [rel_height] * len(peak_t_idx)
-    wdf_[w_key] = w
-    wdf_[h_key] = h
-    wdf_[left_ips_key] = left_ips
-    wdf_[right_ips_key] = right_ips
-
-    wdf: pd.DataFrame = wdf_.reset_index(names=p_idx_key)
+    wdf_[key_width] = w
+    wdf_[key_height] = h
+    wdf_[key_left_ips] = left_ips
+    wdf_[key_right_ips] = right_ips
+    wdf: pd.DataFrame = wdf_.reset_index(names=mp_defs.P_IDX)
     return wdf
 
 
-@pa.check_types
 def set_peak_map(
+    X: DataFrame[X_Schema],
     fp: DataFrame[FindPeaks],
     whh: DataFrame[WHH],
     pb: DataFrame[PeakBases],
-    p_idx_key: str,
-) -> DataFrame[PeakMapWide]:
+) -> PeakMapOutput:
 
-    pm = pd.concat(
-        [
-            fp,
-            whh.drop([p_idx_key], axis=1),
-            pb.drop([p_idx_key], axis=1),
-        ],
-        axis=1,
-    ).pipe(DataFrame[PeakMapWide])
+    # TODO: seperate out the different types of measurements. There are..
 
-    return pm
+    pm = (
+        pd.concat(
+            [
+                fp,
+                whh.drop([mp_defs.P_IDX], axis=1),
+                pb.drop([mp_defs.P_IDX], axis=1),
+            ],
+            axis=1,
+        )
+        .pipe(pl.from_pandas)
+    )  # fmt: skip
+
+    pm_melt = (
+        pm
+        .melt(id_vars=[mp_defs.P_IDX], value_name=mp_defs.VALUE, variable_name=mp_defs.KEY_MSNT)
+        
+    )  # fmt: skip
+
+    # contains all of the geometric points mapped by the prior signal analysis methods.
+
+    # TODO: seperate contour line measurements from peak map measurements
+
+    # table of the peak maxima values
+    maxima = prepare_maxima_tbl(pm_melt=pm_melt)
+
+    contour_line_bounds = prepare_contour_line_bounds_tbl(pm_melt=pm_melt, X=X)
+
+    # widths table: the scalar width of each contour line as measured by `scipy.signal.peak_widths`.
+
+    width_keys = [mp_defs.KEY_WIDTH_WHH, mp_defs.KEY_WIDTH_PB]
+
+    widths = (
+        pm_melt.filter(pl.col(mp_defs.KEY_MSNT).is_in(width_keys))
+        .to_pandas()
+        .pipe(mp_schs.Widths.validate, lazy=True)
+        .pipe(DataFrame[mp_schs.Widths])
+    )
+
+    output = PeakMapOutput(
+        maxima=maxima,
+        contour_line_bounds=contour_line_bounds,
+        widths=widths,
+    )
+
+    return output
 
 
-def get_peak_prom_data(
+def prepare_contour_line_bounds_tbl(
+    pm_melt: pl.DataFrame,
+    X: DataFrame[X_Schema],
+) -> DataFrame[mp_schs.ContourLineBounds]:
+    contour_line_keys = [
+        mp_defs.KEY_LEFT_PROM,
+        mp_defs.KEY_RIGHT_PROM,
+        mp_defs.KEY_LEFT_WHH,
+        mp_defs.KEY_RIGHT_WHH,
+        mp_defs.KEY_LEFT_PB,
+        mp_defs.KEY_RIGHT_PB,
+    ]
+
+    # a normalised table of the contour bound measurements, prominence, whh, bases.
+
+    peak_contours = pm_melt.filter(pl.col(mp_defs.KEY_MSNT).is_in(contour_line_keys))
+
+    contour_bounds_split = (
+        peak_contours.with_columns(
+            pl.col(mp_defs.KEY_MSNT)
+            .str.split("_")
+            .list.to_struct(n_field_strategy="max_width")
+            .alias("msnt_split")
+        )
+        .drop(mp_defs.KEY_MSNT)
+        .unnest("msnt_split")
+        .rename(
+            {
+                "field_0": mp_defs.LOC,
+                "field_1": mp_defs.KEY_MSNT,
+                "value": "X_idx_output",
+            }
+        )
+    )
+
+    countour_bounds_with_rounded_X_idx = contour_bounds_split.with_columns(
+        pl.col("X_idx_output").round(0).cast(int).alias(mp_defs.KEY_X_IDX_ROUNDED)
+    )
+
+    contour_bounds_join_X = countour_bounds_with_rounded_X_idx.join(
+        X.pipe(pl.from_pandas),
+        left_on=mp_defs.KEY_X_IDX_ROUNDED,
+        right_on=mp_defs.X_IDX,
+        how="left",
+    )
+
+    peak_contours = (
+        contour_bounds_join_X
+        .melt(
+            id_vars=[mp_defs.P_IDX,mp_defs.LOC,mp_defs.KEY_MSNT],
+            value_vars=[mp_defs.KEY_X_IDX_ROUNDED,mp_defs.X],
+            variable_name=mp_defs.DIM,
+            value_name=mp_defs.VALUE
+            )
+        .sort([mp_defs.P_IDX, mp_defs.KEY_MSNT, mp_defs.LOC, mp_defs.DIM])
+        .to_pandas()
+        .pipe(mp_schs.ContourLineBounds.validate, lazy=True)
+        .pipe(DataFrame[mp_schs.ContourLineBounds])
+    )  # fmt: skip
+
+    return peak_contours
+
+
+def prepare_maxima_tbl(
+    pm_melt: pl.DataFrame,
+):
+    maxima = (
+        pm_melt.filter(pl.col(mp_defs.KEY_MSNT).is_in([mp_defs.MAXIMA, mp_defs.X_IDX]))
+        .pivot(columns=mp_defs.KEY_MSNT, values=mp_defs.VALUE, index=mp_defs.P_IDX)
+        .with_columns(pl.lit(mp_defs.MAXIMA).alias(mp_defs.KEY_MSNT))
+        .rename({mp_defs.MAXIMA: mp_defs.X, mp_defs.KEY_MSNT: mp_defs.LOC})
+        .melt(
+            id_vars=[mp_defs.P_IDX, mp_defs.LOC],
+            variable_name=mp_defs.DIM,
+            value_name=mp_defs.VALUE,
+        )
+        .to_pandas()
+        .pipe(mp_schs.Maxima.validate, lazy=True)
+        .pipe(DataFrame[mp_schs.Maxima])
+    )
+
+    return maxima
+
+
+def cast_peak_prom_data_to_tuple_of_numpy(
     fp: DataFrame[FindPeaks],
-    prom_key: str,
-    prom_lb_key: str,
-    prom_rb_key: str,
 ) -> PPD:
     peak_prom_data: PPD = tuple(
         [
-            fp[prom_key].to_numpy(float),
-            fp[prom_lb_key].to_numpy(int),
-            fp[prom_rb_key].to_numpy(int),
+            fp[mp_defs.KEY_PROMINENCE].to_numpy(float),
+            fp[mp_defs.KEY_LEFT_PROM].to_numpy(int),
+            fp[mp_defs.KEY_RIGHT_PROM].to_numpy(int),
         ]
     )  # type: ignore
     return peak_prom_data

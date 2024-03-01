@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from pandera.typing import DataFrame
 
-from hplc_py.deconvolve_peaks.definitions import (
+from hplc_py.common.definitions import (
     AMP_LB_MULT,
     AMP_UB_MULT,
     LB_KEY,
@@ -16,8 +16,8 @@ from hplc_py.deconvolve_peaks.definitions import (
     W_TYPE_KEY,
     WHH_WIDTH_HALF_KEY,
     WHH_WIDTH_KEY,
-    X_IDX_KEY,
-    X_KEY,
+    X_IDX,
+    X,
     SKEW_LB_SCALAR,
     SKEW_UB_SCALAR,
     PARAM_VAL_MAX,
@@ -25,20 +25,20 @@ from hplc_py.deconvolve_peaks.definitions import (
     PARAM_VAL_WIDTH,
     PARAM_VAL_SKEW,
 )
-from hplc_py.deconvolve_peaks.prepare_popt_input import (
+from hplc_py.deconvolution.opt_params import (
     DataPrepper,
     bounds_factory,
     p0_factory,
-    window_peak_map,
 )
-from hplc_py.deconvolve_peaks.schemas import P0, Bounds, Params
-from hplc_py.deconvolve_peaks.typing import p0_param_cats
+from hplc_py.deconvolution.schemas import P0, Bounds, Params
+from hplc_py.deconvolution.definitions import p0_param_cats
 from hplc_py.hplc_py_typing.hplc_py_typing import (
     WdwPeakMapWide,
 )
 
-from hplc_py.map_peaks.schemas import PeakMapWide
+from hplc_py.map_peaks.schemas import PeakMap
 from hplc_py.map_windows.schemas import X_Windowed
+from hplc_py.pipeline.deconvolution.deconv import window_peak_map
 
 
 @pytest.fixture
@@ -54,16 +54,16 @@ def dp():
 
 @pytest.fixture
 def wpm(
-    peak_map: DataFrame[PeakMapWide],
-    X_w: DataFrame[X_Windowed],
+    peak_map: DataFrame[PeakMap],
+    X_windowed,
 ) -> DataFrame[WdwPeakMapWide]:
     wpm: DataFrame[WdwPeakMapWide] = window_peak_map(
-        peak_map=peak_map,
-        X_w=X_w,
-        t_idx_key=X_IDX_KEY,
+        peak_msnts=peak_map,
+        X_w=X_windowed,
+        t_idx_key=X_IDX,
         w_idx_key=W_IDX_KEY,
         w_type_key=W_TYPE_KEY,
-        X_idx_key=X_IDX_KEY,
+        X_idx_key=X_IDX,
     )
     return wpm
 
@@ -79,9 +79,9 @@ def p0(
     p0_param_cats_fix: pd.CategoricalDtype,
 ) -> DataFrame[P0]:
     p0 = p0_factory(
-        wpm=wpm,
+        windowed_peak_params=wpm,
         maxima_key=MAXIMA_KEY,
-        X_idx_key=X_IDX_KEY,
+        X_idx_key=X_IDX,
         p0_key=P0_KEY,
         p_idx_key=P_IDX_KEY,
         param_key=PARAM_KEY,
@@ -107,18 +107,18 @@ def test_p0_factory(p0: DataFrame[P0]) -> None:
 @pytest.fixture
 def bounds(
     p0: DataFrame[P0],
-    X_w: DataFrame[X_Windowed],
+    X_windowed,
     timestep: float,
 ) -> DataFrame[Bounds]:
-    
+
     default_bounds: DataFrame[Bounds] = bounds_factory(
         p0=p0,
-        X_w=X_w,
+        X_w=X_windowed,
         timestep=timestep,
         whh_width_half_key=WHH_WIDTH_HALF_KEY,
         skew_key=SKEW_KEY,
-        X_key=X_KEY,
-        X_idx_key=X_IDX_KEY,
+        X_key=X,
+        X_idx_key=X_IDX,
         w_idx_key=W_IDX_KEY,
         w_type_key=W_TYPE_KEY,
         p_idx_key=P_IDX_KEY,
@@ -145,8 +145,8 @@ def test_bounds_factory(bounds: DataFrame[Bounds]) -> None:
 
 
 def test_DataPrepper_pipeline(
-    peak_map: DataFrame[PeakMapWide],
-    X_w: DataFrame[X_Windowed],
+    peak_map: DataFrame[PeakMap],
+    X_windowed,
     timestep: float,
     w_idx_key: str,
     w_type_key: str,
@@ -162,7 +162,7 @@ def test_DataPrepper_pipeline(
     params = (
         dp.fit(
             pm=peak_map,
-            X_w=X_w,
+            X_w=X_windowed,
             X_key=X_key,
             p_idx_key=p_idx_key,
             time_key=time_key,
@@ -175,6 +175,6 @@ def test_DataPrepper_pipeline(
         .transform()
         .params
     )
-    
+
     Params.validate(params)
     breakpoint()

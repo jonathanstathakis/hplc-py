@@ -9,16 +9,20 @@ import polars as pl
 from matplotlib.axes import Axes as Axes
 from numpy.typing import NDArray
 from pandera.typing import DataFrame, Series
-from scipy.ndimage import label  # type: ignore
+from scipy.ndimage import label
+from hplc_py.map_windows import definitions as mw_defs
 
-from .schemas import PeakWindows, X_PeakWindowed, X_Windowed, WindowBounds
+from hplc_py.map_windows.schemas import (
+    PeakWindows,
+    X_PeakWindowed,
+    X_Windowed,
+    WindowBounds,
+)
 
-from ..common_schemas import X_Schema
+from hplc_py.common.common_schemas import X_Schema
 
-from hplc_py.hplc_py_typing.typed_dicts import FindPeaksKwargs
 from hplc_py.io_validation import IOValid
-
-from ..map_peaks.map_peaks import MapPeaks
+from hplc_py.map_windows.viz import WindowMapViz
 
 from .schemas import (
     WindowedPeakIntervals,
@@ -30,32 +34,25 @@ from .schemas import (
 
 
 class MapWindows(IOValid):
+    @pa.check_types(lazy=True)
     def __init__(
         self,
-        prominence: float = 0.01,
-        wlen: Optional[int] = None,
-        find_peaks_kwargs: FindPeaksKwargs = {},
+        X: DataFrame[X_Schema],
+        left_bases,
+        right_bases,
     ):
-        self.X_key = "X"
-        self.X_idx_key = "X_idx"
-        self.w_type_key = "w_type"
-        self.w_idx_key = "w_idx"
 
         self.w_type_interpeak_label: int = -999
 
-        self.mp = MapPeaks(
-            prominence=prominence, wlen=wlen, find_peaks_kwargs=find_peaks_kwargs
-        )
+        self._X = X
+        self._left_bases = left_bases
+        self._right_bases = right_bases
 
-        self.X_w = pd.DataFrame()  # type: ignore
+        self.map_windows()
 
-    def fit(self, X: DataFrame[X_Schema], y=None) -> Self:
+        self.plot = WindowMapViz(X_w=self.X_windowed)
 
-        self.X = X
-        self.mp.fit(X=X)
-        return self
-
-    def transform(
+    def map_windows(
         self,
     ) -> Self:
         """
@@ -65,19 +62,8 @@ class MapWindows(IOValid):
         :return: self
         :rtype: Self
         """
-        self.mp.transform()
-
-        left_bases = Series[float](self.mp.peak_map.pb_left)
-        right_bases = Series[float](self.mp.peak_map.pb_right)
-
-        self.X_w: DataFrame[X_Windowed] = window_X(
-            X=self.X,
-            X_key=self.X_key,
-            X_idx_key=self.X_idx_key,
-            left_bases=left_bases,
-            right_bases=right_bases,
-            w_type_key=self.w_type_key,
-            w_idx_key=self.w_idx_key,
+        self.X_windowed: DataFrame[X_Windowed] = window_X(
+            X=self._X, left_bases=self._left_bases, right_bases=self._right_bases
         )
 
         return self
@@ -109,8 +95,6 @@ def peak_base_intvl_factory(
 def map_wdws_to_peaks(
     left_bases: Series[int],
     right_bases: Series[int],
-    p_idx_key: str,
-    w_idx_key: str,
 ) -> DataFrame[WindowedPeakIntervals]:
     """
     Takes a Series of pd.Interval objects representing the mapped base width of each
@@ -138,7 +122,7 @@ def map_wdws_to_peaks(
     wdw_peak_mapping: dict[int, list[int]] = map_windows_to_peaks(intvls)
     intvl_frame: DataFrame[PeakIntervalBounds] = intervals_to_columns(intvls=intvls)
     window_peak_map: DataFrame[WindowPeakMap] = window_peak_map_as_frame(
-        window_peak_mapping=wdw_peak_mapping, p_idx_key=p_idx_key, w_idx_key=w_idx_key
+        window_peak_mapping=wdw_peak_mapping
     )
 
     windowed_intervals: DataFrame[WindowedPeakIntervalBounds] = (
@@ -247,9 +231,6 @@ def set_wdw_intvls_from_peak_intvls(
 @pa.check_types
 def peak_intvls_as_frame(
     peak_wdw_intvls: dict[int, pd.Interval],
-    X_idx_key: str,
-    w_type_key: str,
-    w_idx_key: str,
 ) -> DataFrame[PeakWindows]:
     """
     Given a dict of Interval objects, subset the X series idx by the bounds of the
@@ -263,20 +244,20 @@ def peak_intvls_as_frame(
     for i, intvl in peak_wdw_intvls.items():
         p_wdw: pd.DataFrame = pd.DataFrame(
             {
-                w_type_key: "peak",
-                w_idx_key: i,
-                X_idx_key: np.arange(intvl.left, intvl.right, 1),
+                mw_defs.W_TYPE: "peak",
+                mw_defs.W_IDX: i,
+                mw_defs.X_IDX: np.arange(intvl.left, intvl.right, 1),
             }
         ).astype(
             {
-                w_idx_key: int,
-                w_type_key: pd.StringDtype(),
-                X_idx_key: int,
+                mw_defs.W_IDX: int,
+                mw_defs.W_TYPE: pd.StringDtype(),
+                mw_defs.X_IDX: int,
             }
         )
         p_wdw_list.append(p_wdw)
 
-    p_wdws_ = pd.concat(p_wdw_list).reset_index(drop=True).rename_axis(index="idx")
+    p_wdws_ = pd.concat(p_wdw_list).reset_index(drop=True)
 
     p_wdws = DataFrame[PeakWindows](p_wdws_)
 
@@ -286,11 +267,7 @@ def peak_intvls_as_frame(
 @pa.check_types
 def set_peak_wndwd_X_idx(
     X: DataFrame[X_Schema],
-    X_key: str,
     X_idx_pw: DataFrame[PeakWindows],
-    X_idx_key: str,
-    w_type_key: str,
-    w_idx_key: str,
     null_fill: float = -999,
 ) -> DataFrame[X_PeakWindowed]:
     """
@@ -304,21 +281,21 @@ def set_peak_wndwd_X_idx(
     # joins the peak window intervals to the time index to generate a pattern of missing values
 
     p_wdws_: pl.DataFrame = pl.from_pandas(
-        X_idx_pw, schema_overrides={"X_idx": pl.Int64()}
+        X_idx_pw, schema_overrides={mw_defs.X_IDX: pl.Int64()}
     )
 
     # left join time idx to peak windows and peak types, leaving na's to be filled
     # with a placeholder and 'interpeak', respectively.
 
-    X_pw_broadcast = X_pl.join(p_wdws_, on=X_idx_key, how="left")
+    X_pw_broadcast = X_pl.join(p_wdws_, on=mw_defs.X_IDX, how="left")
 
     # this simply fills the nulls
     x_w_ = X_pw_broadcast.with_columns(
         **{
-            w_type_key: pl.col(w_type_key).fill_null("interpeak"),
-            w_idx_key: pl.col(w_idx_key).fill_null(null_fill),
+            mw_defs.W_TYPE: pl.col(mw_defs.W_TYPE).fill_null("interpeak"),
+            mw_defs.W_IDX: pl.col(mw_defs.W_IDX).fill_null(null_fill),
         }
-    ).select(w_type_key, w_idx_key, X_idx_key, X_key)
+    ).select(mw_defs.W_TYPE, mw_defs.W_IDX, mw_defs.X_IDX, mw_defs.X)
 
     x_w_pd = x_w_.to_pandas()
 
@@ -329,11 +306,10 @@ def set_peak_wndwd_X_idx(
 
 def _get_interpeak_w_idxs(
     pwdwd_time: DataFrame[X_PeakWindowed],
-    w_idx_key: str,
     null_fill: float,
 ) -> NDArray[int64]:
     labels = []
-    labels, num_features = label(pwdwd_time[w_idx_key] == null_fill)  # type: ignore
+    labels, num_features = label(pwdwd_time[mw_defs.W_IDX] == null_fill)  # type: ignore
     labels = np.asarray(labels, dtype=int)
     return labels
 
@@ -341,7 +317,6 @@ def _get_interpeak_w_idxs(
 @pa.check_types
 def label_interpeaks(
     X_pw: DataFrame[X_PeakWindowed],
-    w_idx_key: str,
     null_fill: float,
 ) -> DataFrame[X_Windowed]:
     """
@@ -351,10 +326,10 @@ def label_interpeaks(
 
     X_w_: pd.DataFrame = X_pw.copy(deep=True)
 
-    labels = _get_interpeak_w_idxs(X_pw, w_idx_key=w_idx_key, null_fill=null_fill)
+    labels = _get_interpeak_w_idxs(X_pw, null_fill=null_fill)
 
-    X_w_[w_idx_key] = X_w_[w_idx_key].mask(
-        X_w_[w_idx_key] == null_fill,
+    X_w_[mw_defs.W_IDX] = X_w_[mw_defs.W_IDX].mask(
+        X_w_[mw_defs.W_IDX] == null_fill,
         Series(labels - 1),
     )
 
@@ -363,7 +338,7 @@ def label_interpeaks(
     X_Windowed.validate(X_w_, lazy=True)
 
     X_w: DataFrame[X_Windowed] = DataFrame[X_Windowed](X_w_)
-    breakpoint()
+
     return X_w
 
 
@@ -372,11 +347,6 @@ def window_X(
     X: DataFrame[X_Schema],
     left_bases: Series[float],
     right_bases: Series[float],
-    X_key: str,
-    X_idx_key: str,
-    w_type_key: str = "w_type",
-    w_idx_key: str = "w_idx",
-    p_idx_key: str = "p_idx",
 ) -> DataFrame[X_Windowed]:
     """
     Window X by broadcasting the identified peak window intervals to the length
@@ -385,6 +355,7 @@ def window_X(
     """
 
     # cast to int and round to match precision of index, i.e. 1.
+
     left_bases_int: Series[int]
     right_bases_int: Series[int]
     left_bases_int, right_bases_int = bases_as_int(
@@ -394,24 +365,15 @@ def window_X(
     wdwd_peak_intervals: DataFrame[WindowedPeakIntervals] = map_wdws_to_peaks(
         left_bases=left_bases_int,
         right_bases=right_bases_int,
-        p_idx_key=p_idx_key,
-        w_idx_key=w_idx_key,
     )
 
     X_peak_wdwd: DataFrame[X_PeakWindowed] = join_windowed_intervals_to_X(
         X=X,
         wdwd_peak_intervals=wdwd_peak_intervals,
-        X_key=X_key,
-        X_idx_key=X_idx_key,
-        w_idx_key=w_idx_key,
-        w_type_key=w_type_key,
     )
 
     X_w: DataFrame[X_Windowed] = label_interpeak_windows(
         X_peak_wdwd=X_peak_wdwd,
-        X_idx_key=X_idx_key,
-        w_idx_key=w_idx_key,
-        w_type_key=w_type_key,
     )
     return DataFrame[X_Windowed](X_w)
 
@@ -553,9 +515,9 @@ def sanity_check_compare_frame_dict(
     the p_idx values are equal.
     """
 
-    for idx, grp in window_peak_map_frame.group_by(["w_idx"]):
+    for idx, grp in window_peak_map_frame.group_by([mw_defs.W_IDX]):
         dict_peaks = window_peak_map_dict[idx[0]]  # type: ignore
-        isin = grp.select(pl.col("p_idx").is_in(dict_peaks).all()).item()
+        isin = grp.select(pl.col(mw_defs.P_IDX).is_in(dict_peaks).all()).item()
         assert isin
 
 
@@ -572,7 +534,7 @@ def intervals_to_columns(intvls: Series[pd.Interval]) -> DataFrame[PeakIntervalB
     intvl_df = (
         pl.DataFrame(
             {
-                "p_idx": list(intvls.index),
+                mw_defs.P_IDX: list(intvls.index),
                 "left": list(intvl_idx.left),
                 "right": list(intvl_idx.right),
             }
@@ -586,7 +548,7 @@ def intervals_to_columns(intvls: Series[pd.Interval]) -> DataFrame[PeakIntervalB
 
 
 def window_peak_map_as_frame(
-    window_peak_mapping: dict[int, list[int]], p_idx_key: str, w_idx_key: str
+    window_peak_mapping: dict[int, list[int]]
 ) -> DataFrame[WindowPeakMap]:
     """
     take a dict whose keys are window idxs and values are lists of assigned peak
@@ -597,9 +559,9 @@ def window_peak_map_as_frame(
     p_idx = sorted(p for peaks in window_peak_mapping.values() for p in peaks)
     window_peak_map = pl.DataFrame(
         {
-            p_idx_key: p_idx,
+            mw_defs.P_IDX: p_idx,
         }
-    ).with_columns(pl.lit(0).cast(int).alias(w_idx_key))
+    ).with_columns(pl.lit(0).cast(int).alias(mw_defs.W_IDX))
 
     # create a frame with p_idx and an empty w_idx. Iterate through the dict and
     # assign w_idx to the column at rows if the row p_idx is in the values of w_idx
@@ -607,10 +569,10 @@ def window_peak_map_as_frame(
     for w_idx_, peaks in window_peak_mapping.items():
 
         window_peak_map = window_peak_map.with_columns(
-            pl.when(pl.col(p_idx_key).is_in(peaks))
+            pl.when(pl.col(mw_defs.P_IDX).is_in(peaks))
             .then(w_idx_)
-            .otherwise(pl.col(w_idx_key))
-            .alias(w_idx_key)
+            .otherwise(pl.col(mw_defs.W_IDX))
+            .alias(mw_defs.W_IDX)
         )
 
     sanity_check_compare_frame_dict(
@@ -629,8 +591,8 @@ def join_intervals_to_window_peak_map(
     window_peak_map_pl: pl.DataFrame = pl.from_pandas(window_peak_map)
 
     joined = intvl_frame_pl.join(
-        window_peak_map_pl, on="p_idx", how="inner", validate="1:1"
-    ).select(pl.col(["w_idx", "p_idx", "left", "right"]))
+        window_peak_map_pl, on=mw_defs.P_IDX, how="inner", validate="1:1"
+    ).select(pl.col([mw_defs.W_IDX, mw_defs.P_IDX, "left", "right"]))
 
     return DataFrame[WindowedPeakIntervalBounds](joined.to_pandas())
 
@@ -639,10 +601,6 @@ def join_intervals_to_window_peak_map(
 def join_windowed_intervals_to_X(
     X: DataFrame[X_Schema],
     wdwd_peak_intervals: DataFrame[WindowedPeakIntervals],
-    X_key: str,
-    X_idx_key: str,
-    w_idx_key: str,
-    w_type_key: str,
 ) -> DataFrame[X_PeakWindowed]:
     """
     Given a left and right bound of each peak and window, asof join to the index such that
@@ -664,10 +622,6 @@ def join_windowed_intervals_to_X(
     X_peak_wdwd = map_peak_window_ranges_to_x_idx_fill_between(
         X=X,
         wdw_idx_bounds=wdw_x_idx_bounds,
-        X_key=X_key,
-        X_idx_key=X_idx_key,
-        w_idx_key=w_idx_key,
-        w_type_key=w_type_key,
     )
 
     return DataFrame[X_PeakWindowed](X_peak_wdwd)
@@ -688,7 +642,7 @@ def get_window_X_idx_bounds(
 
     wdw_X_idx_bounds = (
         wdwd_peak_intervals_pl
-        .group_by(["w_idx"], maintain_order=True)
+        .group_by([mw_defs.W_IDX], maintain_order=True)
         .agg(
             pl.col("left")
             .min()
@@ -706,10 +660,6 @@ def get_window_X_idx_bounds(
 def map_peak_window_ranges_to_x_idx_fill_between(
     X: DataFrame[X_Schema],
     wdw_idx_bounds: DataFrame[WindowBounds],
-    X_key: str,
-    X_idx_key: str,
-    w_idx_key: str,
-    w_type_key: str,
 ) -> DataFrame[X_PeakWindowed]:
     """
     maps the window index and peak type to the time range of each peak.
@@ -720,19 +670,19 @@ def map_peak_window_ranges_to_x_idx_fill_between(
     wdw_idx_bounds  # type: ignore
 
     query = f"""--sql
-                   SELECT x.{X_idx_key}, bds.{w_idx_key}, x.{X_key}
+                   SELECT x.{mw_defs.X_IDX}, bds.{mw_defs.W_IDX}, x.{mw_defs.X}
                             FROM
                                 X x
                             LEFT JOIN
                                 wdw_idx_bounds bds
                             ON
-                              x.{X_idx_key}>=bds.left
+                              x.{mw_defs.X_IDX}>=bds.left
                             AND
-                             x.{X_idx_key}<=bds.right
+                             x.{mw_defs.X_IDX}<=bds.right
                             --WHERE
-                              --bds.{w_idx_key} IS DISTINCT FROM NULL
+                              --bds.{mw_defs.W_IDX} IS DISTINCT FROM NULL
                             ORDER BY
-                              {X_idx_key}
+                              {mw_defs.X_IDX}
                    """
 
     X_peak_windows = (
@@ -740,7 +690,7 @@ def map_peak_window_ranges_to_x_idx_fill_between(
             .pl()
             .with_columns(
                 pl.when(
-                    pl.col(w_idx_key)
+                    pl.col(mw_defs.W_IDX)
                       .is_null())
                 .then(
                     pl.lit("interpeak")
@@ -748,9 +698,9 @@ def map_peak_window_ranges_to_x_idx_fill_between(
                 .otherwise(
                     pl.lit("peak")
                     )
-                .alias(w_type_key)
+                .alias(mw_defs.W_TYPE)
             ).select(
-                pl.col(w_type_key, w_idx_key, X_idx_key, X_key)
+                pl.col(mw_defs.W_TYPE, mw_defs.W_IDX, mw_defs.X_IDX, mw_defs.X)
                 )
             )  # fmt: skip
 
@@ -765,9 +715,6 @@ def map_peak_window_ranges_to_x_idx_fill_between(
 @pa.check_types
 def label_interpeak_windows(
     X_peak_wdwd: DataFrame[X_PeakWindowed],
-    X_idx_key: str,
-    w_idx_key: str,
-    w_type_key: str,
 ) -> DataFrame[X_Windowed]:
     """
     index each NULL ranked by time order
@@ -785,9 +732,6 @@ def label_interpeak_windows(
     interpeak_wdw_starts: DataFrame[InterpeakWindowStarts] = (
         find_interpeak_window_starts(
             X_peak_wdwd=X_peak_wdwd,
-            w_type_key=w_type_key,
-            w_idx_key=w_idx_key,
-            X_idx_key=X_idx_key,
         )
     )
 
@@ -795,55 +739,47 @@ def label_interpeak_windows(
     X_windowed = label_interpeak_window_idx(
         X_peak_wdwd=X_peak_wdwd,
         interpeak_wdw_starts=interpeak_wdw_starts,
-        w_idx_key=w_idx_key,
-        X_idx_key=X_idx_key,
-        w_type_key=w_type_key,
     )
     return DataFrame[X_Windowed](X_windowed)
 
 
-@pa.check_types
+@pa.check_types(lazy=True)
 def label_interpeak_window_idx(
     X_peak_wdwd: DataFrame[X_PeakWindowed],
     interpeak_wdw_starts: DataFrame[InterpeakWindowStarts],
-    w_idx_key: str,
-    X_idx_key: str,
-    w_type_key: str,
 ) -> DataFrame[X_Windowed]:
     """
     Join the labeled interpeak window starts to p_wdws then foreward fill the missing
     values to label the interpeak ranges.
     """
-    X_p_wdwd_pl: pl.DataFrame = pl.from_pandas(X_peak_wdwd)
-    interpeak_wdw_starts_pl: pl.DataFrame = pl.from_pandas(interpeak_wdw_starts)
-
     X_windowed = (
-        X_p_wdwd_pl.pipe(
+        X_peak_wdwd.pipe(pl.from_pandas)
+        .pipe(
             left_join_p_wdws_interpeak_wdw_starts,
-            interpeak_wdw_starts=interpeak_wdw_starts_pl,
-            X_idx_key=X_idx_key,
-            w_type_key=w_type_key,
+            interpeak_wdw_starts=interpeak_wdw_starts.pipe(pl.from_pandas),
         )
-        .with_columns(pl.col(w_idx_key).replace({999999: None}).alias(w_idx_key))
         .with_columns(
-            pl.col(w_idx_key).fill_null(pl.col(f"{w_idx_key}_right")).alias(w_idx_key)
+            pl.col(mw_defs.W_IDX).replace({999999: None}).alias(mw_defs.W_IDX)
         )
-        .with_columns(pl.col(w_idx_key).forward_fill().alias(w_idx_key))
-        .drop(f"{w_idx_key}_right")
+        .with_columns(
+            pl.col(mw_defs.W_IDX)
+            .fill_null(pl.col(f"{mw_defs.W_IDX}_right"))
+            .alias(mw_defs.W_IDX)
+        )
+        .with_columns(pl.col(mw_defs.W_IDX).forward_fill().alias(mw_defs.W_IDX))
+        .drop(f"{mw_defs.W_IDX}_right")
+        .to_pandas()
+        .pipe(X_Windowed.validate, lazy=True)
+        .pipe(DataFrame[X_Windowed])
     )
-    X_windowed_pd = X_windowed.to_pandas()
 
-    X_Windowed.validate(X_windowed_pd, lazy=True)
-
-    return DataFrame[X_Windowed](X_windowed_pd)
+    return X_windowed
 
 
 @pa.check_types
 def left_join_p_wdws_interpeak_wdw_starts(
     X_p_wdwd: pl.DataFrame,
     interpeak_wdw_starts: pl.DataFrame,
-    w_type_key: str,
-    X_idx_key: str,
 ) -> pl.DataFrame:
     """
     `X_p_wdwd` is the polars form of `X_PeakWindowed`, `interpeak_wdw_starts` is the polars form of `InterpeakWindowStarts`.
@@ -852,12 +788,12 @@ def left_join_p_wdws_interpeak_wdw_starts(
     """
 
     interpeak_wdw_starts_: pl.DataFrame = interpeak_wdw_starts.select(
-        pl.exclude(["X_idx_diff", "X"])
+        pl.exclude(["X_idx_diff", mw_defs.X])
     )
 
     out = X_p_wdwd.join(
         interpeak_wdw_starts_,
-        on=[w_type_key, X_idx_key],
+        on=[mw_defs.W_TYPE, mw_defs.X_IDX],
         how="left",
     )
 
@@ -867,9 +803,6 @@ def left_join_p_wdws_interpeak_wdw_starts(
 @pa.check_types
 def find_interpeak_window_starts(
     X_peak_wdwd: DataFrame[X_PeakWindowed],
-    w_type_key: str,
-    X_idx_key: str,
-    w_idx_key: str,
 ) -> DataFrame[InterpeakWindowStarts]:
     """
     Find the start idx of each interpeak window by first finding indices where
@@ -885,14 +818,23 @@ def find_interpeak_window_starts(
     X_peak_wdwd_pl: pl.DataFrame = pl.from_pandas(X_peak_wdwd)
 
     interpeak_wdw_starts = (
-        X_peak_wdwd_pl.filter(pl.col(w_type_key) == "interpeak")
-        .with_columns(pl.col(X_idx_key).diff().fill_null(0).alias(f"{X_idx_key}_diff"))
-        .filter(pl.col(f"{X_idx_key}_diff") != 1)
+        X_peak_wdwd_pl
+        .filter(pl.col(mw_defs.W_TYPE) == mw_defs.LABEL_INTERPEAK)
         .with_columns(
-            pl.col(X_idx_key).rank("ordinal").sub(1).cast(int).alias(w_idx_key)
+            pl.col(mw_defs.X_IDX)
+            .diff()
+            .fill_null(0)
+            .alias(f"{mw_defs.X_IDX}_diff"))
+        .filter(pl.col(f"{mw_defs.X_IDX}_diff") != 1)
+        .with_columns(
+            pl.col(mw_defs.X_IDX)
+            .rank("ordinal")
+            .sub(1)
+            .cast(int)
+            .alias(mw_defs.W_IDX)
         )
-        .drop([f"{X_idx_key}_diff"])
-    )
+        .drop([f"{mw_defs.X_IDX}_diff"])
+    )  # fmt: skip
 
     return DataFrame[InterpeakWindowStarts](interpeak_wdw_starts.to_pandas())
 

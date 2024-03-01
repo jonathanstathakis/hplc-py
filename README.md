@@ -58,3 +58,25 @@ The second question is this: how do I use the fork in my project? The answer is 
 3. 2024-02-06 14:02:16: Using pandera schemas to share information across modules was a terrible idea because you lose encapsulation, and encapsulation is everything right now. Get rid of it wherever it can be found. Can still use schemas for io validation, but you cant refer to them for dataframe info.
 
 4. 2024-02-09 12:25:42: To clarify which are front and which are back end classes, front ends will be prefixed with "UI_". This is merely a precaution during development in order to encourage a heirarchy.
+
+### Development
+
+#### Regex
+
+Match all strings without a prefix:
+
+`(?<!prefix )word`
+
+where `(?<!)` is called a negative look behind, dismissing all matches to the 'word' with the given 'prefix'. Useful for adding prefixes to strings which dont have any.
+
+## Curve Fitting
+
+2024-02-27 17:12:57
+
+After rewriting the pipeline, the fit isnt any good. Primarily, the width is way off, miniscle, and the maxima is much, much larger than it should be. Need to compare these with hplc.. again.
+
+2024-02-28 11:54:20
+
+Need better notes on the skewnorm model.
+
+from the cremerlab [docs](https://cremerlab.github.io/hplc-py/methodology/fitting.html) the whh_width_half is their p0 for scale.

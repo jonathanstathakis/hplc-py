@@ -11,11 +11,18 @@ def _compute_skewnorm_jax(
     x,
     params,
 ):
+    """
+    alpha is the skew parameter
+
+    $ (x - loc ) / scale $ is a term used to shift the location of the distribution.
+    
+    eg: dist.pdf(x, loc, scale) = standard_dist.pdf((x - loc)/scale) / scale
+    """
     amp, loc, scale, alpha = params
 
     x_minus_loc = x - loc
 
-    _x = alpha * x_minus_loc / scale
+    _x = alpha * (x_minus_loc / scale)
 
     scale_sq = scale**2
 
@@ -49,7 +56,10 @@ def fit_skewnorms_jax(
     return out
 
 
-def _compute_skewnorm_scipy(x, params) -> NDArray[float64]:
+def _compute_skewnorm_scipy(
+    x,
+    params
+    ) -> NDArray[float64]:
     amp, loc, scale, alpha = params
 
     _x = alpha * (x - loc) / scale

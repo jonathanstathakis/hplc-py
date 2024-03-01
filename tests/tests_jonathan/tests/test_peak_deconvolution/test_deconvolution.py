@@ -5,16 +5,16 @@ import pytest
 from numpy import ndarray
 from pandera.typing.pandas import DataFrame
 from pytest_benchmark.fixture import BenchmarkFixture
-from hplc_py.common_schemas import X_Schema
+from hplc_py.common.common_schemas import X_Schema
 
-from hplc_py.deconvolve_peaks.deconvolution import (
+from hplc_py.deconvolution.deconvolution import (
     PeakDeconvolver,
     RSignal,
 )
 from hplc_py.map_windows.schemas import X_Windowed
-from hplc_py.deconvolve_peaks.schemas import Params, Popt, PReport, PSignals
-from hplc_py.deconvolve_peaks.deconvolution import popt_factory
-from hplc_py.deconvolve_peaks.definitions import (
+from hplc_py.deconvolution.schemas import Params, Popt, PReport, PSignals
+from hplc_py.deconvolution.deconvolution import popt_factory
+from hplc_py.common.definitions import (
     LB_KEY,
     P0_KEY,
     P_IDX_KEY,
@@ -23,8 +23,8 @@ from hplc_py.deconvolve_peaks.definitions import (
     UB_KEY,
     VALUE_KEY,
     W_IDX_KEY,
-    X_IDX_KEY,
-    X_KEY,
+    X_IDX,
+    X,
 )
 
 Chromatogram: TypeAlias = None
@@ -74,8 +74,8 @@ def popt_scipy(
         value_key=VALUE_KEY,
         verbose=True,
         w_idx_key=W_IDX_KEY,
-        X_idx_key=X_IDX_KEY,
-        X_key=X_KEY,
+        X_idx_key=X_IDX,
+        X_key=X,
     )
 
     return popt
@@ -110,8 +110,8 @@ def popt(
         value_key=VALUE_KEY,
         verbose=True,
         w_idx_key=W_IDX_KEY,
-        X_idx_key=X_IDX_KEY,
-        X_key=X_KEY,
+        X_idx_key=X_IDX,
+        X_key=X,
     )
 
     return popt
@@ -176,16 +176,16 @@ def dc() -> PeakDeconvolver:
 
 
 @pa.check_types
-def test_deconvolve_peaks(
-    X: DataFrame[X_Schema],
-    timestep: float,
-) -> None:
-    dcp = PeakDeconvolver(which_opt="jax",
-                          which_fit_func="jax",
-                          )
-    dcp.fit(
-        X=X,
-        timestep=timestep,)
-    dcp.transform()
-    print(dcp.recon)
-"/Users/jonathan/hplc-py/tests/tests_jonathan/tests/test_peak_deconvolution.ringland_fitted.pickle"
+def test_deconvolve_peaks(pdc_tform: PeakDeconvolver) -> None:
+    breakpoint()
+    pass
+
+
+def plot_overlay(df):
+    import polars as pl
+
+    plot_obj = df.pipe(pl.from_pandas).plot(x="X_idx", y=["X", "recon"])
+
+    import hvplot
+
+    hvplot.show(plot_obj)
