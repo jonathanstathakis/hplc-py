@@ -117,5 +117,5 @@ def _fit_skewnorms_scipy(x, *params):
 
     # Evaluate each distribution
     for i in range(n_peaks):
-        out += _compute_skewnorm_scipy(x, *params[i])
+        out += _compute_skewnorm_scipy(x, params[i])
     return out

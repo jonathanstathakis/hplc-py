@@ -140,7 +140,7 @@ class Popt(BaseDF):
     p_idx: int = p_idx_field_duplicatable
     maxima: float = maxima_field
     loc: float = pa.Field(**X_idx_field_kwargs)
-    width: float = pa.Field()
+    scale: float = pa.Field()
     skew: float = skew_field
 
     class Config(HPLCBaseConfig):

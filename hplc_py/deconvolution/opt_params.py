@@ -1,3 +1,4 @@
+import pandas as pd
 from typing import Self
 
 import polars as pl
@@ -39,15 +40,16 @@ class DataPrepper:
 
 def params_factory(
     peak_msnts_windowed,  #: DataFrame[dc_schs.PeakMsntsWindowed],
-    X_w: DataFrame[mw_schs.X_Windowed],
+    X_w, #DataFrame[mw_schs.X_Windowed],
     timestep: float,
+    x_unit: str,
     amp_lb_mult: float = dc_defs.VAL_AMP_LB_MULT,
     amp_ub_mult: float = dc_defs.VAL_AMP_UP_MULT,
     skew_lb_scalar: float = dc_defs.VAL_SKEW_LB_SCALAR,
     skew_ub_scalar: float = dc_defs.VAL_SKEW_UB_SCALAR,
     param_val_maxima: str = dc_defs.MAXIMA,
     param_val_loc: str = dc_defs.LOC,
-    param_val_width: str = dc_defs.WIDTH,
+    param_val_width: str = dc_defs.SCALE,
     param_val_skew: str = dc_defs.SKEW,
 ):
     """
@@ -68,10 +70,14 @@ def params_factory(
     p0: DataFrame[dc_schs.P0] = p0_factory(
         peak_msnts_windowed=peak_msnts_windowed,
     )
-    breakpoint()
+    window_bounds = find_window_bounds(
+        X_w=X_w,
+        x_unit=x_unit,
+    )
+
     bounds: DataFrame[dc_schs.Bounds] = bounds_factory(
         p0=p0,
-        X_w=X_w,
+        window_bounds=window_bounds,
         timestep=timestep,
         amp_ub_mult=amp_ub_mult,
         amp_lb_mult=amp_lb_mult,
@@ -105,7 +111,7 @@ def params_factory(
 
 def bounds_factory(
     p0: DataFrame[dc_schs.P0],
-    X_w: DataFrame[dc_schs.X_Windowed],
+    window_bounds: pd.DataFrame,
     timestep: float,
     amp_ub_mult: float,
     amp_lb_mult: float,
@@ -148,9 +154,7 @@ def bounds_factory(
     TODO: remove local references to global constants. i.e. the "VAL" class of kwargs.
     """
 
-    idx_cols = [dc_defs.W_IDX, dc_defs.P_IDX]
-
-    window_bounds = find_window_bounds(X_w=X_w)
+    idx_cols = [dc_defs.W_TYPE, dc_defs.W_IDX, dc_defs.P_IDX]
 
     bounds_maxima = set_bounds_maxima(
         p0=p0,
@@ -166,14 +170,14 @@ def bounds_factory(
         idx_cols=idx_cols,
         param_val=param_val_loc,
     )
-
-    bounds_width = set_bounds_width(
+    bounds_width = set_bounds_scale(
         p0=p0,
         window_bounds=window_bounds,
         timestep=timestep,
         idx_cols=idx_cols,
         param_val=param_val_width,
     )
+    
 
     bounds_skew = set_bounds_skew(
         p0=p0,
@@ -191,6 +195,7 @@ def bounds_factory(
         )
         .with_columns(pl.col(dc_defs.PARAM).cast(dc_defs.p0_param_cats))
         .sort([dc_defs.W_IDX, dc_defs.P_IDX, dc_defs.PARAM])
+        .drop(dc_defs.W_TYPE)
         .to_pandas()
         .pipe(dc_schs.Bounds.validate, lazy=True)
         .pipe(DataFrame[dc_schs.Bounds])
@@ -201,23 +206,25 @@ def bounds_factory(
 
 def find_window_bounds(
     X_w: DataFrame[mw_schs.X_Windowed],
-) -> pl.DataFrame:
+    x_unit: str,
+) -> pd.DataFrame:
     """
     Find the lower and upper loc bounds for each window.
 
     Note: this behavior is the same as map_windows.get_window_X_idx_bounds, but that function currently includes the p_idx in the input schema. As it is not a complicated calculation I will essentially recreate it here until a commonality can be determined
     """
 
-    bounds_loc = (
+    window_bounds = (
         X_w.pipe(pl.from_pandas)
-        .group_by([dc_defs.W_IDX])
+        .group_by([dc_defs.W_TYPE, dc_defs.W_IDX])
         .agg(
-            pl.col(dc_defs.X_IDX).min().alias(dc_defs.KEY_LB),
-            pl.col(dc_defs.X_IDX).max().alias(dc_defs.KEY_UB),
+            pl.col(x_unit).min().alias(dc_defs.KEY_LB),
+            pl.col(x_unit).max().alias(dc_defs.KEY_UB),
         )
+        .sort("lb")
     )
 
-    return bounds_loc
+    return window_bounds
 
 
 def set_bounds_skew(
@@ -227,11 +234,10 @@ def set_bounds_skew(
     skew_ub_scalar: float,
     param_val: str,
 ) -> pl.DataFrame:
-
     bounds_skew = (
         p0
         .pipe(pl.from_pandas)
-        .select(pl.col([dc_defs.W_IDX,dc_defs.P_IDX]))
+        .select(idx_cols)
         .unique()
         .with_columns(
             pl.lit(param_val)
@@ -249,7 +255,7 @@ def set_bounds_skew(
     return bounds_skew
 
 
-def set_bounds_width(
+def set_bounds_scale(
     p0: DataFrame[dc_schs.P0],
     window_bounds: pl.DataFrame,
     timestep: float,
@@ -257,37 +263,39 @@ def set_bounds_width(
     param_val: str,
 ) -> pl.DataFrame:
     """
-    set the bounds on the half of the width measured at half height. The bounds are defined as the timestep for the lower bound and half the length of the window for the upper.
-
+    set the scale bounds.
+    
+    The bounds are defined as:
+        - lb: the timestep
+        - ub: half the length of the window the peak is assigned to.
     """
-
-    width_bounds: pl.DataFrame = window_bounds.with_columns(
-        pl.lit(timestep).alias(dc_defs.KEY_LB)
-    ).select(
-        pl.col(dc_defs.W_IDX),
-        pl.col(dc_defs.KEY_LB),
-        pl.col(dc_defs.KEY_UB).truediv(2).alias(dc_defs.KEY_UB),
-    )
-
-    bounds_width: pl.DataFrame = (
+    
+    _ = (
         p0
-            .pipe(pl.from_pandas)
-            .select([dc_defs.W_IDX,dc_defs.P_IDX])
-            .unique()
-            .with_columns(
-                pl.lit(param_val)
-                .alias(dc_defs.PARAM)
-                          )
-            .join(
-                width_bounds,
-                on=dc_defs.W_IDX,
-                how='left',
-                # validate="m:1",
-            
+        .pipe(pl.from_pandas)
+        .filter(pl.col('param')==param_val)
+        .join(
+            window_bounds.rename({"lb":"window_start", "ub":"window_end"}),
+            on=['w_type','w_idx']
         )
-    )  # fmt: skip
-
-    return bounds_width
+        .with_columns(
+            pl.col("window_end").sub(pl.col("window_start")).alias("window_length")
+        )
+        .with_columns(
+            pl.col("window_length").truediv(2).alias("window_length_half")
+        )
+    ) 
+    
+    bounds_scale = (
+        _
+        .select(
+            pl.col(idx_cols),
+            pl.col('param').cast(str), # just to match the other bounds function outputs. TODO: fix the other ones to use the already set category datatype rather than manually resetting the param column..
+            pl.lit(timestep).alias('lb'),
+            pl.col('window_length_half').alias('ub')
+        )
+    )
+    return bounds_scale
 
 
 def set_bounds_loc(
@@ -297,9 +305,9 @@ def set_bounds_loc(
     param_val: str,
 ):
     """
-        location (time or otherwise) bounds are defined as the minimum and maximum time of each window.
-    ZA
-        This is achieved by taking the pre-calculated window bounds and joining to each p_idx via their associated w_idx.
+    location (time or otherwise) bounds are defined as the minimum and maximum time of each window.
+
+    This is achieved by taking the pre-calculated window bounds and joining to each p_idx via their associated w_idx.
     """
 
     bounds_loc: pl.DataFrame = (
@@ -307,7 +315,7 @@ def set_bounds_loc(
         .pivot(index=idx_cols, columns=dc_defs.PARAM, values=dc_defs.KEY_P0)
         .select(pl.col(idx_cols))
         .with_columns(pl.lit(param_val).alias(dc_defs.PARAM))
-        .join(window_bounds, how="left", on="w_idx", validate="m:1")
+        .join(window_bounds, how="left", on=["w_type", "w_idx"])
     )
 
     return bounds_loc
@@ -347,18 +355,15 @@ def p0_factory(
     # window the peak map
     # assign skew as zero as per definition
     # assign whh as half peak whh as per definition, in time units
-    breakpoint()
     # todo: manually add dim, unit columns such that dim is x or y, unit is for example idx, time, amp etc.
-    
+
     p0: DataFrame[dc_schs.P0] = (
         peak_msnts_windowed
-            .pipe(pl.from_pandas) #type: ignore
-            .pivot(index=['w_type','w_idx','p_idx'], columns=['dim'], values='value')
             .select(
                 pl.col([dc_defs.W_TYPE, dc_defs.W_IDX, dc_defs.P_IDX]),
-                pl.col(dc_defs.X).alias(dc_defs.MAXIMA),
-                pl.col(dc_defs.X_IDX).alias(dc_defs.LOC),
-                pl.col(dc_defs.WIDTH).truediv(2).alias(dc_defs.WIDTH),
+                pl.col("amplitude").alias(dc_defs.MAXIMA),
+                pl.col(dc_defs.LOC).alias(dc_defs.LOC),
+                pl.col(dc_defs.SCALE).truediv(2).alias(dc_defs.SCALE),
                 pl.lit(0).cast(float).alias(dc_defs.SKEW),
                           )
             .melt(id_vars=[dc_defs.W_TYPE, dc_defs.W_IDX,dc_defs.P_IDX],variable_name=dc_defs.PARAM, value_name=dc_defs.KEY_P0)

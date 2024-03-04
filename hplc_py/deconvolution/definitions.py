@@ -11,7 +11,7 @@ PARAM: str = "param"
 KEY_P0: str = "p0"
 KEY_SKEW: str = "skew"
 MAXIMA: str = "maxima"
-WIDTH: str = "width"
+SCALE: str = "scale"
 SKEW: str = "skew"
 KEY_UNMIXED: str = "unmixed"
 KEY_RECON: str = "recon"
@@ -24,7 +24,7 @@ KEY_WHH_WIDTH_HALF: str = KEY_WIDTH_WHH + "_half"
 VAL_SKEW_LB_SCALAR: float = -np.inf
 VAL_SKEW_UB_SCALAR: float = np.inf
 VAL_AMP_LB_MULT = 0.1
-VAL_AMP_UP_MULT = 5
+VAL_AMP_UP_MULT = 10
 
 # Peak Report
 
@@ -77,10 +77,12 @@ LOC = "loc"
 categories = [
     MAXIMA,
     LOC,
-    WIDTH,
+    SCALE,
     SKEW,
 ]
 
 p0_param_cats = pl.Enum(categories)
 
 ACTUAL: str = "actual"
+
+MSNT: str = "msnt"

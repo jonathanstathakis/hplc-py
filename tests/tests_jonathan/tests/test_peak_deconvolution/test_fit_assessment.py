@@ -107,7 +107,7 @@ def scores(
     X_w_with_recon: DataFrame[X_Windowed_With_Recon] = pdc_tform.X_w_with_recon
 
     scores = calc_fit_scores(
-        X_w_with_recon=X_w_with_recon,
+        windowed_recon=X_w_with_recon,
         rtol=VAL_RTOL,
         ftol=VAL_FTOL,
         w_type_key=W_TYPE,

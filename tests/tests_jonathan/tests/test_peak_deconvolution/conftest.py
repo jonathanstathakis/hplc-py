@@ -60,7 +60,7 @@ def psignals(
 ):
     peak_signals = construct_peak_signals(
         X_w=X_windowed,
-        popt_df=stored_popt,
+        popt=stored_popt,
         maxima_key=X,
         loc_key=TIME_KEY,
         width_key=WHH_WIDTH_HALF_KEY,

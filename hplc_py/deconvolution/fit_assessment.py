@@ -35,9 +35,10 @@ from hplc_py.deconvolution.fit_assessment_grading_tables import (
 )
 
 
-@pa.check_types
+# @pa.check_types
 def calc_fit_scores(
-    X_w_with_recon: DataFrame[X_Windowed_With_Recon],
+    windowed_recon,#: DataFrame[X_Windowed_With_Recon],
+    x_unit: str,
     rtol: float = dc_defs.VAL_RTOL,
     ftol: float = dc_defs.VAL_FTOL,
     grading_frame: pl.DataFrame = get_grading_frame(),
@@ -75,15 +76,15 @@ def calc_fit_scores(
 
     rtol_decimals = int(np.abs(np.ceil(np.log10(rtol))))
     scores: DataFrame[FitAssessScores] = (
-        X_w_with_recon
+        windowed_recon
         .pipe(pl.from_pandas)
         # per each window
         .group_by([dc_defs.W_TYPE, dc_defs.W_IDX])
         .agg(
             # time start
-            pl.first(dc_defs.X_IDX).alias(dc_defs.KEY_TIME_START),
+            pl.first(x_unit).alias(dc_defs.KEY_TIME_START),
             # time end
-            pl.last(dc_defs.X_IDX).alias(dc_defs.KEY_TIME_END),
+            pl.last(x_unit).alias(dc_defs.KEY_TIME_END),
             # area mixed
             pl.col(dc_defs.X).abs().sum().add(1).alias(dc_defs.KEY_AREA_MIXED),
             # area unmixed

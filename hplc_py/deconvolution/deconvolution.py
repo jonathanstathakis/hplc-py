@@ -34,20 +34,23 @@ class OptFuncReg:
         optimizer: WhichOpt,
     ):
         self.opt_func = None
-        self.optimizer = optimizer
+        self.optimizer_access_str = optimizer
 
-        if optimizer == "jax":
+        if self.optimizer_access_str == "jax":
             from jaxfit import CurveFit
 
             self.opt_func = CurveFit().curve_fit
 
-        elif optimizer == "scipy":
+        elif self.optimizer_access_str == "scipy":
             from scipy import optimize
 
-            self.optimizer = optimize.curve_fit
+            self.opt_func = optimize.curve_fit
 
         else:
             raise ValueError(f"Please provide one of {WhichOpt}")
+
+        if not self.opt_func:
+            raise AttributeError("Something went wrong during optfunc retrieval")
 
 
 class FitFuncReg:
@@ -59,16 +62,16 @@ class FitFuncReg:
         self,
         fit_func: WhichFitFunc,
     ):
-        self.fit_func = fit_func
-        self.ff = None
+        self.fit_func_key = fit_func
+        self.fit_func = None
 
         import hplc_py.skewnorms.skewnorms as sk
 
         if fit_func == "jax":
-            self.ff = sk.fit_skewnorms_jax
+            self.fit_func = sk.fit_skewnorms_jax
 
         elif fit_func == "scipy":
-            self.ff = sk._fit_skewnorms_scipy
+            self.fit_func = sk._fit_skewnorms_scipy
 
         else:
             raise ValueError({f"Please provide one of: {WhichOpt}"})
@@ -103,6 +106,12 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
         self._optfunc = self._get_optimizer(which_opt)
         self._fit_func = self._get_fit_func(which_fit_func)
+
+        if not self._optfunc:
+            raise AttributeError("no optfunc retrieved")
+
+        if not self._fit_func:
+            raise AttributeError("no fitfunc retrieved")
 
         self._optimizer_kwargs = optimizer_kwargs
 
@@ -144,7 +153,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
 
         self.psignals: DataFrame[dc_schs.PSignals] = construct_peak_signals(
             X_w=self._X_w,
-            popt_df=self.popt,
+            popt=self.popt,
         )
 
         self.recon: DataFrame[dc_schs.RSignal] = reconstruct_signal(
@@ -170,7 +179,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         return self
 
     def _get_fit_func(self, fit_func: WhichFitFunc):
-        return FitFuncReg(fit_func).ff
+        return FitFuncReg(fit_func).fit_func
 
     def _get_optimizer(self, optimizer: WhichOpt):
         return OptFuncReg(optimizer).opt_func
@@ -206,9 +215,9 @@ def build_peak_report(
             [
                 dc_defs.W_IDX,
                 dc_defs.P_IDX,
-                dc_defs.MSNT,
                 dc_defs.MAXIMA,
-                dc_defs.WIDTH,
+                dc_defs.LOC,
+                dc_defs.SCALE,
                 dc_defs.KEY_SKEW,
                 dc_defs.KEY_AREA_UNMIXED,
                 dc_defs.KEY_MAXIMA_UNMIXED,
@@ -227,6 +236,7 @@ def popt_factory(
     params: DataFrame[dc_schs.Params],
     optimizer,
     fit_func,
+    x_key: str,
     # optimizer_kwargs: dc_kwargs.CurveFitKwargs=dc_kwargs.curve_fit_kwargs_defaults,
     max_nfev=1e6,
     verbose=True,
@@ -237,6 +247,19 @@ def popt_factory(
 
     nfev is calculated as 100 * n by default.
     """
+
+    if not optimizer:
+        raise AttributeError(f"Please provide a optimizer, got {type(optimizer)}")
+    if not fit_func:
+        raise AttributeError(f"Please provide a fit_func, got {type(fit_func)}")
+
+    X_w_keys = X_w.columns
+
+    if x_key not in X_w_keys:
+        raise AttributeError(
+            "Please provide a valid column key for 'x_key' corresponding to the observation time column"
+        )
+
     popt_list = []
 
     X_w_pl: pl.DataFrame = X_w.pipe(pl.from_pandas)
@@ -271,13 +294,11 @@ def popt_factory(
         )
 
         x: NDArray[float64] = (
-            X_w_pl.filter(pl.col(dc_defs.W_IDX) == wix)[dc_defs.X_IDX]
-            .to_numpy()
-            .ravel()
+            X_w_pl.filter(pl.col(dc_defs.W_IDX) == wix)[x_key].to_numpy().ravel()
         )
 
         y: NDArray[float64] = (
-            X_w_pl.filter(pl.col(dc_defs.W_IDX) == wix)[dc_defs.X].to_numpy().ravel()
+            X_w_pl.filter(pl.col(dc_defs.W_IDX) == wix)["amplitude"].to_numpy().ravel()
         )
 
         results = optimizer_(
@@ -323,78 +344,76 @@ def popt_factory(
     return popt_df
 
 
-@pa.check_types
-def construct_peak_signals(
-    X_w: DataFrame[X_Windowed],
-    popt_df: DataFrame[dc_schs.Popt],
-) -> DataFrame[dc_schs.PSignals]:
+def _skewnorm_signal_from_params(
+    popt: DataFrame[dc_schs.Popt],
+    x: Series[int],
+) -> pd.DataFrame:
 
-    def _construct_peak_signal(
-        popt_df: DataFrame[dc_schs.Popt],
-        X_idx: Series[int],
-    ) -> pd.DataFrame:
+    param_keys = [dc_defs.MAXIMA, dc_defs.LOC, dc_defs.SCALE, dc_defs.KEY_SKEW]
 
-        param_keys = [dc_defs.MAXIMA, dc_defs.MSNT, dc_defs.WIDTH, dc_defs.KEY_SKEW]
-
-        params: NDArray[float64] = (
-            popt_df
+    params: NDArray[float64] = (
+            popt
             .pipe(pl.from_pandas)
             .select(pl.col(param_keys))
             .to_numpy()
             .ravel()
         )  # fmt: skip
+    unmixed_signal: NDArray[float64] = _compute_skewnorm_scipy(x, params)
 
-        unmixed_signal: NDArray[float64] = _compute_skewnorm_scipy(X_idx, params)
-
-        unmixed_signal_df = (
-            pl.DataFrame(data={dc_defs.KEY_UNMIXED: unmixed_signal})
-            .with_row_index(name=dc_defs.X_IDX)
-            .select(
-                popt_df[dc_defs.P_IDX].pipe(pl.from_pandas),
-                X_idx.pipe(pl.from_pandas),
-                pl.col(dc_defs.KEY_UNMIXED),
-            )
-            .to_pandas()
-            .pipe(dc_schs.PSignals.validate, lazy=True)
-            .pipe(DataFrame[dc_schs.PSignals])
+    unmixed_signal_df = (
+        pl.DataFrame(data={dc_defs.KEY_UNMIXED: unmixed_signal})
+        .with_row_index(name="idx")
+        .select(
+            popt[dc_defs.P_IDX].pipe(pl.from_pandas),
+            x.pipe(pl.from_pandas),
+            pl.col(dc_defs.KEY_UNMIXED),
         )
-
-        return unmixed_signal_df
-
-    X_idx: Series[int] = Series[int](X_w[dc_defs.X_IDX])
-
-    peak_signals = (
-        popt_df.groupby(
-            by=[dc_defs.P_IDX],
-            group_keys=False,
-        )
-        .apply(_construct_peak_signal, X_idx)  # type: ignore
-        .pipe(dc_schs.PSignals.validate, lazy=True)
-        .pipe(DataFrame[dc_schs.PSignals])
+        .to_pandas()
     )
 
+    # TODO: ADD VALIDATION
+    return unmixed_signal_df
+
+
+def construct_peak_signals(
+    X_w: DataFrame[X_Windowed],
+    popt: DataFrame[dc_schs.Popt],
+    x_unit: str,
+):
+
+    if x_unit not in X_w.columns:
+        raise AttributeError("Provided `x_unit` key is not in X_w")
+
+    x: Series[int] = Series[int](X_w[x_unit])
+
+    peak_signals = (
+        popt.groupby(
+            by=[dc_defs.W_IDX, dc_defs.P_IDX],
+            group_keys=False,
+        )
+        .apply(_skewnorm_signal_from_params, x)  # type: ignore
+    )
     return peak_signals
 
-
-@pa.check_types
 def reconstruct_signal(
     peak_signals: DataFrame[dc_schs.PSignals],
-) -> DataFrame[dc_schs.RSignal]:
+    x_unit: str,
+):
 
     recon = (
         peak_signals.pipe(pl.from_pandas)
         .pivot(
             columns=dc_defs.P_IDX,
-            index=dc_defs.X_IDX,
+            index=x_unit,
             values=dc_defs.KEY_UNMIXED,
         )
         .select(
-            pl.col(dc_defs.X_IDX),
-            pl.sum_horizontal(pl.exclude([dc_defs.X_IDX])).alias(dc_defs.KEY_RECON),
+            pl.col(x_unit),
+            pl.sum_horizontal(pl.exclude([x_unit])).alias(dc_defs.KEY_RECON),
         )
         .to_pandas()
-        .pipe(dc_schs.RSignal.validate, lazy=True)
-        .pipe(DataFrame[dc_schs.RSignal])
+        # .pipe(dc_schs.RSignal.validate, lazy=True)
+        # .pipe(DataFrame[dc_schs.RSignal])
     )
 
     return recon

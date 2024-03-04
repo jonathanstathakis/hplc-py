@@ -5,6 +5,7 @@ TODO:
 - [ ] format params
 """
 
+from dataclasses import dataclass
 from typing import Literal, Any
 import polars as pl
 from hplc.quant import Chromatogram
@@ -12,6 +13,30 @@ import pandas as pd
 
 from hplc_py.common import caching
 from cachier import cachier
+
+
+@dataclass
+class Raw:
+    df: pd.DataFrame
+    window_props: Any
+    int_col: Any
+    time_col: Any
+    normint: Any
+    ranges: Any
+    scores: Any
+    unmixed_chromatograms: Any
+    window_df: Any
+    timestep: Any
+
+
+@dataclass
+class Tbls:
+    peak_map: Any
+    curve_fit_inputs: Any
+    window_props: Any
+    peak_map: Any
+    popt: Any
+    param_tbl: Any
 
 
 class HPLCResultsAnalzyer:
@@ -47,21 +72,6 @@ class HPLCResultsAnalzyer:
         self._P_IDX_ABS = "peak_idx_abs"
         self._PEAK_PARAM_OBSERVED = "peak_param_observed"
 
-        from dataclasses import dataclass
-
-        @dataclass
-        class Raw:
-            df: pd.DataFrame
-            window_props: Any
-            int_col: Any
-            time_col: Any
-            normint: Any
-            ranges: Any
-            scores: Any
-            unmixed_chromatograms: Any
-            window_df: Any
-            timestep: Any
-
         # raw
 
         self._raw = Raw(
@@ -79,21 +89,18 @@ class HPLCResultsAnalzyer:
 
         # tbls
 
-        @dataclass
-        class Tbls:
-            peak_map: Any
-            curve_fit_inputs: Any
-            window_props: Any
-            peak_map: Any
-            popt: Any
+        curve_fit_inputs = self._clean_params(params=self._chm.params_jono)
+        window_props = self._tabulate_window_props(window_props=self._chm.window_props)
+        peak_map = self._clean_peak_map(peak_map=self._chm._peak_map_jono)
+        popt = self._tablulate_popt(peaks=self._chm.peaks)
+        param_tbl = self._form_param_tbl(curve_fit_inputs=curve_fit_inputs, popt=popt)
 
         self.tbls = Tbls(
-            curve_fit_inputs=self._clean_params(params=self._chm.params_jono),
-            window_props=self._tabulate_window_props(
-                window_props=self._chm.window_props
-            ),
-            peak_map=self._clean_peak_map(peak_map=self._chm._peak_map_jono),
-            popt=self._tablulate_popt(peaks=self._chm.peaks),
+            curve_fit_inputs=curve_fit_inputs,
+            window_props=window_props,
+            peak_map=peak_map,
+            popt=popt,
+            param_tbl=param_tbl,
         )
 
         # views
@@ -112,6 +119,26 @@ class HPLCResultsAnalzyer:
         self.description_dict = {
             self._PEAK_PARAM_OBSERVED: "the peak parameters measured through `scipy.signal`, with an empty 'skew' field as this is not measured but is inferred later",
         }
+
+    def _form_param_tbl(self, curve_fit_inputs, popt):
+        """
+        param tables are defined as a table containin the p0, lb, ub, popt for each skewnorm distribution function parameter.
+        """
+
+        param_tbl = (
+            curve_fit_inputs.join(popt, on=["peak_idx_abs", "param"])
+            .with_columns(
+                pl.lit("clab").alias("source"), pl.lit("peak").alias("w_type")
+            )
+            .melt(
+                id_vars=["peak_idx_abs", "w_type", "w_idx", "p_idx", "param"],
+                value_vars=["lb", "p0", "ub", "popt"],
+                variable_name="type",
+                value_name="clab",
+            )
+        )
+
+        return param_tbl
 
     def _tform_to_time(
         self,

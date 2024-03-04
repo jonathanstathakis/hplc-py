@@ -22,7 +22,7 @@ pd.options.display.max_columns = 50
 ### Polars
 
 pl.Config(
-    set_tbl_rows=50,
+    set_tbl_rows=20,
     set_tbl_cols=20,
 )
 

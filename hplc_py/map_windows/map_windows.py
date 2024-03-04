@@ -90,7 +90,6 @@ def peak_base_intvl_factory(
 
     return intvls  # type: ignore
 
-
 @pa.check_types
 def map_wdws_to_peaks(
     left_bases: Series[int],
