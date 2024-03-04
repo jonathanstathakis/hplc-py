@@ -233,18 +233,12 @@ class DeconvolutionPipeline:
 
         self.pipe_fit_scores(x_unit)
 
-        # self.plot_results(
-        #     X_w_with_recon=deconv_results.X_w_with_recon,
-        #     p_signals=deconv_results.psignals,
-        # )
-
         # !! DEBUGGING
 
         # !! input hplc params into my deconvolution pipeline and see how the results differ
 
         self.pipe_results_comparison_with_cremerlab(params)
 
-        breakpoint()
         return None
 
     def pipe_results_comparison_with_cremerlab(self, params):
@@ -409,16 +403,26 @@ class DeconvolutionPipeline:
             how="left",
         )
 
-        param_cmp_ = param_cmp.with_columns(
-            pl.col("mine").ne(pl.col("clab")).alias("is_diff"),
-        ).with_columns(
-            pl.struct(["mine", "clab"])
-            .map_elements(
-                lambda cols: np.isclose(cols["mine"], cols["clab"], atol=10e-1)
+        param_cmp_ = (
+            param_cmp.with_columns(
+                pl.col("mine").ne(pl.col("clab")).alias("is_diff"),
             )
-            .cast(bool)
-            .alias("is_close")
+            .with_columns(
+                pl.struct(["mine", "clab"])
+                .map_elements(
+                    lambda cols: np.isclose(cols["mine"], cols["clab"], atol=10e-1)
+                )
+                .cast(bool)
+                .alias("is_close")
+            )
         )
+        
+        not_close = (
+            param_cmp_
+            .filter(pl.col('is_close').not_())
+        )
+        
+        breakpoint()
 
         return param_cmp_
 
@@ -842,7 +846,7 @@ class DeconvolutionPipeline:
                              widths,
                              contour_line_bounds,
                              ):
-        
+
         tbl_peak_map = (
             # join maxima, widths and contour line tables
             pl.concat(
