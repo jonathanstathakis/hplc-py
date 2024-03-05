@@ -1,2 +1,2 @@
 import polars as pl
-pl.Config.set_verbose(True)
+# pl.Config.set_verbose(True)

@@ -215,9 +215,29 @@ class DeconvolutionPipeline:
             x_unit=x_unit,
         )
 
-        self.tbl_popt = self.pipe_deconvolution(
+        curve_fit_output = self.pipe_deconvolution(
             X_windowed=X_windowed_input, params=params, x_unit=x_unit
-        ).pipe(pl.from_pandas)
+        )
+
+        results = curve_fit_output["results_df"]
+
+        # provide the last p0 obtained, potentially not the best result, but a temporarily acceptable value
+        # until we determine a method of identifying the popt, given that the variance between iterations
+        # is tiny. Refer to `viz_popt_statistics`.
+        popt = (
+            results
+            .filter(
+                pl.col('nfev_index')==pl.col('nfev_index').cast(int).max().cast(str)
+            )
+            # pivot so that each parameter is a column
+            .pivot(
+                index=['w_type','w_idx','p_idx'],
+                columns='param',
+                values='p0'
+            )
+        )
+
+        self.tbl_popt = popt
 
         peak_signals = deconvolution.construct_peak_signals(
             X_w=X_windowed_input, popt=self.tbl_popt.to_pandas(), x_unit=x_unit
@@ -240,6 +260,30 @@ class DeconvolutionPipeline:
         self.pipe_results_comparison_with_cremerlab(params)
 
         return None
+
+    def viz_popt_statistics(self, results, index):
+        """
+        Observe the distribution of parameter values as functions of p_idx and param as a box plot and a table
+        of mean, std, rstd.
+        """
+        popt_results = (
+            results
+            .sort(index)
+            .filter(pl.col("nfev_index") != "-1")
+        )
+
+        popt_boxplot = popt_results.plot.box(y="p0", by="p_idx", groupby='param')
+        hvplot.show(popt_boxplot)
+
+        popt_stats = (
+            popt_results
+            .groupby(index)
+            .agg(
+                pl.col("p0").mean().alias("mean"),
+                pl.col("p0").std().alias("std"),
+                pl.col("p0").std().truediv(pl.col("p0").mean()).alias("rstd"),
+            )
+        )
 
     def pipe_results_comparison_with_cremerlab(self, params):
         my_param_tbl = self._form_my_param_tbl(params, popt=self.tbl_popt)
@@ -355,7 +399,9 @@ class DeconvolutionPipeline:
         contour_line_bounds = self.prepare_contour_line_bounds(map_peaks_output)
 
         # join all the tables back together, with a null 'side' column in widths and maxima to conform to the contour_line_bounds tbl shape.
-        self.tbl_peak_map = self.prepare_tbl_peak_map(maxima=maxima, widths=widths, contour_line_bounds=contour_line_bounds)
+        self.tbl_peak_map = self.prepare_tbl_peak_map(
+            maxima=maxima, widths=widths, contour_line_bounds=contour_line_bounds
+        )
 
     def prepare_contour_line_bounds(self, map_peaks_output):
         contour_line_bounds = (
@@ -403,26 +449,18 @@ class DeconvolutionPipeline:
             how="left",
         )
 
-        param_cmp_ = (
-            param_cmp.with_columns(
-                pl.col("mine").ne(pl.col("clab")).alias("is_diff"),
+        param_cmp_ = param_cmp.with_columns(
+            pl.col("mine").ne(pl.col("clab")).alias("is_diff"),
+        ).with_columns(
+            pl.struct(["mine", "clab"])
+            .map_elements(
+                lambda cols: np.isclose(cols["mine"], cols["clab"], atol=10e-1)
             )
-            .with_columns(
-                pl.struct(["mine", "clab"])
-                .map_elements(
-                    lambda cols: np.isclose(cols["mine"], cols["clab"], atol=10e-1)
-                )
-                .cast(bool)
-                .alias("is_close")
-            )
+            .cast(bool)
+            .alias("is_close")
         )
-        
-        not_close = (
-            param_cmp_
-            .filter(pl.col('is_close').not_())
-        )
-        
-        breakpoint()
+
+        not_close = param_cmp_.filter(pl.col("is_close").not_())
 
         return param_cmp_
 
@@ -548,20 +586,65 @@ class DeconvolutionPipeline:
     def pipe_deconvolution(
         self,
         X_windowed: DataFrame[mw_schs.X_Windowed],
-        params: DataFrame[dc_schs.Params],
+        params,
         x_unit: str,
+        display_results: bool = False,
     ):
         """
         From peak map we require the peak location, maxima, and WHH. Provide them as a table called 'OptParamPeakInput'. Provide it in long form.
-        """
 
-        # TODO: replace the class call with the function calls
+        TODO: modify the `curve_fit` implementation to report progress:
+        - can take the max_iter, break it up into fractions, report the popt, and enter those popt into the next iteration as according to [stack overflow](https://stackoverflow.com/questions/54560909/advanced-curve-fitting-methods-that-allows-real-time-monitoring)
+            TODO: determine method of stopping when exit condition is reached - make it optional?
+        TODO: swap window and nfev iteration order so that each window is fit an optimal number of times, and references to windows is contained within the pipeline rather than deconv module
+            TODO: to do this, need to move the window grpby to `pipe_deconvolution`
+            TODO: define column accessors as ENUM passed through functions.
+        """
 
         fit_func = deconvolution.FitFuncReg("scipy").fit_func
         opt_func = deconvolution.OptFuncReg("scipy").opt_func
 
-        popt = deconvolution.popt_factory(
-            X_w=X_windowed,
+        # cast param cat datatype to string to make join statements simpler
+        param = "param"
+        w_type = "w_type"
+        w_idx = "w_idx"
+        p_idx = "p_idx"
+        lb = "lb"
+        ub = "ub"
+        p0_key = "p0"
+        arg_input = "arg_input"
+        value = "value"
+        nfev_index_key = "nfev_index"
+        out_p0 = "out_p0"
+        maxima = "maxima"
+        loc = "loc"
+        scale = "scale"
+        skew = "skew"
+        w_type = "w_type"
+        w_idx = "w_idx"
+        p_idx = "p_idx"
+        param = "param"
+        value = "value"
+        nfev_key = "nfev"
+        mesg = "mesg"
+        ier = "ier"
+        col = "col"
+        fvec = "fvec"
+        
+        idx_cols = [w_type, w_idx, p_idx, param]
+        params_val_cols = [lb, ub, p0_key]
+        params_var_name = arg_input
+        param_value_name = value
+        params = params.pipe(pl.from_pandas).with_columns(pl.col("param").cast(str)).melt(
+        id_vars=idx_cols,
+        value_vars=params_val_cols,
+        variable_name=params_var_name,
+        value_name=param_value_name,
+    )
+        
+        X_w: pl.DataFrame = X_windowed.pipe(pl.from_pandas)
+        curve_fit_output: dict[str, pl.DataFrame] = deconvolution.popt_factory(
+            X_w=X_w,
             params=params,
             optimizer=opt_func,
             fit_func=fit_func,
@@ -569,7 +652,14 @@ class DeconvolutionPipeline:
             x_key=x_unit,
         )
 
-        return popt
+        results: pl.DataFrame = curve_fit_output["results_df"]
+
+        index = ["w_type", "w_idx", "p_idx", "param"]
+
+        if display_results:
+            self.viz_popt_statistics(results, index)
+
+        return curve_fit_output
 
     @cachier(hash_func=caching.custom_param_hasher, cache_dir=caching.CACHE_PATH)
     def pipe_preprocess_data(
@@ -841,11 +931,12 @@ class DeconvolutionPipeline:
 
         return maxima
 
-    def prepare_tbl_peak_map(self,
-                             maxima,
-                             widths,
-                             contour_line_bounds,
-                             ):
+    def prepare_tbl_peak_map(
+        self,
+        maxima,
+        widths,
+        contour_line_bounds,
+    ):
 
         tbl_peak_map = (
             # join maxima, widths and contour line tables
