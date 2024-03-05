@@ -1,43 +1,29 @@
 from types import SimpleNamespace
-from hplc_py.deconvolution import deconvolution
-from numpy.typing import ArrayLike
-import holoviews as hv
-import hvplot.pandas
-import warnings
 from typing import Any
 
+import hvplot.pandas
 import numpy as np
 import pandas as pd
 import polars as pl
-from numpy.typing import NDArray
+from cachier import cachier
+from numpy.typing import ArrayLike
 from pandera.typing import DataFrame, Series
-from hplc_py.deconvolution import opt_params
 
 import hplc_py.map_peaks.definitions as mp_defs
 from hplc_py.baseline_correction import definitions as bcorr_defs
 from hplc_py.baseline_correction.baseline_correction import BaselineCorrection
+from hplc_py.common import caching
 from hplc_py.common import common_schemas as com_schs
 from hplc_py.common import definitions as com_defs
-from hplc_py.common.common import compute_timestep, prepare_signal_store
-from hplc_py.map_peaks import schemas as mp_schs
-from hplc_py.map_peaks.map_peaks import MapPeaks
-from hplc_py.map_peaks.viz import PeakMapPlotHandler
-from hplc_py.map_windows.map_windows import MapWindows
-from hplc_py.map_windows import definitions as mw_defs
-from hplc_py.map_windows import schemas as mw_schs
-from hplc_py.map_peaks.map_peaks import mp_viz
-from hplc_py.deconvolution.deconvolution import PeakDeconvolver
-from hplc_py.deconvolution.opt_params import DataPrepper
-from hplc_py.deconvolution import opt_params
+from hplc_py.common.caching import CACHE_PATH, custom_param_hasher
+from hplc_py.deconvolution import deconvolution, opt_params
+from hplc_py.deconvolution import definitions as dc_defs
 from hplc_py.deconvolution import schemas as dc_schs
 from hplc_py.deconvolution.fit_assessment import calc_fit_scores
-from hplc_py.pipeline.deconvolution import deconv as deconv_pipeline
-from hplc_py.deconvolution import definitions as dc_defs
-from hplc_py.common import caching
-from cachier import cachier
-
-from dataclasses import dataclass
-
+from hplc_py.map_peaks.map_peaks import MapPeaks, mp_viz
+from hplc_py.map_peaks.viz import PeakMapPlotHandler
+from hplc_py.map_windows import schemas as mw_schs
+from hplc_py.map_windows.map_windows import MapWindows
 from hplc_py.pipeline.hplc_result_analyzer import HPLCResultsAnalzyer
 
 
@@ -215,26 +201,8 @@ class DeconvolutionPipeline:
             x_unit=x_unit,
         )
 
-        curve_fit_output = self.pipe_deconvolution(
+        popt = self.pipe_deconvolution(
             X_windowed=X_windowed_input, params=params, x_unit=x_unit
-        )
-
-        results = curve_fit_output["results_df"]
-
-        # provide the last p0 obtained, potentially not the best result, but a temporarily acceptable value
-        # until we determine a method of identifying the popt, given that the variance between iterations
-        # is tiny. Refer to `viz_popt_statistics`.
-        popt = (
-            results
-            .filter(
-                pl.col('nfev_index')==pl.col('nfev_index').cast(int).max().cast(str)
-            )
-            # pivot so that each parameter is a column
-            .pivot(
-                index=['w_type','w_idx','p_idx'],
-                columns='param',
-                values='p0'
-            )
         )
 
         self.tbl_popt = popt
@@ -261,28 +229,22 @@ class DeconvolutionPipeline:
 
         return None
 
-    def viz_popt_statistics(self, results, index):
+    def viz_popt_statistics(self, results):
         """
         Observe the distribution of parameter values as functions of p_idx and param as a box plot and a table
         of mean, std, rstd.
         """
-        popt_results = (
-            results
-            .sort(index)
-            .filter(pl.col("nfev_index") != "-1")
-        )
 
-        popt_boxplot = popt_results.plot.box(y="p0", by="p_idx", groupby='param')
+        index = ["w_type", "w_idx", "p_idx", "param"]
+        popt_results = results.sort(index).filter(pl.col("nfev_index") != "-1")
+
+        popt_boxplot = popt_results.plot.box(y="p0", by="p_idx", groupby="param")
         hvplot.show(popt_boxplot)
 
-        popt_stats = (
-            popt_results
-            .groupby(index)
-            .agg(
-                pl.col("p0").mean().alias("mean"),
-                pl.col("p0").std().alias("std"),
-                pl.col("p0").std().truediv(pl.col("p0").mean()).alias("rstd"),
-            )
+        popt_stats = popt_results.groupby(index).agg(
+            pl.col("p0").mean().alias("mean"),
+            pl.col("p0").std().alias("std"),
+            pl.col("p0").std().truediv(pl.col("p0").mean()).alias("rstd"),
         )
 
     def pipe_results_comparison_with_cremerlab(self, params):
@@ -303,6 +265,7 @@ class DeconvolutionPipeline:
         cmp_scale = param_cmp_.filter(pl.col(self.__PARAM) == self.__SCALE)
 
         cmp_skew = param_cmp_.filter(pl.col(self.__PARAM) == self.__SKEW)
+        
 
     def pipe_fit_scores(self, x_unit):
         windowed_recon = (
@@ -595,10 +558,8 @@ class DeconvolutionPipeline:
 
         TODO: modify the `curve_fit` implementation to report progress:
         - can take the max_iter, break it up into fractions, report the popt, and enter those popt into the next iteration as according to [stack overflow](https://stackoverflow.com/questions/54560909/advanced-curve-fitting-methods-that-allows-real-time-monitoring)
-            TODO: determine method of stopping when exit condition is reached - make it optional?
-        TODO: swap window and nfev iteration order so that each window is fit an optimal number of times, and references to windows is contained within the pipeline rather than deconv module
-            TODO: to do this, need to move the window grpby to `pipe_deconvolution`
-            TODO: define column accessors as ENUM passed through functions.
+        TODO: determine method of stopping when exit condition is reached - make it optional?
+        TODO: define column accessors as ENUM passed through functions.
         """
 
         fit_func = deconvolution.FitFuncReg("scipy").fit_func
@@ -615,11 +576,6 @@ class DeconvolutionPipeline:
         arg_input = "arg_input"
         value = "value"
         nfev_index_key = "nfev_index"
-        out_p0 = "out_p0"
-        maxima = "maxima"
-        loc = "loc"
-        scale = "scale"
-        skew = "skew"
         w_type = "w_type"
         w_idx = "w_idx"
         p_idx = "p_idx"
@@ -630,36 +586,128 @@ class DeconvolutionPipeline:
         ier = "ier"
         col = "col"
         fvec = "fvec"
-        
+
         idx_cols = [w_type, w_idx, p_idx, param]
         params_val_cols = [lb, ub, p0_key]
         params_var_name = arg_input
         param_value_name = value
-        params = params.pipe(pl.from_pandas).with_columns(pl.col("param").cast(str)).melt(
-        id_vars=idx_cols,
-        value_vars=params_val_cols,
-        variable_name=params_var_name,
-        value_name=param_value_name,
-    )
-        
-        X_w: pl.DataFrame = X_windowed.pipe(pl.from_pandas)
-        curve_fit_output: dict[str, pl.DataFrame] = deconvolution.popt_factory(
-            X_w=X_w,
-            params=params,
-            optimizer=opt_func,
-            fit_func=fit_func,
-            max_nfev=1e6,
-            x_key=x_unit,
+        params = (
+            params.pipe(pl.from_pandas)
+            .with_columns(
+                pl.col("param").cast(str),
+                pl.col("p_idx").cast(str),
+                pl.col("w_idx").cast(str),
+            )
+            .melt(
+                id_vars=idx_cols,
+                value_vars=params_val_cols,
+                variable_name=params_var_name,
+                value_name=param_value_name,
+            )
         )
 
-        results: pl.DataFrame = curve_fit_output["results_df"]
+        X_w: pl.DataFrame = X_windowed.pipe(pl.from_pandas)
+        idx_keys = [nfev_index_key, w_type, w_idx, p_idx]
 
-        index = ["w_type", "w_idx", "p_idx", "param"]
+        int_idx_keys = [nfev_index_key, w_idx, p_idx]
+
+        idx_schema = dict(zip(idx_keys, [str] * len(idx_keys)))
+
+        schemas = dict(
+            results_df={
+                **idx_schema,
+                param: str,
+                "p0": float,
+            },
+            info_df={
+                **idx_schema,
+                nfev_key: int,
+                mesg: str,
+                ier: int,
+            },
+            pcov_df={
+                **idx_schema,
+                col: str,
+                value: float,
+            },
+            fvec_df={
+                **idx_schema,
+                fvec: float,
+            },
+        )
+
+        output: dict[str, pl.DataFrame] = self.curve_fit_windows(
+            params, x_unit, fit_func, opt_func, X_w, schemas
+        )
+
+        output = {
+            k: df
+            .with_columns(pl.col(int_idx_keys)
+                          .cast(int)
+                          )
+            for k, df in output.items()
+        }
+        
+        output = {k: df.sort(idx_keys, descending=False) for k, df in output.items()}
 
         if display_results:
-            self.viz_popt_statistics(results, index)
+            self.viz_popt_statistics(output)
 
-        return curve_fit_output
+            # provide the last p0 obtained, potentially not the best result, but a temporarily acceptable value
+        # until we determine a method of identifying the popt, given that the variance between iterations
+        # is tiny. Refer to `viz_popt_statistics`.
+
+        popt = (
+            output["results_df"].filter(
+                pl.col("nfev_index") == pl.col("nfev_index").cast(int).max()
+            )
+            # pivot so that each parameter is a column
+            .pivot(index=["w_type", "w_idx", "p_idx"], columns="param", values="p0")
+        )
+
+        breakpoint()
+        return popt
+
+    # @cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
+    def curve_fit_windows(self, params, x_unit, fit_func, opt_func, X_w, schemas):
+        wdw_grpby = params.partition_by(
+            [dc_defs.W_IDX], maintain_order=True, as_dict=True
+        ).items()
+
+        idx_keys = ["nfev_index", "w_type", "w_idx", "p_idx"]
+        wdw_idx_keys = ["w_type", "w_idx", "p_idx"]
+
+        # arrange columns so idx keys are first and everything else follows
+        rearrange_col_expr = pl.col(idx_keys), pl.exclude(idx_keys)
+
+        output = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
+
+        wix: int
+        wdw: pl.DataFrame
+        for wix, wdw in wdw_grpby:
+            X_df = X_w.filter(pl.col("w_type") == "peak", pl.col("w_idx") == wix)
+
+            curve_fit_output: dict[str, pl.DataFrame] = deconvolution.popt_factory(
+                X=X_w,
+                params=wdw,
+                optimizer=opt_func,
+                fit_func=fit_func,
+                max_nfev=1e6,
+                x_key=x_unit,
+            )
+
+            wdw_idx = wdw.select(pl.col(wdw_idx_keys)).unique()
+
+            output_ = {
+                k: df.join(wdw_idx, how="left", on="p_idx")
+                for k, df in curve_fit_output.items()
+            }
+
+            output_ = {k: df.select(rearrange_col_expr) for k, df in output_.items()}
+
+            output = {k: pl.concat([df, output[k]]) for k, df in output_.items()}
+
+        return output
 
     @cachier(hash_func=caching.custom_param_hasher, cache_dir=caching.CACHE_PATH)
     def pipe_preprocess_data(

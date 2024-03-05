@@ -11,8 +11,6 @@ from pandera.typing import DataFrame, Series
 
 from hplc_py.map_peaks.schemas import PeakMap
 from hplc_py.map_windows.definitions import W_IDX, W_TYPE
-
-from hplc_py.common.caching import CACHE_PATH, custom_param_hasher
 from hplc_py.common.common_schemas import X_Schema
 from hplc_py.io_validation import IOValid
 from hplc_py.map_windows.schemas import X_Windowed
@@ -143,7 +141,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
         """
 
         curve_fit_output = popt_factory(
-            X_w=self._X_w,
+            X=self._X_w,
             params=self._params,
             optimizer=self._optfunc,
             fit_func=self._fit_func,
@@ -229,17 +227,15 @@ def build_peak_report(
 
     return peak_report
 
-
-@cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
 def popt_factory(
-    X_w,
+    X,
     params,
     optimizer,
     fit_func,
     x_key: str,
     # optimizer_kwargs: dc_kwargs.CurveFitKwargs=dc_kwargs.curve_fit_kwargs_defaults,
     max_nfev=1e6,
-    verbose=True,
+    n_interms: int = 20,
 ) -> dict[str, pl.DataFrame]:
     """
     nfev is calculated as 100 * n by default.
@@ -248,7 +244,7 @@ def popt_factory(
     if not fit_func:
         raise AttributeError(f"Please provide a fit_func, got {type(fit_func)}")
 
-    if x_key not in X_w.columns:
+    if x_key not in X.columns:
         raise AttributeError(
             "Please provide a valid column key for 'x_key' corresponding to the observation time column"
         )
@@ -256,24 +252,8 @@ def popt_factory(
     if not optimizer:
         raise AttributeError(f"Please provide a optimizer, got {type(optimizer)}")
 
-    curve_fit_output = get_popt(X_w, params, optimizer, fit_func, x_key, max_nfev, verbose)
+        # input validation
 
-    """
-    The next and only use of the popt table is to construct the peak signals, so not too hard to fix should these outputs change - note: will have to again move all of the iteration to the pipeline class rather than here.
-    """
-
-    return curve_fit_output
-
-
-def get_popt(
-    X_w, params, optimizer, fit_func, x_key, max_nfev, verbose, n_interms: int = 20
-):
-    """
-    :param n_interms: the number of intermediate popts to evaluate.
-    """
-
-    # input validation
-    
     if not int(n_interms) == n_interms:
         raise AttributeError(
             "Please provide a natural number as the n_interms argument"
@@ -282,10 +262,24 @@ def get_popt(
     if not int(max_nfev) == max_nfev:
         raise AttributeError("Please provide a natural number as the max_nfev argument")
 
+    curve_fit_output = get_popt(
+        X, params, optimizer, fit_func, x_key, max_nfev, n_interms
+    )
+
+    """
+    The next and only use of the popt table is to construct the peak signals, so not too hard to fix should these outputs change - note: will have to again move all of the iteration to the pipeline class rather than here.
+    """
+
+    return curve_fit_output
+
+
+def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
+    """
+    :param n_interms: the number of intermediate popts to evaluate.
+    """
+
     # df keys. TODO: convert to ENUM
     param = "param"
-    w_type = "w_type"
-    w_idx = "w_idx"
     p_idx = "p_idx"
     lb = "lb"
     ub = "ub"
@@ -293,13 +287,6 @@ def get_popt(
     arg_input = "arg_input"
     value = "value"
     nfev_index_key = "nfev_index"
-    out_p0 = "out_p0"
-    maxima = "maxima"
-    loc = "loc"
-    scale = "scale"
-    skew = "skew"
-    w_type = "w_type"
-    w_idx = "w_idx"
     p_idx = "p_idx"
     param = "param"
     value = "value"
@@ -310,23 +297,21 @@ def get_popt(
     fvec = "fvec"
 
     # general index columns
-    idx_cols = [w_type, w_idx, p_idx, param]
+    idx_cols = [p_idx, param]
     params_var_name = arg_input
     param_value_name = value
 
     p0: pl.DataFrame = params.filter(pl.col(arg_input) == p0_key)
     bounds: pl.DataFrame = params.filter(pl.col(arg_input).is_in([lb, ub]))
 
-    nfev_index_df = pl.DataFrame([str(-1)], schema={nfev_index_key:str})
-
-    window_keys = {
-        w_type: str,
-        w_idx: int,
-    }
+    nfev_index_df = pl.DataFrame([str(-1)], schema={nfev_index_key: str})
 
     nfev_index_dtype = str
 
-    idx_keys = {nfev_index_key: nfev_index_dtype, **window_keys}
+    idx_keys = {
+        nfev_index_key: nfev_index_dtype,
+        p_idx: str,
+    }
 
     schemas = dict(
         results_df={
@@ -368,10 +353,10 @@ def get_popt(
     # only the results table is indexed at -1 to indicate the initial guess
     output["results_df"] = p0
 
-    for nfev_idx, nfev in enumerate([int(max_nfev/n_interms)] * n_interms):
+    for nfev_idx, nfev in enumerate([int(max_nfev / n_interms)] * n_interms):
+        
         input_params = (
-            bounds
-            .pivot(
+            bounds.pivot(
                 index=idx_cols,
                 columns=params_var_name,
                 values=param_value_name,
@@ -383,15 +368,14 @@ def get_popt(
             )
             .select(pl.col(idx_cols), pl.col([lb, p0_key, ub]))
         )
-        
-        interm_dfs = get_intermediate_popt(
-            X_w,
-            input_params,
+
+        interm_dfs = curve_fit_(
             optimizer,
             fit_func,
             x_key,
             nfev,
-            verbose,
+            X,
+            input_params,
             intermediate_schemas,
         )
 
@@ -413,59 +397,25 @@ def get_popt(
         interm_dfs_ = {
             k: nfev_idx_df.join(df, how="cross") for k, df in interm_dfs.items()
         }
-        
+
         # add the current output to the full record
 
         output = {k: pl.concat([df, interm_dfs_[k]]) for k, df in output.items()}
-    
 
     return output
 
 
-def get_intermediate_popt(
-    X_w, params, optimizer, fit_func, x_key, nfev, verbose, schemas
-):
-    """
-    Gets the intermediate popts for the signal limited by nfev.
-    """
-
-    for df in [X_w, params]:
-        if isinstance(df, pl.DataFrame):
-            if df.is_empty():
-                raise ValueError("Expected values")
-        else:
-            raise TypeError(f"Expected a polars DataFrame")
-
-    # returns a dict of dict[Any, DataFrame] where the key is the partition value.
-
-    wdw_grpby = params.partition_by(
-        [dc_defs.W_IDX], maintain_order=True, as_dict=True
-    ).items()
-
-    empty_dfs: dict = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
-
-    from copy import deepcopy
-
-    window_dfs: dict = deepcopy(empty_dfs)
-
-    wix: int
-    wdw: pl.DataFrame
-    for wix, wdw in wdw_grpby:
-
-        window_output = get_window_popt(
-            optimizer, fit_func, x_key, nfev, X_w, wix, wdw, empty_dfs
-        )
-        for k in window_dfs:
-            window_dfs[k] = pl.concat([window_dfs[k], window_output[k]])
-
-    return window_dfs
-
-
-def get_window_popt(
-    optimizer, fit_func, x_key, max_nfev, X_w, wix, wdw, dfs
+def curve_fit_(
+    optimizer,
+    fit_func,
+    x_key,
+    max_nfev,
+    X,
+    params,
+    schemas,
 ) -> dict[str, pl.DataFrame]:
 
-    for df in [X_w, wdw]:
+    for df in [X, params]:
         if isinstance(df, pl.DataFrame):
             if df.is_empty():
                 raise ValueError("Expected values")
@@ -475,28 +425,24 @@ def get_window_popt(
         if not isinstance(max_nfev, int):
             raise TypeError("max_nfev must be int")
 
-    w_type = "w_type"
-    w_idx = "w_idx"
     p_idx = "p_idx"
     param = "param"
     p0_key = "p0"
 
+    dfs: dict = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
+
     optimizer_ = deepcopy(optimizer)
 
-    p0: NDArray[float64] = wdw.select(dc_defs.KEY_P0).to_numpy().ravel()
+    p0: NDArray[float64] = params.select(dc_defs.KEY_P0).to_numpy().ravel()
 
     bounds: tuple[NDArray[float64], NDArray[float64]] = (
-        wdw.select(dc_defs.KEY_LB).to_numpy().ravel(),
-        wdw.select(dc_defs.KEY_UB).to_numpy().ravel(),
+        params.select(dc_defs.KEY_LB).to_numpy().ravel(),
+        params.select(dc_defs.KEY_UB).to_numpy().ravel(),
     )
 
-    x: NDArray[float64] = (
-        X_w.filter(pl.col(dc_defs.W_IDX) == wix)[x_key].to_numpy().ravel()
-    )
+    x: NDArray[float64] = X[x_key].to_numpy().ravel()
 
-    y: NDArray[float64] = (
-        X_w.filter(pl.col(dc_defs.W_IDX) == wix)["amplitude"].to_numpy().ravel()
-    )
+    y: NDArray[float64] = X["amplitude"].to_numpy().ravel()
 
     results, pcov, infodict, mesg, ier = optimizer_(
         fit_func,
@@ -514,12 +460,11 @@ def get_window_popt(
     del p0
     del bounds
 
-    window_idx = [w_type, w_idx]
-    result_idx_cols = window_idx + [p_idx, param]
+    result_idx_cols = [p_idx, param]
 
     # different index because of 'params'
-    result_idx = wdw.select(result_idx_cols).clone()
-    full_output_idx = result_idx.select(window_idx)
+    result_idx = params.select(result_idx_cols).clone()
+    full_output_idx = result_idx.select(p_idx)
 
     info_df_ = pl.DataFrame({"nfev": infodict["nfev"], "mesg": mesg, "ier": ier})
     pcov_df_ = pl.DataFrame(pcov).melt(variable_name="col", value_name="value")
@@ -529,7 +474,9 @@ def get_window_popt(
     dfs["pcov_df"] = full_output_idx.join(pcov_df_, how="cross").unique()
     dfs["fvec_df"] = full_output_idx.join(fvec_df_, how="cross").unique()
 
-    dfs["results_df"] = result_idx.with_columns(pl.from_numpy(results, schema={p0_key:float}))
+    dfs["results_df"] = result_idx.with_columns(
+        pl.from_numpy(results, schema={p0_key: float})
+    )
 
     return dfs
 

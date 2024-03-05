@@ -60,7 +60,7 @@ def popt_scipy(
     fit_func_scipy: Callable,
 ) -> DataFrame[Popt]:
     popt = popt_factory(
-        X_w=ws_,
+        X=ws_,
         params=params,
         optimizer=optimizer_scipy,
         fit_func=fit_func_scipy,
@@ -96,7 +96,7 @@ def popt(
     fit_func_jax: Callable[..., Any | Literal[0]],
 ) -> DataFrame[Popt]:
     popt = popt_factory(
-        X_w=ws_,
+        X=ws_,
         params=params,
         optimizer=optimizer_jax,
         fit_func=fit_func_jax,
