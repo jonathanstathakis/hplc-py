@@ -1,6 +1,5 @@
 from types import SimpleNamespace
-from typing import Any
-
+from typing import Any, Callable, Type
 import hvplot.pandas
 import numpy as np
 import pandas as pd
@@ -265,7 +264,6 @@ class DeconvolutionPipeline:
         cmp_scale = param_cmp_.filter(pl.col(self.__PARAM) == self.__SCALE)
 
         cmp_skew = param_cmp_.filter(pl.col(self.__PARAM) == self.__SKEW)
-        
 
     def pipe_fit_scores(self, x_unit):
         windowed_recon = (
@@ -352,8 +350,6 @@ class DeconvolutionPipeline:
             self.tbl_window_to_X_idx.with_columns(pl.col(self.__X_IDX).cast(str)),
             on=self.__X_IDX,
         )
-
-        # TODO: reorganise all data into tbls of 'p_idx','param','dim','unit','value', in that order. that precludes 'idx' as a unit, and rather an id, since the x ('mins') and y ('amp') is both accessed by an idx.
 
         maxima = self.prepare_maxima_tbl(map_peaks_output)
 
@@ -548,24 +544,27 @@ class DeconvolutionPipeline:
 
     def pipe_deconvolution(
         self,
-        X_windowed: DataFrame[mw_schs.X_Windowed],
         params,
+        X_windowed: DataFrame[mw_schs.X_Windowed],
         x_unit: str,
         display_results: bool = False,
+        max_nfev: int = int(1e6),
+        n_interms: int = 20,
     ):
         """
-        From peak map we require the peak location, maxima, and WHH. Provide them as a table called 'OptParamPeakInput'. Provide it in long form.
+            From peak map we require the peak location, maxima, and WHH. Provide them as a table called 'OptParamPeakInput'. Provide it in long form.
 
-        TODO: modify the `curve_fit` implementation to report progress:
-        - can take the max_iter, break it up into fractions, report the popt, and enter those popt into the next iteration as according to [stack overflow](https://stackoverflow.com/questions/54560909/advanced-curve-fitting-methods-that-allows-real-time-monitoring)
-        TODO: determine method of stopping when exit condition is reached - make it optional?
-        TODO: define column accessors as ENUM passed through functions.
+        stackoverflow.com/questions/54560909/advanced-curve-fitting-methods-that-allows-real-time-monitoring)
+            TODO: determine method of stopping when exit condition is reached - make it optional?
+            TODO: define a progress meter as a % of `max_nfev`. To do this, will need to run 1, measure the time taken for one iteration, multiply that by max_nfev then display a meter that displays progress every second that passes.
+            TODO: define column accessors as ENUM passed through functions.
         """
 
         fit_func = deconvolution.FitFuncReg("scipy").fit_func
         opt_func = deconvolution.OptFuncReg("scipy").opt_func
 
         # cast param cat datatype to string to make join statements simpler
+
         param = "param"
         w_type = "w_type"
         w_idx = "w_idx"
@@ -607,8 +606,8 @@ class DeconvolutionPipeline:
         )
 
         X_w: pl.DataFrame = X_windowed.pipe(pl.from_pandas)
-        idx_keys = [nfev_index_key, w_type, w_idx, p_idx]
 
+        idx_keys = [nfev_index_key, w_type, w_idx, p_idx]
         int_idx_keys = [nfev_index_key, w_idx, p_idx]
 
         idx_schema = dict(zip(idx_keys, [str] * len(idx_keys)))
@@ -635,19 +634,77 @@ class DeconvolutionPipeline:
                 fvec: float,
             },
         )
+        # trying to identify a 'minimum' run time.
+        """
+        # Curve Fitting Through Least Squares
+        
+        [least_squares docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html#scipy.optimize.least_squares)
+        
+        For tolerance hyperparameters, if the change is less than the value provided, termination occurs.
+        
+        Curve fit through least squares minimization has several termination conditions:
+            - ftol: 
+                - change of cost function - defaults to 1E-8, stopping when dF < ftol * F and when 'local quadratic model' and true model are in agreement.
+                - If None is passed, it is not used, UNLESS 'lm' method is used(?).
+                - if 'lm', ftol must be higher than 'machine epsilon'
+            - xtol:
+                - change in independent variables, defaults to 1E-8. For 'lm', defined as $Delta < xtol * norm(xs)$ where Delta is a trust-region radius and xs is the value of x scaled according to `x_scale` hyperparameter.
+                - same as ftol, if None is passed, it is not used, UNLESS 'lm' method is used(?).
+                - also same as ftol, if 'lm', xtol needs to be bigger than machine epsilon.
+            - gtol:
+                - norm of the gradient. Defaults to 1E-8.
+                - for 'lm', maximum absolute value of the cosine of angles between columns of the Jacobian and residual vector is less than zero, or residual vector is zero.
+                - same as ftol and xtol, must be higher than machine epsilon if method is 'lm'.
+        
+        machine epsilon: the numerical precision of the computer due to floating point errors. Numpy contains `finfo` which provides the machine epsilon for a given datatype. On my computer at 2024/03/06 the eps is measures as 2.22E-16. Therefore the default 1E-8 is perfectly acceptable.
+        
+        And termination is reported through a status number:
+        
+        > -1 : improper input parameters status returned from MINPACK.
+        > 0 : the maximum number of function evaluations is exceeded.
+        > 1 : gtol termination condition is satisfied.
+        > 2 : ftol termination condition is satisfied.
+        > 3 : xtol termination condition is satisfied.
+        > 4 : Both ftol and xtol termination conditions are satisfied.
+        
+        ## Our Implementation
+        
+        As we are using bounds, we are using the 'trf' methnod.
+        
+        ## Methods
+        
+        'lm': Levenberg-Marquardt algorithm, implemented by MINPACK.
+        'trf': Trust Region Reflective.
+        
+        
+        """
+        # to measure the execution of 1 iteration of curve fitting we'll need to catch the error and measure the difference in time. This will not be accurate as the various calls and the try except operation will add time but it will give us a ballpark figure.
+
+        mean_exec_time = self.estimate_curve_fit_time(
+            params=params,
+            X_w=X_w,
+            x_unit=x_unit,
+            fit_func=fit_func,
+            opt_func=opt_func,
+            schemas=schemas,
+        )
 
         output: dict[str, pl.DataFrame] = self.curve_fit_windows(
-            params, x_unit, fit_func, opt_func, X_w, schemas
+            params=params,
+            X_w=X_w,
+            x_unit=x_unit,
+            fit_func=fit_func,
+            opt_func=opt_func,
+            max_nfev=10000,
+            n_interms=20,
+            schemas=schemas,
         )
 
         output = {
-            k: df
-            .with_columns(pl.col(int_idx_keys)
-                          .cast(int)
-                          )
+            k: df.with_columns(pl.col(int_idx_keys).cast(int))
             for k, df in output.items()
         }
-        
+
         output = {k: df.sort(idx_keys, descending=False) for k, df in output.items()}
 
         if display_results:
@@ -669,7 +726,17 @@ class DeconvolutionPipeline:
         return popt
 
     # @cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
-    def curve_fit_windows(self, params, x_unit, fit_func, opt_func, X_w, schemas):
+    def curve_fit_windows(
+        self,
+        params: pl.DataFrame,
+        X_w: pl.DataFrame,
+        x_unit: str,
+        fit_func: Callable,
+        opt_func: Callable,
+        max_nfev: int,
+        n_interms: int,
+        schemas: dict[str, Type],
+    ):
         wdw_grpby = params.partition_by(
             [dc_defs.W_IDX], maintain_order=True, as_dict=True
         ).items()
@@ -692,7 +759,8 @@ class DeconvolutionPipeline:
                 params=wdw,
                 optimizer=opt_func,
                 fit_func=fit_func,
-                max_nfev=1e6,
+                max_nfev=max_nfev,
+                n_interms=n_interms,
                 x_key=x_unit,
             )
 
@@ -1079,6 +1147,58 @@ class DeconvolutionPipeline:
         )
         return tbl_peak_map
 
+    def estimate_curve_fit_time(
+        self,
+        params: pl.DataFrame,
+        X_w: pl.DataFrame,
+        x_unit: str,
+        fit_func: Callable,
+        opt_func: Callable,
+        schemas: dict[str, Type],
+    ):
+        """
+        Calculate the mean time to complete one iteration of least square minimization of the dataset. 
+        
+        this is done by calling the curve fit functon 5 times and catching the error thrown by reaching the max_nfev (set to 1). 
+        
+        The time it takes to throw the error is measured, and the mean calculated.
+        
+        returns the mean as a float.
+        """
 
-class Tbls(SimpleNamespace):
-    pass
+        output: dict[str, pl.DataFrame] = self.curve_fit_windows(
+            params=params,
+            X_w=X_w,
+            x_unit=x_unit,
+            fit_func=fit_func,
+            opt_func=opt_func,
+            max_nfev=1,
+            n_interms=1,
+            schemas=schemas,
+        )
+        
+        import time
+
+        elapsed_times = []
+        for x in range(5):
+            start_time = time.process_time()
+            try:
+                output: dict[str, pl.DataFrame] = self.curve_fit_windows(
+                    params=params,
+                    X_w=X_w,
+                    x_unit=x_unit,
+                    fit_func=fit_func,
+                    opt_func=opt_func,
+                    max_nfev=1,
+                    n_interms=1,
+                    schemas=schemas,
+                )
+            except Exception as e:
+                pass
+            end_time = time.process_time()
+
+            elapsed_times.append(end_time - start_time)
+
+        mean_elapsed_time = sum(elapsed_times)/len(elapsed_times)
+
+        return mean_elapsed_time
