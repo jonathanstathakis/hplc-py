@@ -1,3 +1,4 @@
+from tqdm import tqdm
 from types import SimpleNamespace
 from typing import Any, Callable, Type
 import hvplot.pandas
@@ -555,9 +556,7 @@ class DeconvolutionPipeline:
             From peak map we require the peak location, maxima, and WHH. Provide them as a table called 'OptParamPeakInput'. Provide it in long form.
 
         stackoverflow.com/questions/54560909/advanced-curve-fitting-methods-that-allows-real-time-monitoring)
-            TODO: determine method of stopping when exit condition is reached - make it optional?
-            TODO: define a progress meter as a % of `max_nfev`. To do this, will need to run 1, measure the time taken for one iteration, multiply that by max_nfev then display a meter that displays progress every second that passes.
-            TODO: define column accessors as ENUM passed through functions.
+        TODO: define column accessors as ENUM passed through functions.
         """
 
         fit_func = deconvolution.FitFuncReg("scipy").fit_func
@@ -585,6 +584,7 @@ class DeconvolutionPipeline:
         ier = "ier"
         col = "col"
         fvec = "fvec"
+        success = "success"
 
         idx_cols = [w_type, w_idx, p_idx, param]
         params_val_cols = [lb, ub, p0_key]
@@ -623,6 +623,7 @@ class DeconvolutionPipeline:
                 nfev_key: int,
                 mesg: str,
                 ier: int,
+                success: bool,
             },
             pcov_df={
                 **idx_schema,
@@ -680,14 +681,14 @@ class DeconvolutionPipeline:
         """
         # to measure the execution of 1 iteration of curve fitting we'll need to catch the error and measure the difference in time. This will not be accurate as the various calls and the try except operation will add time but it will give us a ballpark figure.
 
-        mean_exec_time = self.estimate_curve_fit_time(
-            params=params,
-            X_w=X_w,
-            x_unit=x_unit,
-            fit_func=fit_func,
-            opt_func=opt_func,
-            schemas=schemas,
-        )
+        # elapsed_time_stats = self.estimate_curve_fit_time(
+        #     params=params,
+        #     X_w=X_w,
+        #     x_unit=x_unit,
+        #     fit_func=fit_func,
+        #     opt_func=opt_func,
+        #     schemas=schemas,
+        # )
 
         output: dict[str, pl.DataFrame] = self.curve_fit_windows(
             params=params,
@@ -698,6 +699,8 @@ class DeconvolutionPipeline:
             max_nfev=10000,
             n_interms=20,
             schemas=schemas,
+            verbose=True,
+            terminate_on_fit=True,
         )
 
         output = {
@@ -722,7 +725,6 @@ class DeconvolutionPipeline:
             .pivot(index=["w_type", "w_idx", "p_idx"], columns="param", values="p0")
         )
 
-        breakpoint()
         return popt
 
     # @cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
@@ -736,7 +738,46 @@ class DeconvolutionPipeline:
         max_nfev: int,
         n_interms: int,
         schemas: dict[str, Type],
+        verbose=True,
+        terminate_on_fit: bool=True,
     ):
+        """
+        Calculate the popt for each window using `scipy.optimize.least_squares`.
+        
+        iterates over each window in `w_idx` `X_w` and `params`, calls `least_squares` and returns the full 
+        output as a dict of dataframes. Refer to `least_squares`[docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html)
+        
+        
+        # Usage Notes
+        
+        For a given `max_nfev`, (Number of Function EValuations), can optionally break the process up into 
+        intermediate minimizations in order to provide insight into minimization progress for complex fits.
+        This is done by specifying `n_interms` which will divide `max_nfev` into equal portions, collecting
+        the results of each intermediate result for later observation. `n_interms` default = 1, no intermediates.    
+        
+        TODO: remove external opt_func and fit_func regs, just add as args in functions.
+        TODO: add jaxfit least squares
+        TODO: add personalised fit report
+            - how long it took to fit
+            ...
+        TODO: add fit assessment for intermediates. add plotting as well.
+        TODO: test odd max_nfev, n_interms inputs
+        TODO: add success to infodict
+        
+        If intermediates are specified, you can stop iteration once a successful fit is achieved, or continue
+        until `max_nfev` is reached. This is done via the terminate_on_fit arg.
+        
+        Call heirarchy is as follows:
+        
+            1. curve_fit_windows
+            2. popt_factory
+            3. get_popt
+                - iterates over the max_nfev divisions.
+            4. curve_fit_
+            5. least_squares
+        
+        
+        """
         wdw_grpby = params.partition_by(
             [dc_defs.W_IDX], maintain_order=True, as_dict=True
         ).items()
@@ -751,7 +792,13 @@ class DeconvolutionPipeline:
 
         wix: int
         wdw: pl.DataFrame
-        for wix, wdw in wdw_grpby:
+
+        if verbose:
+            window_it = tqdm(wdw_grpby)
+        else:
+            window_it = wdw_grpby
+
+        for wix, wdw in window_it:
             X_df = X_w.filter(pl.col("w_type") == "peak", pl.col("w_idx") == wix)
 
             curve_fit_output: dict[str, pl.DataFrame] = deconvolution.popt_factory(
@@ -762,6 +809,8 @@ class DeconvolutionPipeline:
                 max_nfev=max_nfev,
                 n_interms=n_interms,
                 x_key=x_unit,
+                verbose=verbose,
+                terminate_on_fit=terminate_on_fit,
             )
 
             wdw_idx = wdw.select(pl.col(wdw_idx_keys)).unique()
@@ -1166,39 +1215,34 @@ class DeconvolutionPipeline:
         returns the mean as a float.
         """
 
-        output: dict[str, pl.DataFrame] = self.curve_fit_windows(
-            params=params,
-            X_w=X_w,
-            x_unit=x_unit,
-            fit_func=fit_func,
-            opt_func=opt_func,
-            max_nfev=1,
-            n_interms=1,
-            schemas=schemas,
-        )
-        
         import time
 
         elapsed_times = []
-        for x in range(5):
+        # seems to take a lot longer on the first iteration, I am assuming it compiles the function? run 6
+        # times and ignore it from the calculation
+        for x in range(6):
             start_time = time.process_time()
-            try:
-                output: dict[str, pl.DataFrame] = self.curve_fit_windows(
-                    params=params,
-                    X_w=X_w,
-                    x_unit=x_unit,
-                    fit_func=fit_func,
-                    opt_func=opt_func,
-                    max_nfev=1,
-                    n_interms=1,
-                    schemas=schemas,
-                )
-            except Exception as e:
-                pass
+
+            output: dict[str, pl.DataFrame] = self.curve_fit_windows(
+                params=params,
+                X_w=X_w,
+                x_unit=x_unit,
+                fit_func=fit_func,
+                opt_func=opt_func,
+                max_nfev=1,
+                n_interms=1,
+                schemas=schemas,
+                verbose=False,
+                terminate_on_fit=False,
+            )
             end_time = time.process_time()
 
             elapsed_times.append(end_time - start_time)
 
-        mean_elapsed_time = sum(elapsed_times)/len(elapsed_times)
+        sample_pool = elapsed_times[1:]
 
-        return mean_elapsed_time
+        min_time_stats = {}        
+        min_time_stats['mean_elapsed_time'] = np.mean(sample_pool)
+        min_time_stats['stdev_elapsed_time'] = np.std(sample_pool)
+
+        return min_time_stats

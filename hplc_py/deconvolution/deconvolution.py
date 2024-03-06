@@ -1,4 +1,7 @@
-from typing import Literal, Optional, Self
+from scipy.optimize import least_squares, _minpack
+from scipy.optimize import _minpack
+from scipy.optimize._minpack_py import _lightweight_memoizer, _wrap_func
+from typing import Literal, Optional, Self, Callable, Type
 from copy import deepcopy
 import pandas as pd
 import pandera as pa
@@ -235,7 +238,9 @@ def popt_factory(
     x_key: str,
     # optimizer_kwargs: dc_kwargs.CurveFitKwargs=dc_kwargs.curve_fit_kwargs_defaults,
     max_nfev=1e6,
-    n_interms: int = 20,
+    n_interms: int = 1,
+    verbose:bool = True,
+    terminate_on_fit: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """
     nfev is calculated as 100 * n by default.
@@ -263,7 +268,15 @@ def popt_factory(
         raise AttributeError("Please provide a natural number as the max_nfev argument")
 
     curve_fit_output = get_popt(
-        X, params, optimizer, fit_func, x_key, max_nfev, n_interms
+        X=X,
+        params=params,
+        optimizer=optimizer,
+        fit_func=fit_func,
+        x_key=x_key,
+        max_nfev=max_nfev,
+        n_interms=n_interms,
+        terminate_on_fit=terminate_on_fit,
+        verbose=verbose,
     )
 
     """
@@ -273,12 +286,27 @@ def popt_factory(
     return curve_fit_output
 
 
-def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
+def get_popt(
+    X: pl.DataFrame,
+    params: pl.DataFrame,
+    optimizer: Callable,
+    fit_func: Callable,
+    x_key: str,
+    max_nfev: int,
+    n_interms: int,
+    verbose: bool,
+    terminate_on_fit: bool,
+    ):
     """
-    :param n_interms: the number of intermediate popts to evaluate.
+    :param n_interms: the number of times to evaluate least squares minimization.
+
+     Warning: `n_interms` is used to divide `max_nfev`, sharing the resulting nfev equally between each fit 
+     attempt, thus the ratio between `n_interms` and `max_nfev` must be large enough to arrive at a
+     successful fit, otherwise the fit will fail.
     """
 
     # df keys. TODO: convert to ENUM
+    success = "success"
     param = "param"
     p_idx = "p_idx"
     lb = "lb"
@@ -325,6 +353,7 @@ def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
             nfev_key: int,
             mesg: str,
             ier: int,
+            success: bool,
         },
         pcov_df={
             **idx_keys,
@@ -353,8 +382,20 @@ def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
     # only the results table is indexed at -1 to indicate the initial guess
     output["results_df"] = p0
 
-    for nfev_idx, nfev in enumerate([int(max_nfev / n_interms)] * n_interms):
-        
+    nfev_it = [int(max_nfev / n_interms)] * n_interms
+
+    pb_desc = "nfev iter"
+    colour = "green"
+    verbose = True
+    wrapped_it = tqdm.tqdm(
+        nfev_it,
+        desc=pb_desc,
+        colour=colour,
+        disable= not verbose,
+        )
+
+    for nfev_idx, nfev in enumerate(wrapped_it):
+
         input_params = (
             bounds.pivot(
                 index=idx_cols,
@@ -369,14 +410,15 @@ def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
             .select(pl.col(idx_cols), pl.col([lb, p0_key, ub]))
         )
 
-        interm_dfs = curve_fit_(
-            optimizer,
-            fit_func,
-            x_key,
-            nfev,
-            X,
-            input_params,
-            intermediate_schemas,
+        interm_dfs, success = curve_fit_(
+            optimizer=optimizer,
+            fit_func=fit_func,
+            x_key=x_key,
+            max_nfev=nfev,
+            X=X,
+            params=input_params,
+            schemas=intermediate_schemas,
+            verbose=verbose,
         )
 
         # test for empty output - indicates an error
@@ -400,21 +442,31 @@ def get_popt(X, params, optimizer, fit_func, x_key, max_nfev, n_interms):
 
         # add the current output to the full record
 
-        output = {k: pl.concat([df, interm_dfs_[k]]) for k, df in output.items()}
+        # note: info_df is broadcast to the index of params, but the information is only relevant to the
+        # window each peak is a part of, rather than each individual window.
 
+        output = {k: pl.concat([df, interm_dfs_[k]]) for k, df in output.items()}
+        # if a successful fit is achieved, break the looping
+        
+        if success and terminate_on_fit:
+            break
+    # test: if terminate_on_fit, the unique values in the nfev index should match the input n_interms.
+    
+    
     return output
 
 
 def curve_fit_(
-    optimizer,
-    fit_func,
-    x_key,
-    max_nfev,
-    X,
-    params,
-    schemas,
+    optimizer: Callable,
+    fit_func: Callable,
+    x_key: str,
+    max_nfev: int,
+    X: pl.DataFrame,
+    params: pl.DataFrame,
+    schemas: dict[str, Type],
+    verbose: bool,
     
-) -> dict[str, pl.DataFrame]:
+) -> tuple[dict[str, pl.DataFrame], bool]:
     """
     Curve fit with the given optimizer.
     """
@@ -435,8 +487,6 @@ def curve_fit_(
 
     dfs: dict = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
 
-    optimizer_ = deepcopy(optimizer)
-
     p0: NDArray[float64] = params.select(dc_defs.KEY_P0).to_numpy().ravel()
 
     bounds: tuple[NDArray[float64], NDArray[float64]] = (
@@ -448,29 +498,41 @@ def curve_fit_(
 
     y: NDArray[float64] = X["amplitude"].to_numpy().ravel()
 
-    results, pcov, infodict, mesg, ier = optimizer_(
-        fit_func,
-        x,
-        y,
+    """
+    To implement least_squares ala curve_fit need to implement the memoizer.
+    """
+
+    in_func = _lightweight_memoizer(_wrap_func(fit_func, x, y, transform=None))
+
+    if verbose:
+        verbose_level = 2
+        
+    res = least_squares(
+        in_func,
         p0,
         bounds=bounds,
         max_nfev=max_nfev,
-        **{"full_output": True},
+        verbose=verbose_level
     )
 
-    del optimizer_
-    del x
-    del y
-    del p0
-    del bounds
+    # members of res are: message, success, fun, x, cost, jac, grad, optimality, active mask, nfev, njev
+    # right now missing: success, x, jac, active mask, njev
+    
+    # passing the success bool out with the dicts then popping it above will allow me to stop iterations once a successful fit is achieved.
 
+    results = res.x 
+    pcov = res.jac # FIXME: modify this to match the curve_fit implementation, atm its just the jac
+    success = res.success
+    infodict = dict(nfev=res.nfev, fvec=res.fun, success=success)
+    mesg = res.message
+    ier = res.status
     result_idx_cols = [p_idx, param]
 
     # different index because of 'params'
     result_idx = params.select(result_idx_cols).clone()
     full_output_idx = result_idx.select(p_idx)
 
-    info_df_ = pl.DataFrame({"nfev": infodict["nfev"], "mesg": mesg, "ier": ier})
+    info_df_ = pl.DataFrame({"nfev": infodict["nfev"], "mesg": mesg, "ier": ier, "success":success})
     pcov_df_ = pl.DataFrame(pcov).melt(variable_name="col", value_name="value")
     fvec_df_ = pl.DataFrame({"fvec": infodict["fvec"]})
 
@@ -481,8 +543,7 @@ def curve_fit_(
     dfs["results_df"] = result_idx.with_columns(
         pl.from_numpy(results, schema={p0_key: float})
     )
-
-    return dfs
+    return dfs, success
 
 
 def _skewnorm_signal_from_params(
