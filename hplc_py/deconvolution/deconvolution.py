@@ -413,7 +413,11 @@ def curve_fit_(
     X,
     params,
     schemas,
+    
 ) -> dict[str, pl.DataFrame]:
+    """
+    Curve fit with the given optimizer.
+    """
 
     for df in [X, params]:
         if isinstance(df, pl.DataFrame):
