@@ -1,3 +1,5 @@
+from hplc_py.deconvolution import analysis
+import warnings
 from tqdm import tqdm
 from types import SimpleNamespace
 from typing import Any, Callable, Type
@@ -17,9 +19,9 @@ from hplc_py.common import common_schemas as com_schs
 from hplc_py.common import definitions as com_defs
 from hplc_py.common.caching import CACHE_PATH, custom_param_hasher
 from hplc_py.deconvolution import deconvolution, opt_params
-from hplc_py.deconvolution import definitions as dc_defs
-from hplc_py.deconvolution import schemas as dc_schs
-from hplc_py.deconvolution.fit_assessment import calc_fit_scores
+from hplc_py.deconvolution import definitions as Keys
+from hplc_py.deconvolution import schemas as dc_schs, definitions as dc_defs
+from hplc_py.deconvolution.fit_assessment import calc_fit_report
 from hplc_py.map_peaks.map_peaks import MapPeaks, mp_viz
 from hplc_py.map_peaks.viz import PeakMapPlotHandler
 from hplc_py.map_windows import schemas as mw_schs
@@ -71,6 +73,8 @@ class DeconvolutionPipeline:
         self.__LOCATION = "location"
         self.__SCALE = "scale"
         self.__SKEW = "skew"
+        self.__MIXED = "mixed"
+        self.__UNMIXED = "unmixed"
 
         self.__WHH = "whh"
 
@@ -129,9 +133,9 @@ class DeconvolutionPipeline:
         # which_x_unit = "unit_idx"
         which_x_unit = self.input_keys_time
         if which_x_unit == "unit_idx":
-            x_unit = "unit_idx"
+            self.x_unit = "unit_idx"
         elif which_x_unit == self.input_keys_time:
-            x_unit = self.input_keys_time
+            self.x_unit = self.input_keys_time
         else:
             raise ValueError("please input one of 'unit_idx', self.input_keys_time")
 
@@ -148,7 +152,7 @@ class DeconvolutionPipeline:
 
         self._timestep = calculate_timestep(data[self.input_keys_time])
 
-        self.tbl_signals: pd.DataFrame = self.pipe_preprocess_data(
+        self.tbl_signal_mixed: pd.DataFrame = self.pipe_preprocess_data(
             data=data,
             key_time=self.input_keys_time,
             key_amp=self.input_keys_amp,
@@ -166,19 +170,21 @@ class DeconvolutionPipeline:
         map_peaks_output: dict
         peak_map_plot_handler: Any
         map_peaks_output, peak_map_plot_handler = self.pipe_map_peaks(
-            signal_store=self.tbl_signals,
+            signal_store=self.tbl_signal_mixed,
             find_peaks_kwargs=find_peaks_kwargs,
         )
 
         # map windows
         self.X_w, peak_window_spans = self.pipe_window_X(
-            store_signals=self.tbl_signals,
+            store_signals=self.tbl_signal_mixed,
             contour_line_bounds=map_peaks_output["contour_line_bounds"],
         )
         ##########################################################
         # prepare normalised peak : window tbl and window time / index bounds table
 
-        self.update_signal_tbl_with_windows()
+        self.tbl_signal_mixed = self.tbl_signal_mixed.pipe(
+            self.update_signal_tbl_with_windows, X_w=self.X_w
+        )
 
         # normalized or otherwise core tables primarily for join operations (?)
 
@@ -188,39 +194,84 @@ class DeconvolutionPipeline:
 
         # creating the "X_windowed" input from the signal store based on the selected `x_unit`
 
-        X_windowed_input = (
-            self.tbl_signals.pipe(pl.from_pandas)
-            .filter(pl.col(self.__SIGNAL).eq(self.keys_active_signal))
-            .select([self.__W_TYPE, self.__W_IDX, x_unit, self.__AMPLITUDE])
-            .to_pandas()
+        X_windowed_input = self.tbl_signal_mixed.pipe(
+            self.get_X_windowed, x_unit=self.x_unit, active_signal=self.keys_active_signal
         )
 
         params: DataFrame[dc_schs.Params] = self.curve_fit_input_pipeline(
             peak_map=self.tbl_peak_map,
             X_windowed=X_windowed_input,
-            x_unit=x_unit,
+            x_unit=self.x_unit,
         )
 
         popt = self.pipe_deconvolution(
-            X_windowed=X_windowed_input, params=params, x_unit=x_unit
+            X_windowed=X_windowed_input, params=params, x_unit=self.x_unit
         )
+
+        # inspector = analysis.Inspector(
+        #     X_w=X_windowed_input.pipe(DataFrame[deconvolution.X_Windowed]),
+        #     popt=popt.to_pandas().pipe(DataFrame[dc_schs.Popt]),
+        #     x_unit=self.x_unit
+        # )
 
         self.tbl_popt = popt
 
-        peak_signals = deconvolution.construct_peak_signals(
-            X_w=X_windowed_input, popt=self.tbl_popt.to_pandas(), x_unit=x_unit
+        reconstructor_in_signal = X_windowed_input.pipe(
+            dc_schs.ReconstructorSignalIn.validate
+        ).pipe(DataFrame[dc_schs.ReconstructorSignalIn])
+
+        reconstructor_in_popt = (
+            popt.to_pandas()
+            .pipe(dc_schs.ReconstructorPoptIn.validate)
+            .pipe(DataFrame[dc_schs.ReconstructorPoptIn])
         )
 
-        recon_df = deconvolution.reconstruct_signal(
-            peak_signals=peak_signals, x_unit=x_unit
+        reconstructor = analysis.Reconstructor(
+            X_w=reconstructor_in_signal,
+            popt=reconstructor_in_popt,
+            x_unit=self.x_unit,
         )
+
+        self.tbl_signal_unmixed = reconstructor.unmixed_signals
+        recon_df = reconstructor.mixed_signals
 
         # add recon to signal store
 
-        self.update_signal_tbl_with_recon(recon_df)
+        self.tbl_signal_mixed = self.tbl_signal_mixed.pipe(
+            self.update_signal_tbl_with_recon, recon_df
+        )
 
-        self.pipe_fit_scores(x_unit)
+        # get_fit_report wants tbl_signals as the input. tbl_signals is a 6 column pandas dataframe of w_type, w_idx, unit_idx, signal, amplitude. signal contains X, X_corrected, recon. What it actually does is filter tbl signals for X and recon.
 
+        # calc_fit_report_in = self.get_calc_fit_report_in(
+        #     tbl_signals=self.tbl_signal_mixed
+        # )
+        
+        
+        analyzer_in = self.tbl_signal_mixed.pipe(
+            deconvolution.get_active_signal_as_mixed,
+            x_unit=self.x_unit,
+            active_signal=self.keys_active_signal,
+            keys=dc_defs.keys_tbl_mixed_signal,
+        )
+        
+        analyzer = analysis.Analyzer(
+            data=analyzer_in,
+            x_unit=self.x_unit,
+
+        )
+
+        self.tbl_fit_report = analyzer.get_fit_report()
+
+        inspector = analysis.Inspector(
+            signal=reconstructor_in_signal,
+            popt=reconstructor_in_popt,
+            x_unit=self.x_unit,
+        )
+
+        breakpoint()
+
+        END_OF_PIPELINE = ""
         # !! DEBUGGING
 
         # !! input hplc params into my deconvolution pipeline and see how the results differ
@@ -228,6 +279,22 @@ class DeconvolutionPipeline:
         self.pipe_results_comparison_with_cremerlab(params)
 
         return None
+
+    def get_X_windowed(
+        self,
+        tbl_signal_mixed,
+        x_unit: str,
+        active_signal: str,
+    ):
+
+        X_windowed_input = (
+            tbl_signal_mixed.pipe(pl.from_pandas)
+            .filter(pl.col(self.__SIGNAL).eq(active_signal))
+            .select([self.__W_TYPE, self.__W_IDX, x_unit, self.__AMPLITUDE])
+            .to_pandas()
+        )
+
+        return X_windowed_input
 
     def viz_popt_statistics(self, results):
         """
@@ -266,51 +333,60 @@ class DeconvolutionPipeline:
 
         cmp_skew = param_cmp_.filter(pl.col(self.__PARAM) == self.__SKEW)
 
-    def pipe_fit_scores(self, x_unit):
-        windowed_recon = (
-            self.tbl_signals.pipe(pl.from_pandas)
-            .filter(pl.col(self.__SIGNAL).is_in([self.__X, self.__RECON]))
+    def get_fit_report(self, tbl_signals):
+
+        mixed_and_unmixed = tbl_signals.pipe(self.get_calc_fit_report_in)
+
+        fit_report = calc_fit_report(
+            data=mixed_and_unmixed,
+        )
+
+        return fit_report.pipe(pl.from_pandas)
+
+    def update_signal_tbl_with_recon(
+        self,
+        tbl_signals,
+        recon_df,
+    ):
+
+        recon_idx = [self.__W_TYPE, self.__W_IDX, self.x_unit]
+        tbl_signal_idx = [
+            self.__W_TYPE,
+            self.__W_IDX,
+            self.__UNIT_IDX,
+            self.__TIME_UNIT,
+        ]
+        post_join_value_cols = [self.__X, self.__X_CORRECTED, self.__RECON]
+
+        updated_tbl = (
+            tbl_signals.pipe(pl.from_pandas)
             .pivot(
-                index=[self.__W_TYPE, self.__W_IDX, x_unit],
+                index=tbl_signal_idx,
                 columns=self.__SIGNAL,
                 values=self.__AMPLITUDE,
             )
-            .to_pandas()
-        )
-
-        self.tbl_fit_report = calc_fit_scores(
-            windowed_recon=windowed_recon,
-            x_unit=x_unit,
-        )
-
-    def update_signal_tbl_with_recon(self, recon_df):
-        self.tbl_signals = (
-            self.tbl_signals.pipe(pl.from_pandas)
-            .pivot(
-                index=[self.__W_TYPE, self.__W_IDX, self.__UNIT_IDX, self.__TIME_UNIT],
-                columns=self.__SIGNAL,
-                values=self.__AMPLITUDE,
+            # select the amplitude column as "recon" before joining
+            .join(
+                recon_df.filter(pl.col(self.__SIGNAL) == self.__RECON).select(
+                    pl.col(recon_idx), pl.col(self.__AMPLITUDE).alias(self.__RECON)
+                ),
+                on=recon_idx,
             )
-            .hstack(recon_df.pipe(pl.from_pandas).select(self.__RECON))
             .melt(
-                id_vars=[
-                    self.__W_TYPE,
-                    self.__W_IDX,
-                    self.__UNIT_IDX,
-                    self.__TIME_UNIT,
-                ],
-                value_vars=[self.__X, self.__X_CORRECTED, self.__RECON],
+                id_vars=tbl_signal_idx,
+                value_vars=post_join_value_cols,
                 variable_name=self.__SIGNAL,
                 value_name=self.__AMPLITUDE,
             )
-            .to_pandas()
         )
 
-    def update_signal_tbl_with_windows(self):
-        self.tbl_signals = (
-            self.tbl_signals.pipe(pl.from_pandas)
+        return updated_tbl
+
+    def update_signal_tbl_with_windows(self, tbl_signal_mixed, X_w):
+        tbl_signal_mixed = (
+            tbl_signal_mixed.pipe(pl.from_pandas)
             .join(
-                self.X_w.pipe(pl.from_pandas).select(
+                X_w.pipe(pl.from_pandas).select(
                     [self.__W_TYPE, self.__W_IDX, self.__X_IDX]
                 ),
                 on=self.__X_IDX,
@@ -328,8 +404,10 @@ class DeconvolutionPipeline:
             .to_pandas()
             .rename({self.__X_IDX: self.__UNIT_IDX}, axis=1)
         )
+        return tbl_signal_mixed
 
     def prepare_tables(self, map_peaks_output):
+
         self.tbl_peak_idx_X_idx = (
             map_peaks_output[self.__MAXIMA]
             .pipe(pl.from_pandas)
@@ -681,14 +759,18 @@ class DeconvolutionPipeline:
         """
         # to measure the execution of 1 iteration of curve fitting we'll need to catch the error and measure the difference in time. This will not be accurate as the various calls and the try except operation will add time but it will give us a ballpark figure.
 
-        # elapsed_time_stats = self.estimate_curve_fit_time(
-        #     params=params,
-        #     X_w=X_w,
-        #     x_unit=x_unit,
-        #     fit_func=fit_func,
-        #     opt_func=opt_func,
-        #     schemas=schemas,
-        # )
+        elapsed_time_stats = self.estimate_curve_fit_time(
+            params=params,
+            X_w=X_w,
+            x_unit=x_unit,
+            fit_func=fit_func,
+            opt_func=opt_func,
+            schemas=schemas,
+        )
+
+        # warn the user how long one iteration will take.
+        # TODO: include calc max_nfev * statistics to give user idea of maximum run time
+        warnings.warn(f"one iteration: {elapsed_time_stats}")
 
         output: dict[str, pl.DataFrame] = self.curve_fit_windows(
             params=params,
@@ -725,6 +807,10 @@ class DeconvolutionPipeline:
             .pivot(index=["w_type", "w_idx", "p_idx"], columns="param", values="p0")
         )
 
+        from hplc_py.deconvolution import analysis
+
+        # aly = analysis.Analyzer(X_w=X_windowed, popt=popt, x_unit="x")
+
         return popt
 
     # @cachier(hash_func=custom_param_hasher, cache_dir=CACHE_PATH)
@@ -739,22 +825,22 @@ class DeconvolutionPipeline:
         n_interms: int,
         schemas: dict[str, Type],
         verbose=True,
-        terminate_on_fit: bool=True,
+        terminate_on_fit: bool = True,
     ):
         """
         Calculate the popt for each window using `scipy.optimize.least_squares`.
-        
-        iterates over each window in `w_idx` `X_w` and `params`, calls `least_squares` and returns the full 
+
+        iterates over each window in `w_idx` `X_w` and `params`, calls `least_squares` and returns the full
         output as a dict of dataframes. Refer to `least_squares`[docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html)
-        
-        
+
+
         # Usage Notes
-        
-        For a given `max_nfev`, (Number of Function EValuations), can optionally break the process up into 
+
+        For a given `max_nfev`, (Number of Function EValuations), can optionally break the process up into
         intermediate minimizations in order to provide insight into minimization progress for complex fits.
         This is done by specifying `n_interms` which will divide `max_nfev` into equal portions, collecting
-        the results of each intermediate result for later observation. `n_interms` default = 1, no intermediates.    
-        
+        the results of each intermediate result for later observation. `n_interms` default = 1, no intermediates.
+
         TODO: remove external opt_func and fit_func regs, just add as args in functions.
         TODO: add jaxfit least squares
         TODO: add personalised fit report
@@ -763,23 +849,23 @@ class DeconvolutionPipeline:
         TODO: add fit assessment for intermediates. add plotting as well.
         TODO: test odd max_nfev, n_interms inputs
         TODO: add success to infodict
-        
+
         If intermediates are specified, you can stop iteration once a successful fit is achieved, or continue
         until `max_nfev` is reached. This is done via the terminate_on_fit arg.
-        
+
         Call heirarchy is as follows:
-        
+
             1. curve_fit_windows
             2. popt_factory
             3. get_popt
                 - iterates over the max_nfev divisions.
             4. curve_fit_
             5. least_squares
-        
-        
+
+
         """
         wdw_grpby = params.partition_by(
-            [dc_defs.W_IDX], maintain_order=True, as_dict=True
+            [Keys.W_IDX], maintain_order=True, as_dict=True
         ).items()
 
         idx_keys = ["nfev_index", "w_type", "w_idx", "p_idx"]
@@ -1206,12 +1292,12 @@ class DeconvolutionPipeline:
         schemas: dict[str, Type],
     ):
         """
-        Calculate the mean time to complete one iteration of least square minimization of the dataset. 
-        
-        this is done by calling the curve fit functon 5 times and catching the error thrown by reaching the max_nfev (set to 1). 
-        
+        Calculate the mean time to complete one iteration of least square minimization of the dataset.
+
+        this is done by calling the curve fit functon 5 times and catching the error thrown by reaching the max_nfev (set to 1).
+
         The time it takes to throw the error is measured, and the mean calculated.
-        
+
         returns the mean as a float.
         """
 
@@ -1241,8 +1327,8 @@ class DeconvolutionPipeline:
 
         sample_pool = elapsed_times[1:]
 
-        min_time_stats = {}        
-        min_time_stats['mean_elapsed_time'] = np.mean(sample_pool)
-        min_time_stats['stdev_elapsed_time'] = np.std(sample_pool)
+        min_time_stats = {}
+        min_time_stats["mean_elapsed_time"] = np.mean(sample_pool)
+        min_time_stats["stdev_elapsed_time"] = np.std(sample_pool)
 
         return min_time_stats

@@ -19,11 +19,11 @@ from hplc_py.io_validation import IOValid
 from hplc_py.map_windows.schemas import X_Windowed
 from hplc_py.pandera_helpers import PanderaSchemaMethods
 from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
-from hplc_py.deconvolution import definitions as dc_defs
+from hplc_py.deconvolution import definitions as Keys
 from hplc_py.deconvolution import kwargs as dc_kwargs
 from .opt_params import DataPrepper
 
-from hplc_py.deconvolution import schemas as dc_schs
+from hplc_py.deconvolution import schemas as dc_schs, definitions as dc_defs
 
 WhichOpt = Literal["jax", "scipy"]
 WhichFitFunc = Literal["jax", "scipy"]
@@ -152,7 +152,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
             verbose=self._verbose_flag,
         )
 
-        self.psignals: DataFrame[dc_schs.PSignals] = construct_peak_signals(
+        self.psignals: DataFrame[dc_schs.PSignals] = construct_unmixed_signals(
             X_w=self._X_w,
             popt=self.popt,
         )
@@ -166,7 +166,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
             .pipe(pl.from_pandas)
             .with_columns(
                 self.recon.pipe(pl.from_pandas)
-                .select(dc_defs.KEY_RECON)
+                .select(Keys.KEY_RECON)
             )
                 .to_pandas()
                 .pipe(DataFrame[dc_schs.X_Windowed_With_Recon])
@@ -198,30 +198,30 @@ def build_peak_report(
     # groupby peak idx and calculate the area as the sum of amplitudes, and the maxima
     # mst - measurement
     unmixed_mst = (
-        unmixed_df.groupby(dc_defs.P_IDX)[dc_defs.KEY_UNMIXED]
+        unmixed_df.groupby(Keys.P_IDX)[Keys.KEY_UNMIXED]
         .agg(["sum", "max"])
         .rename(
-            {"sum": dc_defs.KEY_AREA_UNMIXED, "max": dc_defs.KEY_MAXIMA_UNMIXED},
+            {"sum": Keys.area_unmixed, "max": Keys.KEY_MAXIMA_UNMIXED},
             axis=1,
             errors="raise",
         )
     )
 
     peak_report = (
-        popt.set_index(dc_defs.P_IDX)
+        popt.set_index(Keys.P_IDX)
         .join(unmixed_mst)
         .reset_index()
         .loc[
             :,
             [
-                dc_defs.W_IDX,
-                dc_defs.P_IDX,
-                dc_defs.MAXIMA,
-                dc_defs.LOC,
-                dc_defs.SCALE,
-                dc_defs.KEY_SKEW,
-                dc_defs.KEY_AREA_UNMIXED,
-                dc_defs.KEY_MAXIMA_UNMIXED,
+                Keys.W_IDX,
+                Keys.P_IDX,
+                Keys.MAXIMA,
+                Keys.LOC,
+                Keys.SCALE,
+                Keys.KEY_SKEW,
+                Keys.area_unmixed,
+                Keys.KEY_MAXIMA_UNMIXED,
             ],
         ]
         .pipe(dc_schs.PReport.validate, lazy=True)
@@ -229,6 +229,7 @@ def build_peak_report(
     )
 
     return peak_report
+
 
 def popt_factory(
     X,
@@ -239,7 +240,7 @@ def popt_factory(
     # optimizer_kwargs: dc_kwargs.CurveFitKwargs=dc_kwargs.curve_fit_kwargs_defaults,
     max_nfev=1e6,
     n_interms: int = 1,
-    verbose:bool = True,
+    verbose: bool = True,
     terminate_on_fit: bool = True,
 ) -> dict[str, pl.DataFrame]:
     """
@@ -296,11 +297,11 @@ def get_popt(
     n_interms: int,
     verbose: bool,
     terminate_on_fit: bool,
-    ):
+):
     """
     :param n_interms: the number of times to evaluate least squares minimization.
 
-     Warning: `n_interms` is used to divide `max_nfev`, sharing the resulting nfev equally between each fit 
+     Warning: `n_interms` is used to divide `max_nfev`, sharing the resulting nfev equally between each fit
      attempt, thus the ratio between `n_interms` and `max_nfev` must be large enough to arrive at a
      successful fit, otherwise the fit will fail.
     """
@@ -391,8 +392,8 @@ def get_popt(
         nfev_it,
         desc=pb_desc,
         colour=colour,
-        disable= not verbose,
-        )
+        disable=not verbose,
+    )
 
     for nfev_idx, nfev in enumerate(wrapped_it):
 
@@ -447,12 +448,11 @@ def get_popt(
 
         output = {k: pl.concat([df, interm_dfs_[k]]) for k, df in output.items()}
         # if a successful fit is achieved, break the looping
-        
+
         if success and terminate_on_fit:
             break
     # test: if terminate_on_fit, the unique values in the nfev index should match the input n_interms.
-    
-    
+
     return output
 
 
@@ -465,7 +465,6 @@ def curve_fit_(
     params: pl.DataFrame,
     schemas: dict[str, Type],
     verbose: bool,
-    
 ) -> tuple[dict[str, pl.DataFrame], bool]:
     """
     Curve fit with the given optimizer.
@@ -487,11 +486,11 @@ def curve_fit_(
 
     dfs: dict = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
 
-    p0: NDArray[float64] = params.select(dc_defs.KEY_P0).to_numpy().ravel()
+    p0: NDArray[float64] = params.select(Keys.KEY_P0).to_numpy().ravel()
 
     bounds: tuple[NDArray[float64], NDArray[float64]] = (
-        params.select(dc_defs.KEY_LB).to_numpy().ravel(),
-        params.select(dc_defs.KEY_UB).to_numpy().ravel(),
+        params.select(Keys.KEY_LB).to_numpy().ravel(),
+        params.select(Keys.KEY_UB).to_numpy().ravel(),
     )
 
     x: NDArray[float64] = X[x_key].to_numpy().ravel()
@@ -506,22 +505,20 @@ def curve_fit_(
 
     if verbose:
         verbose_level = 2
-        
+
     res = least_squares(
-        in_func,
-        p0,
-        bounds=bounds,
-        max_nfev=max_nfev,
-        verbose=verbose_level
+        in_func, p0, bounds=bounds, max_nfev=max_nfev, verbose=verbose_level
     )
 
     # members of res are: message, success, fun, x, cost, jac, grad, optimality, active mask, nfev, njev
     # right now missing: success, x, jac, active mask, njev
-    
+
     # passing the success bool out with the dicts then popping it above will allow me to stop iterations once a successful fit is achieved.
 
-    results = res.x 
-    pcov = res.jac # FIXME: modify this to match the curve_fit implementation, atm its just the jac
+    results = res.x
+    pcov = (
+        res.jac
+    )  # FIXME: modify this to match the curve_fit implementation, atm its just the jac
     success = res.success
     infodict = dict(nfev=res.nfev, fvec=res.fun, success=success)
     mesg = res.message
@@ -532,7 +529,9 @@ def curve_fit_(
     result_idx = params.select(result_idx_cols).clone()
     full_output_idx = result_idx.select(p_idx)
 
-    info_df_ = pl.DataFrame({"nfev": infodict["nfev"], "mesg": mesg, "ier": ier, "success":success})
+    info_df_ = pl.DataFrame(
+        {"nfev": infodict["nfev"], "mesg": mesg, "ier": ier, "success": success}
+    )
     pcov_df_ = pl.DataFrame(pcov).melt(variable_name="col", value_name="value")
     fvec_df_ = pl.DataFrame({"fvec": infodict["fvec"]})
 
@@ -551,7 +550,7 @@ def _skewnorm_signal_from_params(
     x: Series[int],
 ) -> pd.DataFrame:
 
-    param_keys = [dc_defs.MAXIMA, dc_defs.LOC, dc_defs.SCALE, dc_defs.KEY_SKEW]
+    param_keys = [Keys.MAXIMA, Keys.LOC, Keys.SCALE, Keys.KEY_SKEW]
 
     params: NDArray[float64] = (
             popt
@@ -563,12 +562,12 @@ def _skewnorm_signal_from_params(
     unmixed_signal: NDArray[float64] = _compute_skewnorm_scipy(x, params)
 
     unmixed_signal_df = (
-        pl.DataFrame(data={dc_defs.KEY_UNMIXED: unmixed_signal})
+        pl.DataFrame(data={Keys.KEY_UNMIXED: unmixed_signal})
         .with_row_index(name="idx")
         .select(
-            popt[dc_defs.P_IDX].pipe(pl.from_pandas),
+            popt[Keys.P_IDX].pipe(pl.from_pandas),
             x.pipe(pl.from_pandas),
-            pl.col(dc_defs.KEY_UNMIXED),
+            pl.col(Keys.KEY_UNMIXED),
         )
         .to_pandas()
     )
@@ -577,11 +576,21 @@ def _skewnorm_signal_from_params(
     return unmixed_signal_df
 
 
-def construct_peak_signals(
-    X_w: DataFrame[X_Windowed],
-    popt: DataFrame[dc_schs.Popt],
+def construct_unmixed_signals(
+    X_w: pd.DataFrame,
+    popt: pd.DataFrame,
     x_unit: str,
 ):
+    """
+    Constructs the peak signal along the length of the observations from popt. Returns
+    a pandas dataframe in long form with stacked peak signals indexed by 'p_idx', the peak index.
+
+    Columns: 'p_idx', 'x', 'unmixed'.
+
+    TODO: remove X_w, modify to accept a 1D numpy array containing the observations. This will remove the need
+    for x_unit.
+    TODO: move to polars.
+    """
 
     if x_unit not in X_w.columns:
         raise AttributeError("Provided `x_unit` key is not in X_w")
@@ -589,7 +598,7 @@ def construct_peak_signals(
     x: Series[int] = Series[int](X_w[x_unit])
 
     peak_signals = popt.groupby(
-        by=[dc_defs.W_IDX, dc_defs.P_IDX],
+        by=[Keys.W_IDX, Keys.P_IDX],
         group_keys=False,
     ).apply(
         _skewnorm_signal_from_params, x
@@ -605,13 +614,13 @@ def reconstruct_signal(
     recon = (
         peak_signals.pipe(pl.from_pandas)
         .pivot(
-            columns=dc_defs.P_IDX,
+            columns=Keys.P_IDX,
             index=x_unit,
-            values=dc_defs.KEY_UNMIXED,
+            values=Keys.KEY_UNMIXED,
         )
         .select(
             pl.col(x_unit),
-            pl.sum_horizontal(pl.exclude([x_unit])).alias(dc_defs.KEY_RECON),
+            pl.sum_horizontal(pl.exclude([x_unit])).alias(Keys.KEY_RECON),
         )
         .to_pandas()
         # .pipe(dc_schs.RSignal.validate, lazy=True)
@@ -619,3 +628,47 @@ def reconstruct_signal(
     )
 
     return recon
+
+@pa.check_types(lazy=True)
+def get_active_signal_as_mixed(
+    tbl_signals: dc_schs.TblSignalMixed,
+    x_unit: str,
+    active_signal: str,
+    keys: dc_defs.KeysTblMixedSignal,
+) -> DataFrame[dc_schs.ActiveSignal]:
+    """
+    FIXME: probably can delete this as soon as the Analyzer class is gtg.
+
+    TODO: define input schema
+
+    this function is expecting a table in the following format:
+
+    columns: w_type, w_idx, x_unit, signal, amplitude.
+
+    the signal column will contain the column names post pivot.
+
+    Define a dynamic schema using the object model to validate on input.
+    """
+
+    index = [keys.W_TYPE, keys.W_IDX, x_unit]
+    columns = keys.SIGNAL
+    values = keys.AMPLITUDE
+
+    windowed_recon = (
+        tbl_signals.filter(pl.col(keys.SIGNAL).is_in([active_signal, keys.RECON]))
+        .pivot(
+            index=index,
+            columns=columns,
+            values=values,
+        )
+        .rename(
+            {
+                active_signal: keys.MIXED,
+            }
+        )
+        .to_pandas()
+        .pipe(dc_schs.ActiveSignal.validate)
+        .pipe(DataFrame[dc_schs.ActiveSignal])
+    )
+
+    return windowed_recon

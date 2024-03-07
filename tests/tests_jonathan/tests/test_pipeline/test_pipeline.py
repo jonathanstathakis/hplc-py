@@ -56,8 +56,8 @@ def test_pipeline(asschrom_dset: pd.DataFrame, asschrom_pipeline):
     from polars.testing import assert_frame_equal
 
     assert_frame_equal(
-        pipeline.tbl_fit_report.pipe(pl.from_pandas),
-        asschrom_pipeline.tbl_fit_report.pipe(pl.from_pandas),
+        pipeline.tbl_fit_report,
+        asschrom_pipeline.tbl_fit_report,
     )
     
     

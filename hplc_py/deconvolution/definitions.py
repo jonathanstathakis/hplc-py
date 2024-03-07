@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import numpy as np
 import polars as pl
 from hplc_py.common.definitions import X, X_IDX
@@ -28,37 +29,37 @@ VAL_AMP_UP_MULT = 10
 
 # Peak Report
 
-KEY_AREA_UNMIXED = "area_unmixed"
+area_unmixed = "area_unmixed"
 KEY_MAXIMA_UNMIXED = "maxima_unmixed"
 KEY_RETENTION_TIME = "retention_time"
 
 # fit assess scores
 
-KEY_RTOL: str = "rtol"
+rtol: str = "rtol"
 FTOL_KEY: str = "ftol"
 VAL_RTOL: float = 0.01
 VAL_FTOL: float = 0.01
 
-KEY_TIME_START: str = "time_start"
-KEY_TIME_END: str = "time_end"
-KEY_AREA_MIXED: str = "area_mixed"
+time_start: str = "time_start"
+time_end: str = "time_end"
+area_mixed: str = "area_mixed"
 VAR_UNMIXED_KEY: str = "var_unmixed"
-KEY_VAR_MIXED: str = "var_mixed"
-KEY_MEAN_MIXED: str = "mean_mixed"
-KEY_FANO_MIXED: str = "fano_mixed"
-KEY_MEAN_FANO: str = "fano_mean"
-KEY_SCORE_RECON: str = "score_recon"
-KEY_TOLCHECK: str = "tolcheck"
-KEY_TOLPASS: str = "tolpass"
-VAL_W_TYPE_PEAK: str = "peak"
-VAL_W_TYPE_INTERPEAK: str = "interpeak"
-KEY_FANO_DIV: str = "div_fano"
-KEY_FANOPASS: str = "fanopass"
-KEY_STATUS: str = "status"
+var_mixed: str = "var_mixed"
+mean_mixed: str = "mean_mixed"
+fano_mixed: str = "fano_mixed"
+mean_fano: str = "fano_mean"
+score_recon: str = "score_recon"
+tolcheck: str = "tolcheck"
+tolpass: str = "tolpass"
+w_type_peak: str = "peak"
+w_type_interpeak: str = "interpeak"
+fano_div: str = "div_fano"
+fano_pass: str = "fanopass"
+status: str = "status"
 
-VAL_STATUS_VALID: str = "valid"
-VAL_STATUS_NEEDS_REVIEW: str = "needs review"
-VAL_STATUS_INVALID: str = "invalid"
+val_status_valid: str = "valid"
+val_status_needs_review: str = "needs review"
+val_status_invalid: str = "invalid"
 
 KEY_GRADE = "grade"
 KEY_COLOR = "color"
@@ -86,3 +87,27 @@ p0_param_cats = pl.Enum(categories)
 ACTUAL: str = "actual"
 
 MSNT: str = "msnt"
+
+
+@dataclass(frozen=True)
+class KeysTblMixedSignal:
+    W_TYPE: str
+    W_IDX: str
+    SIGNAL: str
+    AMPLITUDE: str
+    RECON: str
+    MIXED: str
+
+SIGNAL = "signal"
+AMPLITUDE = "amplitude"
+RECON = "recon"
+MIXED = "mixed"
+
+keys_tbl_mixed_signal = KeysTblMixedSignal(
+    W_TYPE=W_TYPE,
+    W_IDX=W_IDX,
+    SIGNAL=SIGNAL,
+    AMPLITUDE=AMPLITUDE,
+    RECON=RECON,
+    MIXED=MIXED,
+)

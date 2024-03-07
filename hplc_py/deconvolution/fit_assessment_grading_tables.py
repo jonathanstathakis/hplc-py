@@ -3,11 +3,11 @@ import hplc_py.deconvolution.definitions as defs
 
 
 def get_grading_frame(
-    status_key: str = defs.KEY_STATUS,
+    status_key: str = defs.status,
     grade_key: str = defs.KEY_GRADE,
-    status_val_valid: str = defs.VAL_STATUS_VALID,
-    status_val_invalid: str = defs.VAL_STATUS_INVALID,
-    status_val_needs_review: str = defs.VAL_STATUS_NEEDS_REVIEW,
+    status_val_valid: str = defs.val_status_valid,
+    status_val_invalid: str = defs.val_status_invalid,
+    status_val_needs_review: str = defs.val_status_needs_review,
     grade_val_valid: str = defs.VAL_GRADE_VALID,
     grade_val_invalid: str = defs.VAL_GRADE_INVALID,
     grade_val_needs_review: str = defs.VAL_GRADE_NEEDS_REVIEW,
@@ -22,11 +22,11 @@ def get_grading_frame(
 
 
 def get_grading_colors_frame(
-    status_key: str = defs.KEY_STATUS,
+    status_key: str = defs.status,
     color_key: str = defs.KEY_COLOR,
-    status_val_valid: str = defs.VAL_STATUS_VALID,
-    status_val_invalid: str = defs.VAL_STATUS_INVALID,
-    status_val_needs_review: str = defs.VAL_STATUS_NEEDS_REVIEW,
+    status_val_valid: str = defs.val_status_valid,
+    status_val_invalid: str = defs.val_status_invalid,
+    status_val_needs_review: str = defs.val_status_needs_review,
     color_val_valid: str = defs.VAL_COLOR_VALID,
     color_val_invalid: str = defs.VAL_COLOR_INVALID,
     color_val_needs_review: str = defs.VAL_COLOR_NEEDS_REVIEW,

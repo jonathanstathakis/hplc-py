@@ -7,7 +7,7 @@ import pytest
 from hplc_py.deconvolution.deconvolution import (
     PeakDeconvolver,
     build_peak_report,
-    construct_peak_signals,
+    construct_unmixed_signals,
     reconstruct_signal,
 )
 from hplc_py.common.definitions import (
@@ -58,7 +58,7 @@ def psignals(
     stored_popt: DataFrame[Popt],
     X_windowed,
 ):
-    peak_signals = construct_peak_signals(
+    peak_signals = construct_unmixed_signals(
         X_w=X_windowed,
         popt=stored_popt,
         maxima_key=X,

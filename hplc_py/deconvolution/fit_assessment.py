@@ -16,16 +16,12 @@ Notes:
 
 import polars as pl
 from hplc_py.deconvolution.schemas import X_Windowed_With_Recon
-from hplc_py.deconvolution import definitions as dc_defs
+from hplc_py.deconvolution import definitions as Keys
 from hplc_py.map_windows import definitions as mw_defs
 
-from hplc_py.deconvolution.schemas import (
-    FitAssessScores,
-)
-
+from hplc_py.deconvolution import schemas as dc_schs
 
 import numpy as np
-
 import pandera as pa
 from pandera.typing import DataFrame
 
@@ -35,16 +31,19 @@ from hplc_py.deconvolution.fit_assessment_grading_tables import (
 )
 
 
-# @pa.check_types
-def calc_fit_scores(
-    windowed_recon,#: DataFrame[X_Windowed_With_Recon],
-    x_unit: str,
-    rtol: float = dc_defs.VAL_RTOL,
-    ftol: float = dc_defs.VAL_FTOL,
+@pa.check_types
+def calc_fit_report(
+    data: DataFrame[dc_schs.ActiveSignal],
+    rtol: float = Keys.VAL_RTOL,
+    ftol: float = Keys.VAL_FTOL,
     grading_frame: pl.DataFrame = get_grading_frame(),
     grading_color_frame: pl.DataFrame = get_grading_colors_frame(),
-) -> DataFrame[FitAssessScores]:
+) -> DataFrame[dc_schs.FitAssessScores]:
     """
+    :param data: a polars dataframe with columns: "w_type", "w_idx", "x", "mixed", "unmixed"
+
+    # Notes
+
     1. Recon Score
 
     Use to gauge the reconstruction of peak regions.
@@ -73,86 +72,121 @@ def calc_fit_scores(
 
 
     """
+    data_ = data.pipe(pl.from_pandas)
+
+    if not isinstance(data_, pl.DataFrame):
+        raise TypeError("Expected input data to be a polars DataFrame")
+
+    from dataclasses import dataclass
+
+    @dataclass
+    class Keys:
+        w_type: str = "w_type"
+        w_idx: str = "w_idx"
+        mixed: str = "mixed"
+        recon: str = "recon"
+        x: str = "x"
+        time_start: str = "time_start"
+        time_end: str = "time_end"
+        area_mixed: str = "area_mixed"
+        area_unmixed: str = "area_unmixed"
+        var_unmixed: str = "var_unmixed"
+        var_mixed: str = "var_mixed"
+        mean_mixed: str = "mean_mixed"
+        fano_mixed: str = "fano_mixed"
+        mean_fano: str = "fano_mean"
+        score_recon: str = "score_recon"
+        tolcheck: str = "tolcheck"
+        tolpass: str = "tolpass"
+        w_type_peak: str = "peak"
+        w_type_interpeak: str = "interpeak"
+        fano_div: str = "div_fano"
+        fanopass: str = "fanopass"
+        status: str = "status"
+        rtol: str = "rtol"
+        val_status_valid: str = "valid"
+        val_status_needs_review: str = "needs review"
+        val_status_invalid: str = "invalid"
 
     rtol_decimals = int(np.abs(np.ceil(np.log10(rtol))))
-    scores: DataFrame[FitAssessScores] = (
-        windowed_recon
-        .pipe(pl.from_pandas)
+
+    scores: DataFrame[dc_schs.FitAssessScores] = (
+        data_
         # per each window
-        .group_by([dc_defs.W_TYPE, dc_defs.W_IDX])
+        .group_by([Keys.w_type, Keys.w_idx])
         .agg(
             # time start
-            pl.first(x_unit).alias(dc_defs.KEY_TIME_START),
+            pl.first(Keys.x).alias(Keys.time_start),
             # time end
-            pl.last(x_unit).alias(dc_defs.KEY_TIME_END),
+            pl.last(Keys.x).alias(Keys.time_end),
             # area mixed
-            pl.col(dc_defs.X).abs().sum().add(1).alias(dc_defs.KEY_AREA_MIXED),
+            pl.col(Keys.mixed).abs().sum().add(1).alias(Keys.area_mixed),
             # area unmixed
-            pl.col(dc_defs.KEY_RECON).abs().sum().add(1).alias(dc_defs.KEY_AREA_UNMIXED),
+            pl.col(Keys.recon).abs().sum().add(1).alias(Keys.area_unmixed),
             # variance mixed
-            pl.col(dc_defs.X).abs().var().alias(dc_defs.KEY_VAR_MIXED),
+            pl.col(Keys.mixed).abs().var().alias(Keys.var_mixed),
             # mean mixed
-            pl.col(dc_defs.X).abs().mean().alias(dc_defs.KEY_MEAN_MIXED),
+            pl.col(Keys.mixed).abs().mean().alias(Keys.mean_mixed),
         )
         .with_columns(
             # fano factor mixed
-            pl.col(dc_defs.KEY_VAR_MIXED).truediv(pl.col(dc_defs.KEY_MEAN_MIXED)).alias(dc_defs.KEY_FANO_MIXED),
+            pl.col(Keys.var_mixed).truediv(pl.col(Keys.mean_mixed)).alias(Keys.fano_mixed),
             # score recon
-            pl.col(dc_defs.KEY_AREA_UNMIXED).truediv(pl.col(dc_defs.KEY_AREA_MIXED)).alias(dc_defs.KEY_SCORE_RECON),
+            pl.col(Keys.area_unmixed).truediv(pl.col(Keys.area_mixed)).alias(Keys.score_recon),
             # rtol
-            pl.lit(rtol).alias(dc_defs.KEY_RTOL),
+            pl.lit(rtol).alias(Keys.rtol),
         )
         .with_columns(
             # tolcheck
-            pl.col(dc_defs.KEY_SCORE_RECON).sub(1).abs().round(rtol_decimals).alias(dc_defs.KEY_TOLCHECK)
+            pl.col(Keys.score_recon).sub(1).abs().round(rtol_decimals).alias(Keys.tolcheck)
         )
         .with_columns(
             # tolpass
-            pl.col(dc_defs.KEY_TOLCHECK).le(pl.col(dc_defs.KEY_RTOL)).alias(dc_defs.KEY_TOLPASS),
+            pl.col(Keys.tolcheck).le(pl.col(Keys.rtol)).alias(Keys.tolpass),
             # fano factor mixed mean
-            pl.col(dc_defs.KEY_FANO_MIXED)
-            .filter(pl.col(dc_defs.W_TYPE).eq(dc_defs.VAL_W_TYPE_PEAK))
+            pl.col(Keys.fano_mixed)
+            .filter(pl.col(Keys.w_type).eq(Keys.w_type_peak))
             .mean()
-            .alias(dc_defs.KEY_MEAN_FANO),
+            .alias(Keys.mean_fano),
         )
         .with_columns(
             # fano factor mixed div by its mean
-            pl.col(dc_defs.KEY_FANO_MIXED)
-            .truediv(pl.col(dc_defs.KEY_MEAN_FANO))
-            .over(dc_defs.W_TYPE)
-            .alias(dc_defs.KEY_FANO_DIV),
+            pl.col(Keys.fano_mixed)
+            .truediv(pl.col(Keys.mean_fano))
+            .over(Keys.w_type)
+            .alias(Keys.fano_div),
         )
         .with_columns(
             # fano factor threshold pass
-            pl.col(dc_defs.KEY_FANO_DIV).le(ftol).alias(dc_defs.KEY_FANOPASS),
+            pl.col(Keys.fano_div).le(ftol).alias(Keys.fanopass),
         )
         .with_columns(
             # status
             pl.when(
-                (pl.col(dc_defs.W_TYPE).eq(dc_defs.VAL_W_TYPE_PEAK)) & (pl.col(dc_defs.KEY_TOLPASS).eq(True))
+                (pl.col(Keys.w_type).eq(Keys.w_type_peak)) & (pl.col(Keys.tolpass).eq(True))
             )
-            .then(pl.lit(dc_defs.VAL_STATUS_VALID))
+            .then(pl.lit(Keys.val_status_valid))
             .when(
-                (pl.col(dc_defs.W_TYPE).eq(dc_defs.VAL_W_TYPE_INTERPEAK))
-                & (pl.col(dc_defs.KEY_TOLPASS).eq(True))
+                (pl.col(Keys.w_type).eq(Keys.w_type_interpeak))
+                & (pl.col(Keys.tolpass).eq(True))
             )
-            .then(pl.lit(dc_defs.VAL_STATUS_VALID))
+            .then(pl.lit(Keys.val_status_valid))
             .when(
-                (pl.col(dc_defs.W_TYPE).eq(dc_defs.VAL_W_TYPE_INTERPEAK))
-                & (pl.col(dc_defs.KEY_FANOPASS).eq(True))
+                (pl.col(Keys.w_type).eq(Keys.w_type_interpeak))
+                & (pl.col(Keys.fanopass).eq(True))
             )
-            .then(pl.lit(dc_defs.VAL_STATUS_NEEDS_REVIEW))
-            .otherwise(pl.lit(dc_defs.VAL_STATUS_INVALID))
-            .alias(dc_defs.KEY_STATUS)
+            .then(pl.lit(Keys.val_status_needs_review))
+            .otherwise(pl.lit(Keys.val_status_invalid))
+            .alias(Keys.status)
         )
         # grading
-        .join(grading_frame, how="left", on=dc_defs.KEY_STATUS)
+        .join(grading_frame, how="left", on=Keys.status)
         # grading color
-        .join(grading_color_frame, how="left", on=dc_defs.KEY_STATUS)
-        .sort(dc_defs.KEY_TIME_START, dc_defs.W_IDX)
+        .join(grading_color_frame, how="left", on=Keys.status)
+        .sort(Keys.time_start, Keys.w_idx)
         .to_pandas()
-        .pipe(FitAssessScores.validate, lazy=True)
-        .pipe(DataFrame[FitAssessScores])
+        .pipe(dc_schs.FitAssessScores.validate, lazy=True)
+        .pipe(DataFrame[dc_schs.FitAssessScores])
     )  # fmt: skip
 
     return scores

@@ -148,3 +148,7 @@ class X_Windowed(X_PeakWindowed, WindowFields):
         ordered = True
         name = "X_Windowed"
         coerce = True
+
+# New Schemas, above are stale or invalid as of 2024-03-07 14:42:21
+# FIXME clear out old invalid schemas
+

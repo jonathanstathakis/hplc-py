@@ -16,9 +16,9 @@ from hplc_py.deconvolution.definitions import (
     VAL_GRADE_INVALID,
     VAL_GRADE_NEEDS_REVIEW,
     VAL_GRADE_VALID,
-    VAL_STATUS_INVALID,
-    VAL_STATUS_NEEDS_REVIEW,
-    VAL_STATUS_VALID,
+    val_status_invalid,
+    val_status_needs_review,
+    val_status_valid,
 )
 from hplc_py.map_peaks import definitions as mp_defs, schemas as mp_schs
 from hplc_py.map_windows.schemas import w_idx_field
@@ -216,7 +216,7 @@ fano_mean_peaks_kwargs: dict[str, Any] = dict() | fano_kwargs
 div_fano_kwargs: dict[str, Any] = dict() | fano_kwargs
 fanopass_kwargs: dict[str, Any] = dict()
 status_kwargs: dict[str, Any] = dict(
-    isin=[VAL_STATUS_VALID, VAL_STATUS_INVALID, VAL_STATUS_NEEDS_REVIEW]
+    isin=[val_status_valid, val_status_invalid, val_status_needs_review]
 )
 grade_kwargs: dict[str, Any] = dict(
     isin=[VAL_GRADE_VALID, VAL_GRADE_INVALID, VAL_GRADE_NEEDS_REVIEW]
@@ -308,3 +308,48 @@ class DeconvolutionOutput:
     psignals: DataFrame[PSignals]
     rsignal: DataFrame[RSignal]
     X_w_with_recon: DataFrame[X_Windowed_With_Recon]
+
+
+class ActiveSignal(pa.DataFrameModel):
+    w_type: str
+    w_idx: int
+    x: float
+    mixed: float
+    recon: float
+
+    class Config:
+        name = "Active Signal (Windowed)"
+        
+
+class ReconstructorSignalIn(pa.DataFrameModel):
+    w_type: str
+    w_idx: int
+    x: float
+    amplitude: float
+
+    class Config:
+        name = "Reconstructor Signal Input"
+
+
+class ReconstructorPoptIn(pa.DataFrameModel):
+    w_type: str
+    w_idx: int
+    maxima: float
+    loc: float
+    scale: float
+    skew: float
+
+    class Config:
+        name = "Reconstructor Popt Table Input"
+
+
+class TblSignalMixed(pa.DataFrameModel):
+    w_type: str
+    w_idx: int
+    unit_idx: int
+    x: float
+    signal: str = pa.Field(isin=["X","X_corrected","recon"])
+    amplitude: float
+    
+    class Config:
+        name = "Table Mixed Signals"
