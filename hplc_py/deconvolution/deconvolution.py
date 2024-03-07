@@ -449,6 +449,15 @@ def get_popt(
         output = {k: pl.concat([df, interm_dfs_[k]]) for k, df in output.items()}
         # if a successful fit is achieved, break the looping
 
+        from hplc_py.deconvolution.analysis import Inspector
+
+        # breakpoint()
+        inspector = Inspector(
+            signal=X.to_pandas(),
+            popt=interm_dfs["results_df"].to_pandas().pipe(get_wide_popt),
+            x_unit="x",
+        )
+        # inspector.plot_results()
         if success and terminate_on_fit:
             break
     # test: if terminate_on_fit, the unique values in the nfev index should match the input n_interms.
@@ -546,10 +555,9 @@ def curve_fit_(
 
 
 def _skewnorm_signal_from_params(
-    popt: DataFrame[dc_schs.Popt],
+    popt: DataFrame[dc_schs.ReconstructorPoptIn],
     x: Series[int],
 ) -> pd.DataFrame:
-
     param_keys = [Keys.MAXIMA, Keys.LOC, Keys.SCALE, Keys.KEY_SKEW]
 
     params: NDArray[float64] = (
@@ -576,9 +584,10 @@ def _skewnorm_signal_from_params(
     return unmixed_signal_df
 
 
+@pa.check_types(lazy=True)
 def construct_unmixed_signals(
-    X_w: pd.DataFrame,
-    popt: pd.DataFrame,
+    X_w: DataFrame[dc_schs.ReconstructorSignalIn],
+    popt: DataFrame[dc_schs.ReconstructorPoptIn],
     x_unit: str,
 ):
     """
@@ -598,7 +607,7 @@ def construct_unmixed_signals(
     x: Series[int] = Series[int](X_w[x_unit])
 
     peak_signals = popt.groupby(
-        by=[Keys.W_IDX, Keys.P_IDX],
+        by=Keys.P_IDX,
         group_keys=False,
     ).apply(
         _skewnorm_signal_from_params, x
@@ -628,6 +637,7 @@ def reconstruct_signal(
     )
 
     return recon
+
 
 @pa.check_types(lazy=True)
 def get_active_signal_as_mixed(
@@ -672,3 +682,27 @@ def get_active_signal_as_mixed(
     )
 
     return windowed_recon
+
+
+def select_popt(opt_results: pl.DataFrame):
+    """
+    Select the last popt values calculated.
+    """
+    popt = opt_results.filter(
+        pl.col("nfev_index").eq(pl.col("nfev_index").cast(int).max())
+    )
+    return popt
+
+
+@pa.check_types
+def get_wide_popt(popt: pd.DataFrame) -> DataFrame[dc_schs.Popt]:
+
+    popt_wide = (
+        # pivot so that each parameter is a column
+        popt.pipe(pl.from_pandas)
+        .pivot(index="p_idx", columns="param", values="p0")
+        .to_pandas()
+        .pipe(DataFrame[dc_schs.Popt])
+    )
+
+    return popt_wide

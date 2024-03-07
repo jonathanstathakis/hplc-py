@@ -2,6 +2,8 @@
 Results analysis
 """
 
+import hvplot
+import hvplot.pandas
 import pandera as pa
 from pandera.typing import DataFrame
 from hplc_py.deconvolution import fit_assessment
@@ -54,8 +56,7 @@ class Reconstructor:
         recon,
     ):
         data = (
-            data
-            .rename({"amplitude": "mixed"})
+            data.rename({"amplitude": "mixed"})
             .join(recon, on="x")
             .melt(
                 id_vars=["w_type", "w_idx", "x"],
@@ -120,18 +121,52 @@ class Inspector:
 
         self._keys_tbl_mixed_signal: KeysTblMixedSignal = dc_defs.keys_tbl_mixed_signal
 
-        reconstructor = Reconstructor(X_w=signal, popt=popt, x_unit=x_unit)
+        self.reconstructor = Reconstructor(X_w=signal, popt=popt, x_unit=x_unit)
 
-        tbl_signal_unmixed = reconstructor.unmixed_signals
+        tbl_signal_unmixed = self.reconstructor.unmixed_signals
 
-        analyzer_in = reconstructor.mixed_signals.pipe(
+        analyzer_in = self.reconstructor.mixed_signals.pipe(
             deconvolution.get_active_signal_as_mixed,
             x_unit=x_unit,
             active_signal="mixed",
             keys=dc_defs.keys_tbl_mixed_signal,
         )
 
-        self.analyzer = Analyzer(
-            data=analyzer_in, x_unit=x_unit
+        self.analyzer = Analyzer(data=analyzer_in, x_unit=x_unit)
+
+    def plot_results(self):
+        self.mixed_signals_overlay = self._plot_mixed_signals_overlay(
+            mixed_signals=self.reconstructor.mixed_signals
         )
-        
+
+        self.unmixed_signals_overlay = self._plot_unmixed_signals_overlay(
+            unmixed_signals=self.reconstructor.unmixed_signals
+        )
+
+        hvplot.show(self.mixed_signals_overlay * self.unmixed_signals_overlay)
+
+    def _plot_unmixed_signals_overlay(self, unmixed_signals):
+
+        hvplot.extension(backend="bokeh")
+
+        unmixed_signals_area_overlay = (
+            unmixed_signals.pipe(pl.from_pandas)
+            # .pivot(index="x", columns="p_idx", values="unmixed")
+            # .pipe(lambda df: df if breakpoint() else df)
+            .to_pandas().hvplot.area(
+                x="x",
+                y="unmixed",
+                by="p_idx",
+                height=1000,
+                width=2000,
+                alpha=0.5,
+                stacked=False,
+            )
+        )
+        return unmixed_signals_area_overlay
+
+    def _plot_mixed_signals_overlay(self, mixed_signals):
+
+        mixed_signals_overlay = mixed_signals.plot(x="x", y="amplitude", by="signal")
+
+        return mixed_signals_overlay

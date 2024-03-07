@@ -136,7 +136,6 @@ class Popt(BaseDF):
     An interpeted base model. Automatically generated from an input dataframe, ergo if manual modifications are made they may be lost on regeneration.
     """
 
-    w_idx: int = w_idx_field_duplicatable
     p_idx: int = p_idx_field_duplicatable
     maxima: float = maxima_field
     loc: float = pa.Field(**X_idx_field_kwargs)
@@ -332,8 +331,7 @@ class ReconstructorSignalIn(pa.DataFrameModel):
 
 
 class ReconstructorPoptIn(pa.DataFrameModel):
-    w_type: str
-    w_idx: int
+    p_idx: int
     maxima: float
     loc: float
     scale: float

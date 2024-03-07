@@ -263,14 +263,6 @@ class DeconvolutionPipeline:
 
         self.tbl_fit_report = analyzer.get_fit_report()
 
-        inspector = analysis.Inspector(
-            signal=reconstructor_in_signal,
-            popt=reconstructor_in_popt,
-            x_unit=self.x_unit,
-        )
-
-        breakpoint()
-
         END_OF_PIPELINE = ""
         # !! DEBUGGING
 
@@ -767,6 +759,8 @@ class DeconvolutionPipeline:
             opt_func=opt_func,
             schemas=schemas,
         )
+        
+        breakpoint()
 
         # warn the user how long one iteration will take.
         # TODO: include calc max_nfev * statistics to give user idea of maximum run time
@@ -799,15 +793,7 @@ class DeconvolutionPipeline:
         # until we determine a method of identifying the popt, given that the variance between iterations
         # is tiny. Refer to `viz_popt_statistics`.
 
-        popt = (
-            output["results_df"].filter(
-                pl.col("nfev_index") == pl.col("nfev_index").cast(int).max()
-            )
-            # pivot so that each parameter is a column
-            .pivot(index=["w_type", "w_idx", "p_idx"], columns="param", values="p0")
-        )
-
-        from hplc_py.deconvolution import analysis
+        popt = output['results_df'].pipe(deconvolution.select_popt).pipe(deconvolution.get_wide_popt)
 
         # aly = analysis.Analyzer(X_w=X_windowed, popt=popt, x_unit="x")
 
