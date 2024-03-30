@@ -6,7 +6,7 @@ from hplc_py.baseline_correction.viz import VizBCorr
 from hplc_py.common import definitions as com_defs
 
 
-class BaselineCorrection(ComputeBackground, VizBCorr):
+class BaselineCorrection(VizBCorr):
     """
     A 'batteries included' baseline correction module which takes a 1D signal and computes the background, subtracting it and returning a dataframe of time index, raw signal, background, and corrected signal.
 
@@ -16,10 +16,13 @@ class BaselineCorrection(ComputeBackground, VizBCorr):
     def __init__(
         self,
         n_iter: int,
-        window_size: float,
         verbose: bool,
+        X,
     ):
-        super().__init__(n_iter=n_iter, window_size=window_size, verbose=verbose)
+        self._X = X
+        self.compute_background = ComputeBackground(n_iter=n_iter, verbose=verbose)
+
+        self.compute_background.fit(X=X)
 
     def correct_baseline(
         self,
@@ -33,14 +36,14 @@ class BaselineCorrection(ComputeBackground, VizBCorr):
                 "internal X array is empty, probably need to call `fit` first"
             )
 
-        self.transform()
+        self.compute_background.transform()
 
         self.signals = (
             pl.DataFrame(
                 {
                     bc_defs.KEY_RAW: self._X,
-                    bc_defs.KEY_BACKGROUND: self.background,
-                    bc_defs.KEY_CORRECTED: (self._X - self.background),
+                    bc_defs.KEY_BACKGROUND: self.compute_background.background,
+                    bc_defs.KEY_CORRECTED: (self._X - self.compute_background.background),
                 }
             )
             .with_row_index(name=bc_defs.X_IDX)

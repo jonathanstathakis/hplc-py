@@ -15,13 +15,11 @@ class ComputeBackground(IOValid):
     def __init__(
         self,
         n_iter: int,
-        window_size: float = 5.0,
         verbose: bool = True,
     ):
 
         self.background: NDArray[float64] = np.ndarray(0)
 
-        self._window_size = window_size
         self._n_iter = n_iter
         self._X: NDArray[float64] = np.ndarray(0)
 
@@ -45,6 +43,9 @@ class ComputeBackground(IOValid):
         :return: the fitted signal background
         :rtype: NDArray[float64]
         """
+        
+        X = np.asarray(X)
+        
         if np.isnan(X).any():
             raise ValueError("NaN detected in input amp")
         self._X = X
@@ -141,16 +142,26 @@ def compute_s_compressed_minimum(
     else:
         iterator = compute_iterator(n_iter)  # type: ignore
 
+    import matplotlib.pyplot as plt
+
+    plt.plot(s_compressed)
+
+    plot_steps = 1
+    plot_range = list(np.arange(n_iter-10, n_iter, plot_steps)) + [n_iter]
+
     for i in iterator:
         s_compressed_prime = _s_compressed.copy()
 
-        for j in range(i, len(_s_compressed) - i):
+        for j in range(i, len(s_compressed_prime) - i):
             s_compressed_prime[j] = min(
-                s_compressed_prime[j],
-                0.5 * (s_compressed_prime[j + i] + s_compressed_prime[j - i]),
+                _s_compressed[j],
+                0.5 * (_s_compressed[j + i] + _s_compressed[j - i]),
             )
-
+        if i in plot_range:
+            plt.plot(_s_compressed, label=i)
         _s_compressed = s_compressed_prime
+    # plt.legend()
+    # plt.show()
 
     return _s_compressed
 
@@ -158,6 +169,7 @@ def compute_s_compressed_minimum(
 def compute_background(amp: NDArray[float64], n_iter: int, verbose: bool = True):
 
     shift = compute_shift(amp)
+    import hplc
 
     amp_shifted = shift_amp(amp, shift)
 
