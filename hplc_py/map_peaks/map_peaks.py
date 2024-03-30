@@ -157,7 +157,6 @@ def set_findpeaks(
     X: DataFrame[X_Schema],
     find_peaks_kwargs: MapPeaksKwargs = MapPeaksKwargs(),
 ) -> DataFrame[FindPeaks]:
-    # 'denormalize' the prominence input to put it on the scale of amp
 
     if not isinstance(find_peaks_kwargs, dict):
         raise TypeError("Expect find_peaks_kwargs to be a dict")

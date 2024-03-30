@@ -345,7 +345,7 @@ class TblSignalMixed(pa.DataFrameModel):
     w_type: str
     w_idx: int
     unit_idx: int
-    x: float
+    time: float
     signal: str = pa.Field(isin=["X","X_corrected","recon"])
     amplitude: float
     

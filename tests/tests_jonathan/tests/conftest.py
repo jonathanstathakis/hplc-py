@@ -10,7 +10,7 @@ from hplc_py.common.common import compute_timestep, prepare_signal_store
 
 
 @pytest.fixture
-def ringland_shz_dset():
+def ringland_dset():
     path = "tests/tests_jonathan/test_data/a0301_2021_chris_ringland_shiraz.csv"
 
     dset = pd.read_csv(path)

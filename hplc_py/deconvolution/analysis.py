@@ -52,19 +52,26 @@ class Reconstructor:
 
     def _add_recon_to_data(
         self,
-        data,
+        data: pl.DataFrame,
         recon,
     ):
         data = (
-            data.rename({"amplitude": "mixed"})
-            .join(recon, on="x")
+            data.pipe(check_is_polars)
+            .rename({"amplitude": "mixed"})
+            .join(recon, on=self._x_unit)
             .melt(
-                id_vars=["w_type", "w_idx", "x"],
+                id_vars=["w_type", "w_idx", self._x_unit],
                 variable_name="signal",
                 value_name="amplitude",
             )
         )
         return data
+
+
+def check_is_polars(df):
+    if not isinstance(df, pl.DataFrame):
+        raise TypeError(f"Expected polars dataframe, got {type(df)}")
+    return df
 
 
 class Analyzer:
@@ -92,13 +99,18 @@ class Analyzer:
         self,
         data: DataFrame[dc_schs.ActiveSignal],
     ):
-
-        fit_report = fit_assessment.calc_fit_report(
-            data=data,
-        )
-
+        reporter = fit_assessment.Reporter(data=data, key_time=self._x_unit)
+        fit_report = reporter.calc_fit_report()
+        
         return fit_report
 
+from hplc_py.map_peaks import map_peaks, viz as mp_viz
+
+class InspectorViz:
+    def __init__(self, X, peak_map):
+        self.peak_map = mp_viz.VizPeakMapFactory(
+            X=X, peak_map=peak_map,
+        )
 
 class Inspector:
     """
@@ -116,13 +128,13 @@ class Inspector:
         self,
         signal: DataFrame[dc_schs.ReconstructorSignalIn],
         popt: DataFrame[dc_schs.ReconstructorPoptIn],
+        peak_map: DataFrame,
         x_unit: str,
     ):
 
         self._keys_tbl_mixed_signal: KeysTblMixedSignal = dc_defs.keys_tbl_mixed_signal
 
         self.reconstructor = Reconstructor(X_w=signal, popt=popt, x_unit=x_unit)
-
         tbl_signal_unmixed = self.reconstructor.unmixed_signals
 
         analyzer_in = self.reconstructor.mixed_signals.pipe(
@@ -133,6 +145,8 @@ class Inspector:
         )
 
         self.analyzer = Analyzer(data=analyzer_in, x_unit=x_unit)
+    
+    
 
     def plot_results(self):
         self.mixed_signals_overlay = self._plot_mixed_signals_overlay(
@@ -154,7 +168,7 @@ class Inspector:
             # .pivot(index="x", columns="p_idx", values="unmixed")
             # .pipe(lambda df: df if breakpoint() else df)
             .to_pandas().hvplot.area(
-                x="x",
+                x="time",
                 y="unmixed",
                 by="p_idx",
                 height=1000,
@@ -167,6 +181,6 @@ class Inspector:
 
     def _plot_mixed_signals_overlay(self, mixed_signals):
 
-        mixed_signals_overlay = mixed_signals.plot(x="x", y="amplitude", by="signal")
+        mixed_signals_overlay = mixed_signals.plot(x="time", y="amplitude", by="signal")
 
         return mixed_signals_overlay

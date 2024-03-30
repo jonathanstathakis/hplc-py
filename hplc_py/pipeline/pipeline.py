@@ -19,14 +19,53 @@ from hplc_py.common import common_schemas as com_schs
 from hplc_py.common import definitions as com_defs
 from hplc_py.common.caching import CACHE_PATH, custom_param_hasher
 from hplc_py.deconvolution import deconvolution, opt_params
-from hplc_py.deconvolution import definitions as Keys
+from hplc_py.deconvolution import definitions as KeysFitReport
 from hplc_py.deconvolution import schemas as dc_schs, definitions as dc_defs
-from hplc_py.deconvolution.fit_assessment import calc_fit_report
+from hplc_py.deconvolution.fit_assessment import Reporter
 from hplc_py.map_peaks.map_peaks import MapPeaks, mp_viz
 from hplc_py.map_peaks.viz import PeakMapPlotHandler
 from hplc_py.map_windows import schemas as mw_schs
 from hplc_py.map_windows.map_windows import MapWindows
 from hplc_py.pipeline.hplc_result_analyzer import HPLCResultsAnalzyer
+
+from dataclasses import dataclass
+@dataclass(init=False)
+class PipelineKeys:
+    W_TYPE: str = "w_type"
+    W_IDX: str = "w_idx"
+    X_IDX: str = "X_idx"
+    AMPLITUDE: str = "amplitude"
+    UNIT_IDX: str = "unit_idx"
+    keys_x_unit: str = ""
+    SIGNAL: str = "signal"
+    MAXIMA: str = "maxima"
+    DIM: str = "dim"
+    P_IDX: str = "p_idx"
+    VALUE: str = "value"
+    PARAM: str = "param"
+    IDX: str = "idx"
+    UNIT: str = "unit"
+    Y: str = "y"
+    X: str = "X"
+    LOC: str = "loc"
+    SIDE: str = "side"
+    MSNT: str = "msnt"
+    X_IDX_ROUNDED: str = "X_idx_rounded"
+    UNASSIGNED: str = "unassigned"
+    WIDTH: str = "width"
+    POINT: str = "point"
+    CONTOUR_LINE_BOUND: str = "contour_line_bound"
+    TYPE: str = "type"
+    RECON: str = "recon"
+    X_CORRECTED: str = "X_corrected"
+    LOCATION: str = "location"
+    SCALE: str = "scale"
+    SKEW: str = "skew"
+    MIXED: str = "mixed"
+    UNMIXED: str = "unmixed"
+    WHH: str = "whh"
+    CONTOUR_LINE_BOUNDS: str = "contour_line_bounds"
+    WIDTHS: str = "widths"
 
 
 class DeconvolutionPipeline:
@@ -39,59 +78,17 @@ class DeconvolutionPipeline:
     - add dashboard functionality
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+    ):
 
-        self._X_key = com_defs.X
-
-        self.__W_TYPE = "w_type"
-        self.__W_IDX = "w_idx"
-        self.__X_IDX = "X_idx"
-        self.__AMPLITUDE = "amplitude"
-        self.__UNIT_IDX = "unit_idx"
-        self.__TIME_UNIT = "x"
-        self.__SIGNAL = "signal"
-        self.__MAXIMA = "maxima"
-        self.__DIM = "dim"
-        self.__P_IDX = "p_idx"
-        self.__VALUE = "value"
-        self.__PARAM = "param"
-        self.__IDX = "idx"
-        self.__UNIT = "unit"
-        self.__Y = "y"
-        self.__X = "X"
-        self.__LOC = "loc"
-        self.__SIDE = "side"
-        self.__MSNT = "msnt"
-        self.__X_IDX_ROUNDED = "X_idx_rounded"
-        self.__UNASSIGNED = "unassigned"
-        self.__WIDTH = "width"
-        self.__POINT = "point"
-        self.__CONTOUR_LINE_BOUND = "contour_line_bound"
-        self.__TYPE = "type"
-        self.__RECON = "recon"
-        self.__X_CORRECTED = "X_corrected"
-        self.__LOCATION = "location"
-        self.__SCALE = "scale"
-        self.__SKEW = "skew"
-        self.__MIXED = "mixed"
-        self.__UNMIXED = "unmixed"
-
-        self.__WHH = "whh"
-
-        self.__CONTOUR_LINE_BOUNDS = "contour_line_bounds"
-        self.__WIDTHS = "widths"
-
-    def __eq__(self, other):
-        """
-        X                                       active_signal                           fit_report                              maxima                                  pipe_preprocess_data                    run
-        X_corrected                             contour_line_bounds                     get_hplc_results                        pipe_correct_baseline                   pipe_window_X                           store_signals
-        X_idx                                   cremerlab_results                       key_input_amp                           pipe_deconvolution                      plot_results                            tbls
-        X_w                                     dataprepper_pipeline                    key_input_time                          pipe_map_peaks                          prepare_peak_map_with_params_and_popts  widths
-        """
-
-        # for df in ["store_signals",""]
-
-        return True
+        # internally defined access keys
+        
+        self.keys_X = com_defs.X
+        self.keys_X_idx = com_defs.X_IDX
+        self.keys_X_corrected = com_defs.X + "_corrected"
+        
+        self.keys = PipelineKeys()
 
     def run(
         self,
@@ -105,10 +102,9 @@ class DeconvolutionPipeline:
         ),
         bcorr_kwargs: bcorr_defs.BlineKwargs = bcorr_defs.BlineKwargs(
             n_iter=250,
-            window_size=5,
             verbose=True,
         ),
-        debug: bool = True,
+        debug: bool = False,
     ):
         """
         Take the dataset and return all of the results
@@ -123,34 +119,16 @@ class DeconvolutionPipeline:
 
         self.input_keys_time = key_time
         self.input_keys_amp = key_amp
-
-        # internally defined access keys. use the mapping below if we desire to swap between
-
-        self.keys_X = com_defs.X
-        self.keys_X_idx = com_defs.X_IDX
-        self.keys_X_corrected = com_defs.X + "_corrected"
+        self.tbl_input_data = data
 
         # which_x_unit = "unit_idx"
-        which_x_unit = self.input_keys_time
-        if which_x_unit == "unit_idx":
-            self.x_unit = "unit_idx"
-        elif which_x_unit == self.input_keys_time:
-            self.x_unit = self.input_keys_time
-        else:
-            raise ValueError("please input one of 'unit_idx', self.input_keys_time")
-
-        self._input_data = data
-
-        if debug:
-            self.get_hplc_results()
+        self.keys.keys_x_unit = self.set_x_unit_key()
 
         # calculate timestep
-
-        def calculate_timestep(time: ArrayLike):
-            timestep = np.mean(np.diff(time))
-            return timestep
-
         self._timestep = calculate_timestep(data[self.input_keys_time])
+
+        # if debug:
+        #     self.get_hplc_results()
 
         self.tbl_signal_mixed: pd.DataFrame = self.pipe_preprocess_data(
             data=data,
@@ -160,12 +138,18 @@ class DeconvolutionPipeline:
             bcorr_kwargs=bcorr_kwargs,
         )
 
-        # if `correct_baseline` == True, correct input amplitude, add results to signal_storage and set the active `X_key` to the 'corrected' value.
+        # a container for objects relevant to a final report
+        reports = {}
 
-        if correct_baseline:
-            self.keys_active_signal = self.keys_X_corrected
-        else:
-            self.keys_active_signal = self.keys_X
+        reports["signal_corrected"] = (
+            self.tbl_signal_mixed.pipe(pl.from_pandas)
+            .filter(pl.col(self.keys.SIGNAL).eq(self.keys_X))
+            .select(
+                pl.col(self.keys.keys_x_unit),
+                pl.col(self.keys.SIGNAL),
+                pl.col(self.keys.AMPLITUDE),
+            )
+        )
 
         map_peaks_output: dict
         peak_map_plot_handler: Any
@@ -195,24 +179,20 @@ class DeconvolutionPipeline:
         # creating the "X_windowed" input from the signal store based on the selected `x_unit`
 
         X_windowed_input = self.tbl_signal_mixed.pipe(
-            self.get_X_windowed, x_unit=self.x_unit, active_signal=self.keys_active_signal
+            self.get_X_windowed,
+            x_unit=self.keys.keys_x_unit,
+            active_signal=self.keys_active_signal,
         )
 
         params: DataFrame[dc_schs.Params] = self.curve_fit_input_pipeline(
             peak_map=self.tbl_peak_map,
             X_windowed=X_windowed_input,
-            x_unit=self.x_unit,
+            x_unit=self.keys.keys_x_unit,
         )
 
-        popt = self.pipe_deconvolution(
-            X_windowed=X_windowed_input, params=params, x_unit=self.x_unit
+        popt: DataFrame[dc_schs.Popt] = self.pipe_deconvolution(
+            X_windowed=X_windowed_input, params=params, x_unit=self.keys.keys_x_unit
         )
-
-        # inspector = analysis.Inspector(
-        #     X_w=X_windowed_input.pipe(DataFrame[deconvolution.X_Windowed]),
-        #     popt=popt.to_pandas().pipe(DataFrame[dc_schs.Popt]),
-        #     x_unit=self.x_unit
-        # )
 
         self.tbl_popt = popt
 
@@ -220,16 +200,16 @@ class DeconvolutionPipeline:
             dc_schs.ReconstructorSignalIn.validate
         ).pipe(DataFrame[dc_schs.ReconstructorSignalIn])
 
-        reconstructor_in_popt = (
-            popt.to_pandas()
-            .pipe(dc_schs.ReconstructorPoptIn.validate)
-            .pipe(DataFrame[dc_schs.ReconstructorPoptIn])
+        reconstructor_in_popt = popt.pipe(dc_schs.ReconstructorPoptIn.validate).pipe(
+            DataFrame[dc_schs.ReconstructorPoptIn]
         )
+
+        # popt calculated earlier
 
         reconstructor = analysis.Reconstructor(
             X_w=reconstructor_in_signal,
             popt=reconstructor_in_popt,
-            x_unit=self.x_unit,
+            x_unit=self.keys.keys_x_unit,
         )
 
         self.tbl_signal_unmixed = reconstructor.unmixed_signals
@@ -246,31 +226,42 @@ class DeconvolutionPipeline:
         # calc_fit_report_in = self.get_calc_fit_report_in(
         #     tbl_signals=self.tbl_signal_mixed
         # )
-        
-        
+
         analyzer_in = self.tbl_signal_mixed.pipe(
             deconvolution.get_active_signal_as_mixed,
-            x_unit=self.x_unit,
+            x_unit=self.keys.keys_x_unit,
             active_signal=self.keys_active_signal,
             keys=dc_defs.keys_tbl_mixed_signal,
         )
-        
+
         analyzer = analysis.Analyzer(
             data=analyzer_in,
-            x_unit=self.x_unit,
-
+            x_unit=self.keys.keys_x_unit,
         )
 
         self.tbl_fit_report = analyzer.get_fit_report()
 
         END_OF_PIPELINE = ""
+
+        breakpoint()
         # !! DEBUGGING
 
         # !! input hplc params into my deconvolution pipeline and see how the results differ
-
-        self.pipe_results_comparison_with_cremerlab(params)
+        if debug:
+            self.pipe_results_comparison_with_cremerlab(params)
 
         return None
+
+    def set_x_unit_key(self):
+        which_x_unit = self.input_keys_time
+        if which_x_unit == "unit_idx":
+            keys_x_unit = "unit_idx"
+        elif which_x_unit == self.input_keys_time:
+            keys_x_unit = self.input_keys_time
+        else:
+            raise ValueError("please input one of 'unit_idx', self.input_keys_time")
+
+        return keys_x_unit
 
     def get_X_windowed(
         self,
@@ -281,8 +272,8 @@ class DeconvolutionPipeline:
 
         X_windowed_input = (
             tbl_signal_mixed.pipe(pl.from_pandas)
-            .filter(pl.col(self.__SIGNAL).eq(active_signal))
-            .select([self.__W_TYPE, self.__W_IDX, x_unit, self.__AMPLITUDE])
+            .filter(pl.col(self.keys.SIGNAL).eq(active_signal))
+            .select([self.keys.W_TYPE, self.keys.W_IDX, x_unit, self.keys.AMPLITUDE])
             .to_pandas()
         )
 
@@ -315,25 +306,29 @@ class DeconvolutionPipeline:
 
         # 2024-03-04 11:39:26 result differences
         # amplitude inputs are all the same, popt v different scale of 100 or so.
-        cmp_amplitude = param_cmp_.filter(pl.col(self.__PARAM) == self.__AMPLITUDE)
+        cmp_amplitude = param_cmp_.filter(pl.col(self.keys.PARAM) == self.keys.AMPLITUDE)
 
         # all location inputs are within 1. popt out for all except peak 3 for some reason.
-        cmp_location = param_cmp_.filter(pl.col(self.__PARAM) == self.__LOCATION)
+        cmp_location = param_cmp_.filter(pl.col(self.keys.PARAM) == self.keys.LOCATION)
 
         # my scale ub input for peak 3 is +50 mins on clab. biiiig difference.
-        cmp_scale = param_cmp_.filter(pl.col(self.__PARAM) == self.__SCALE)
+        cmp_scale = param_cmp_.filter(pl.col(self.keys.PARAM) == self.keys.SCALE)
 
-        cmp_skew = param_cmp_.filter(pl.col(self.__PARAM) == self.__SKEW)
+        cmp_skew = param_cmp_.filter(pl.col(self.keys.PARAM) == self.keys.SKEW)
 
     def get_fit_report(self, tbl_signals):
 
-        mixed_and_unmixed = tbl_signals.pipe(self.get_calc_fit_report_in)
-
-        fit_report = calc_fit_report(
-            data=mixed_and_unmixed,
+        mixed_and_unmixed = tbl_signals.pipe(self.get_calc_fit_report_in).pipe(
+            calc_fit_report
         )
 
         return fit_report.pipe(pl.from_pandas)
+
+    def get_calc_fit_report_in(
+        self, data: pd.DataFrame
+    ) -> DataFrame[dc_schs.ActiveSignal]:
+
+        out = data.pipe(lambda df: df if breakpoint() else df)
 
     def update_signal_tbl_with_recon(
         self,
@@ -341,34 +336,34 @@ class DeconvolutionPipeline:
         recon_df,
     ):
 
-        recon_idx = [self.__W_TYPE, self.__W_IDX, self.x_unit]
+        recon_idx = [self.keys.W_TYPE, self.keys.W_IDX, self.keys.keys_x_unit]
         tbl_signal_idx = [
-            self.__W_TYPE,
-            self.__W_IDX,
-            self.__UNIT_IDX,
-            self.__TIME_UNIT,
+            self.keys.W_TYPE,
+            self.keys.W_IDX,
+            self.keys.UNIT_IDX,
+            self.keys.keys_x_unit,
         ]
-        post_join_value_cols = [self.__X, self.__X_CORRECTED, self.__RECON]
+        post_join_value_cols = [self.keys.X, self.keys.X_CORRECTED, self.keys.RECON]
 
         updated_tbl = (
             tbl_signals.pipe(pl.from_pandas)
             .pivot(
                 index=tbl_signal_idx,
-                columns=self.__SIGNAL,
-                values=self.__AMPLITUDE,
+                columns=self.keys.SIGNAL,
+                values=self.keys.AMPLITUDE,
             )
             # select the amplitude column as "recon" before joining
             .join(
-                recon_df.filter(pl.col(self.__SIGNAL) == self.__RECON).select(
-                    pl.col(recon_idx), pl.col(self.__AMPLITUDE).alias(self.__RECON)
+                recon_df.filter(pl.col(self.keys.SIGNAL) == self.keys.RECON).select(
+                    pl.col(recon_idx), pl.col(self.keys.AMPLITUDE).alias(self.keys.RECON)
                 ),
                 on=recon_idx,
             )
             .melt(
                 id_vars=tbl_signal_idx,
                 value_vars=post_join_value_cols,
-                variable_name=self.__SIGNAL,
-                value_name=self.__AMPLITUDE,
+                variable_name=self.keys.SIGNAL,
+                value_name=self.keys.AMPLITUDE,
             )
         )
 
@@ -379,47 +374,49 @@ class DeconvolutionPipeline:
             tbl_signal_mixed.pipe(pl.from_pandas)
             .join(
                 X_w.pipe(pl.from_pandas).select(
-                    [self.__W_TYPE, self.__W_IDX, self.__X_IDX]
+                    [self.keys.W_TYPE, self.keys.W_IDX, self.keys.X_IDX]
                 ),
-                on=self.__X_IDX,
+                on=self.keys.X_IDX,
             )
             .select(
                 [
-                    self.__W_TYPE,
-                    self.__W_IDX,
-                    self.__SIGNAL,
-                    self.__X_IDX,
-                    self.__TIME_UNIT,
-                    self.__AMPLITUDE,
+                    self.keys.W_TYPE,
+                    self.keys.W_IDX,
+                    self.keys.SIGNAL,
+                    self.keys.X_IDX,
+                    self.keys.keys_x_unit,
+                    self.keys.AMPLITUDE,
                 ]
             )
             .to_pandas()
-            .rename({self.__X_IDX: self.__UNIT_IDX}, axis=1)
+            .rename({self.keys.X_IDX: self.keys.UNIT_IDX}, axis=1)
         )
         return tbl_signal_mixed
 
     def prepare_tables(self, map_peaks_output):
 
         self.tbl_peak_idx_X_idx = (
-            map_peaks_output[self.__MAXIMA]
+            map_peaks_output[self.keys.MAXIMA]
             .pipe(pl.from_pandas)
-            .filter(pl.col(self.__DIM).is_in([self.__X_IDX]))
-            .pivot(index=self.__P_IDX, columns=self.__DIM, values=self.__VALUE)
-            .select(pl.col(self.__P_IDX), pl.col(self.__X_IDX).cast(int).cast(str))
+            .filter(pl.col(self.keys.DIM).eq(self.keys.X_IDX))
+            .select(
+                pl.col(self.keys.P_IDX),
+                pl.col(self.keys.VALUE).cast(int).alias(self.keys_X_idx),
+            )
         )
 
         # mapping window type to index to X idx
         self.tbl_window_to_X_idx = self.X_w.pipe(pl.from_pandas).select(
-            pl.col(self.__W_TYPE),
-            pl.col(self.__W_IDX),
-            pl.col(self.__X_IDX),
+            pl.col(self.keys.W_TYPE),
+            pl.col(self.keys.W_IDX),
+            pl.col(self.keys.X_IDX),
         )
 
         # mapping the windows to the peaks
 
         self.tbl_window_to_peak_idx = self.tbl_peak_idx_X_idx.join(
-            self.tbl_window_to_X_idx.with_columns(pl.col(self.__X_IDX).cast(str)),
-            on=self.__X_IDX,
+            self.tbl_window_to_X_idx.with_columns(pl.col(self.keys.X_IDX)),
+            on=self.keys.X_IDX,
         )
 
         maxima = self.prepare_maxima_tbl(map_peaks_output)
@@ -437,23 +434,23 @@ class DeconvolutionPipeline:
         contour_line_bounds = (
             map_peaks_output["contour_line_bounds"]
             .pipe(pl.from_pandas)
-            .rename({self.__LOC: self.__SIDE})
+            .rename({self.keys.LOC: self.keys.SIDE})
             .pivot(
-                index=[self.__P_IDX, self.__SIDE, self.__MSNT],
-                columns=self.__DIM,
-                values=self.__VALUE,
+                index=[self.keys.P_IDX, self.keys.SIDE, self.keys.MSNT],
+                columns=self.keys.DIM,
+                values=self.keys.VALUE,
             )
             .select(
-                pl.col([self.__P_IDX, self.__SIDE, self.__MSNT]),
-                pl.col(self.__X_IDX_ROUNDED).cast(int).alias(self.__IDX),
-                pl.col(self.__TIME_UNIT).alias(self.input_keys_time),
-                pl.col(self.__X),
+                pl.col([self.keys.P_IDX, self.keys.SIDE, self.keys.MSNT]),
+                pl.col(self.keys.X_IDX_ROUNDED).cast(int).alias(self.keys.IDX),
+                pl.col(self.keys.keys_x_unit).alias(self.input_keys_time),
+                pl.col(self.keys.X),
             )
             .melt(
-                id_vars=[self.__P_IDX, self.__IDX, self.__SIDE, self.__MSNT],
-                value_vars=[self.input_keys_time, self.__X],
-                variable_name=self.__UNIT,
-                value_name=self.__VALUE,
+                id_vars=[self.keys.P_IDX, self.keys.IDX, self.keys.SIDE, self.keys.MSNT],
+                value_vars=[self.input_keys_time, self.keys.X],
+                variable_name=self.keys.UNIT,
+                value_name=self.keys.VALUE,
             )
         )
         return contour_line_bounds
@@ -494,7 +491,7 @@ class DeconvolutionPipeline:
 
         return param_cmp_
 
-    def _form_my_param_tbl(self, params, popt):
+    def _form_my_param_tbl(self, params, popt: pl.DataFrame):
         """ """
 
         my_curve_input = params.pipe(pl.from_pandas).with_columns(
@@ -505,7 +502,12 @@ class DeconvolutionPipeline:
         )
 
         my_popt = (
-            popt.with_columns(pl.col("p_idx").cast(str).alias("peak_idx_abs"))
+            popt.pipe(
+                lambda df: (
+                    df.pipe(pl.from_pandas) if isinstance(df, pd.DataFrame) else df
+                )
+            )
+            .with_columns(pl.col("p_idx").cast(str).alias("peak_idx_abs"))
             .rename({"maxima": "amplitude", "loc": "location"})
             .melt(
                 id_vars="peak_idx_abs",
@@ -549,30 +551,30 @@ class DeconvolutionPipeline:
 
         pf_input = (
             peak_map.filter(
-                pl.col(self.__MSNT).is_in([self.__MAXIMA, self.__WHH]),
-                pl.col(self.__TYPE).is_in([self.__POINT, self.__WIDTH]),
-                pl.col(self.__UNIT).is_in([self.__AMPLITUDE, x_unit]),
+                pl.col(self.keys.MSNT).is_in([self.keys.MAXIMA, self.keys.WHH]),
+                pl.col(self.keys.TYPE).is_in([self.keys.POINT, self.keys.WIDTH]),
+                pl.col(self.keys.UNIT).is_in([self.keys.AMPLITUDE, x_unit]),
             )
             .with_columns(
                 pl.concat_str(
                     [
-                        pl.col(self.__MSNT),
+                        pl.col(self.keys.MSNT),
                         pl.lit("_"),
-                        pl.col(self.__DIM),
+                        pl.col(self.keys.DIM),
                     ]
                 ).alias("pivot_cols")
             )
             .pivot(
-                index=[self.__W_TYPE, self.__W_IDX, self.__P_IDX],
+                index=[self.keys.W_TYPE, self.keys.W_IDX, self.keys.P_IDX],
                 columns=["pivot_cols"],
-                values=self.__VALUE,
+                values=self.keys.VALUE,
                 aggregate_function="first",
             )
             .rename(
                 {
-                    self.__MAXIMA + "_" + self.__Y: self.__AMPLITUDE,
-                    self.__MAXIMA + "_" + self.__TIME_UNIT: self.__LOC,
-                    self.__WHH + "_" + self.__TIME_UNIT: self.__SCALE,
+                    self.keys.MAXIMA + "_" + self.keys.Y: self.keys.AMPLITUDE,
+                    self.keys.MAXIMA + "_" + self.keys.keys_x_unit: self.keys.LOC,
+                    self.keys.WHH + "_" + self.keys.keys_x_unit: self.keys.SCALE,
                 }
             )
         )
@@ -610,7 +612,7 @@ class DeconvolutionPipeline:
         """
 
         self.cremerlab_results = HPLCResultsAnalzyer(
-            data=self._input_data, cols={"time": "x", "signal": "y"}
+            data=self.tbl_input_data, cols={"time": "x", "signal": "y"}
         )
 
     def pipe_deconvolution(
@@ -620,7 +622,7 @@ class DeconvolutionPipeline:
         x_unit: str,
         display_results: bool = False,
         max_nfev: int = int(1e6),
-        n_interms: int = 20,
+        n_interms: int = 5,
     ):
         """
             From peak map we require the peak location, maxima, and WHH. Provide them as a table called 'OptParamPeakInput'. Provide it in long form.
@@ -759,8 +761,6 @@ class DeconvolutionPipeline:
             opt_func=opt_func,
             schemas=schemas,
         )
-        
-        breakpoint()
 
         # warn the user how long one iteration will take.
         # TODO: include calc max_nfev * statistics to give user idea of maximum run time
@@ -772,8 +772,8 @@ class DeconvolutionPipeline:
             x_unit=x_unit,
             fit_func=fit_func,
             opt_func=opt_func,
-            max_nfev=10000,
-            n_interms=20,
+            max_nfev=max_nfev,
+            n_interms=n_interms,
             schemas=schemas,
             verbose=True,
             terminate_on_fit=True,
@@ -793,7 +793,12 @@ class DeconvolutionPipeline:
         # until we determine a method of identifying the popt, given that the variance between iterations
         # is tiny. Refer to `viz_popt_statistics`.
 
-        popt = output['results_df'].pipe(deconvolution.select_popt).pipe(deconvolution.get_wide_popt)
+        popt = (
+            output["results_df"]
+            .pipe(deconvolution.select_popt)
+            .to_pandas()
+            .pipe(deconvolution.get_wide_popt)
+        )
 
         # aly = analysis.Analyzer(X_w=X_windowed, popt=popt, x_unit="x")
 
@@ -850,8 +855,9 @@ class DeconvolutionPipeline:
 
 
         """
+
         wdw_grpby = params.partition_by(
-            [Keys.W_IDX], maintain_order=True, as_dict=True
+            [KeysFitReport.W_IDX], maintain_order=True, as_dict=True
         ).items()
 
         idx_keys = ["nfev_index", "w_type", "w_idx", "p_idx"]
@@ -898,19 +904,80 @@ class DeconvolutionPipeline:
 
         return output
 
-    @cachier(hash_func=caching.custom_param_hasher, cache_dir=caching.CACHE_PATH)
+    # @cachier(hash_func=caching.custom_param_hasher, cache_dir=caching.CACHE_PATH)
     def pipe_preprocess_data(
         self,
         data: pd.DataFrame,
         key_time: str,
         key_amp: str,
-        correct_baseline: bool,
+        correct_baseline: bool = True,
         bcorr_kwargs: bcorr_defs.BlineKwargs = bcorr_defs.BlineKwargs(),
     ) -> pd.DataFrame:
         """
-        apply preprocessing as required, returning a preprocessed dataset X, and a dict of artifacts - the time array, and raw array. If no preprocessing is selected, the values of the raw array will equal the values of the X column.
         """
-        signal_store: pl.DataFrame = (
+        
+        signal_store = self.ingest_data(data, key_time, key_amp)
+        
+        if correct_baseline:
+            correct_baseline_input = (
+                signal_store
+                .pipe(pl.from_pandas)
+                .select(pl.col("X_idx"), pl.col("X"))
+                .to_pandas()
+                .pipe(DataFrame[com_schs.X_Schema])
+            )
+            
+            data_X: pd.DataFrame
+            bcorr_plot: Any
+            data_X, bcorr_plot = correct_baseline_input.pipe(
+                self.pipe_correct_baseline,
+                **bcorr_kwargs,
+            )
+            
+            
+            X_corrected: pl.DataFrame = (
+                data_X.pipe(pl.from_pandas)
+                .filter(pl.col("signal") == "corrected")
+                .select(
+                    pl.col(self.keys_X).alias(self.keys_X_corrected),
+                    pl.col(self.keys_X_idx),
+                )
+            )
+
+            signal_store_: pd.DataFrame = (
+                signal_store
+                .pipe(pl.from_pandas)
+                .join(X_corrected, on=self.keys_X_idx)
+                .select(
+                    [
+                        pl.col(self.keys_X_idx),
+                        pl.col(self.input_keys_time),
+                        pl.col(self.keys_X),
+                        pl.col(self.keys_X_corrected),
+                    ]
+                )
+                .melt(
+                    id_vars=[self.keys_X_idx, self.input_keys_time],
+                    variable_name="signal",
+                    value_name="amplitude",
+                )
+                .to_pandas()
+            )
+            
+            del signal_store
+
+        # if `correct_baseline` == True, correct input amplitude, add results to signal_storage and set the active `X_key` to the 'corrected' value.
+            self.keys_active_signal = self.keys_X_corrected
+
+        else:
+            self.keys_active_signal = self.keys_X
+            signal_store_ = signal_store
+            del signal_store
+
+        return signal_store_
+
+    def ingest_data(self, data, key_time, key_amp)->pd.DataFrame:
+        signal_store: pd.DataFrame = (
             data.pipe(pl.from_pandas)
             .with_row_index(name=self.keys_X_idx)
             .select(
@@ -920,50 +987,10 @@ class DeconvolutionPipeline:
                     pl.col(key_amp).alias(self.keys_X),
                 ]
             )
-        )
-
-        correct_baseline_input = (
-            signal_store.select(pl.col("X_idx"), pl.col("X"))
-            .to_pandas()
-            .pipe(DataFrame[com_schs.X_Schema])
-        )
-
-        if correct_baseline:
-            data_X: pd.DataFrame
-            bcorr_plot: Any
-            data_X, bcorr_plot = self.pipe_correct_baseline(
-                data=correct_baseline_input,
-                **bcorr_kwargs,
-            )
-
-        X_corrected: pl.DataFrame = (
-            data_X.pipe(pl.from_pandas)
-            .filter(pl.col("signal") == "corrected")
-            .select(
-                pl.col(self.keys_X).alias(self.keys_X_corrected),
-                pl.col(self.keys_X_idx),
-            )
-        )
-
-        signal_store_: pd.DataFrame = (
-            signal_store.join(X_corrected, on=self.keys_X_idx)
-            .select(
-                [
-                    pl.col(self.keys_X_idx),
-                    pl.col(self.input_keys_time),
-                    pl.col(self.keys_X),
-                    pl.col(self.keys_X_corrected),
-                ]
-            )
-            .melt(
-                id_vars=[self.keys_X_idx, self.input_keys_time],
-                variable_name="signal",
-                value_name="amplitude",
-            )
             .to_pandas()
         )
-
-        return signal_store_
+        
+        return signal_store
 
     def pipe_window_X(
         self,
@@ -1029,12 +1056,11 @@ class DeconvolutionPipeline:
         viz_whh: bool = False,
         viz_bases: bool = True,
     ) -> tuple[dict, PeakMapPlotHandler]:
-
         X: DataFrame[com_schs.X_Schema] = (
             signal_store.pipe(pl.from_pandas)
-            .filter(pl.col(self.__SIGNAL) == self.keys_active_signal)
+            .filter(pl.col(self.keys.SIGNAL) == self.keys_active_signal)
             .pivot(
-                index=self.keys_X_idx, columns=self.__SIGNAL, values=self.__AMPLITUDE
+                index=self.keys_X_idx, columns=self.keys.SIGNAL, values=self.keys.AMPLITUDE
             )
             .select(
                 pl.col(self.keys_X_idx),
@@ -1061,45 +1087,45 @@ class DeconvolutionPipeline:
             # pivot on dim with index p_idx, loc, msnt
             .pivot(
                 index=[
-                    self.__P_IDX,
-                    self.__LOC,
-                    self.__MSNT,
+                    self.keys.P_IDX,
+                    self.keys.LOC,
+                    self.keys.MSNT,
                 ],
-                columns=self.__DIM,
-                values=self.__VALUE,
+                columns=self.keys.DIM,
+                values=self.keys.VALUE,
             )
             # add new column 'time' as transform of X_idx_rounded
             .with_columns(
-                pl.col(self.__X_IDX_ROUNDED)
+                pl.col(self.keys.X_IDX_ROUNDED)
                 .mul(self._timestep)
                 .alias(self.input_keys_time),
             )
             # melt back to long form
             .melt(
-                id_vars=[self.__P_IDX, self.__LOC, self.__MSNT],
-                variable_name=self.__DIM,
-                value_name=self.__VALUE,
+                id_vars=[self.keys.P_IDX, self.keys.LOC, self.keys.MSNT],
+                variable_name=self.keys.DIM,
+                value_name=self.keys.VALUE,
             ).to_pandas()
         )
 
         maxima = (
             peak_map.maxima.pipe(pl.from_pandas)
             .pivot(
-                index=[self.__P_IDX, self.__LOC],
-                columns=self.__DIM,
-                values=self.__VALUE,
+                index=[self.keys.P_IDX, self.keys.LOC],
+                columns=self.keys.DIM,
+                values=self.keys.VALUE,
             )
             .select(
-                pl.col(self.__P_IDX),
-                pl.col(self.__LOC).alias(self.__PARAM),
-                pl.col(self.__X_IDX),
-                pl.col(self.__X_IDX).mul(self._timestep).alias(self.input_keys_time),
-                pl.col(self.__X),
+                pl.col(self.keys.P_IDX),
+                pl.col(self.keys.LOC).alias(self.keys.PARAM),
+                pl.col(self.keys.X_IDX),
+                pl.col(self.keys.X_IDX).mul(self._timestep).alias(self.input_keys_time),
+                pl.col(self.keys.X),
             )
             .melt(
-                id_vars=[self.__P_IDX, self.__PARAM],
-                variable_name=self.__DIM,
-                value_name=self.__VALUE,
+                id_vars=[self.keys.P_IDX, self.keys.PARAM],
+                variable_name=self.keys.DIM,
+                value_name=self.keys.VALUE,
             )
             .to_pandas()
         )
@@ -1107,23 +1133,23 @@ class DeconvolutionPipeline:
         widths = (
             peak_map.widths.pipe(pl.from_pandas)
             .select(
-                pl.col(self.__P_IDX),
-                pl.col(self.__MSNT),
-                pl.col(self.__VALUE).alias(self.__X_IDX),
-                pl.col(self.__VALUE).mul(self._timestep).alias(self.input_keys_time),
+                pl.col(self.keys.P_IDX),
+                pl.col(self.keys.MSNT),
+                pl.col(self.keys.VALUE).alias(self.keys.X_IDX),
+                pl.col(self.keys.VALUE).mul(self._timestep).alias(self.input_keys_time),
             )
             .melt(
-                id_vars=[self.__P_IDX, self.__MSNT],
-                variable_name=self.__UNIT,
-                value_name=self.__VALUE,
+                id_vars=[self.keys.P_IDX, self.keys.MSNT],
+                variable_name=self.keys.UNIT,
+                value_name=self.keys.VALUE,
             )
             .to_pandas()
         )
 
         peak_map = {
-            self.__CONTOUR_LINE_BOUNDS: contour_line_bounds,
-            self.__MAXIMA: maxima,
-            self.__WIDTHS: widths,
+            self.keys.CONTOUR_LINE_BOUNDS: contour_line_bounds,
+            self.keys.MAXIMA: maxima,
+            self.keys.WIDTHS: widths,
         }
 
         return peak_map, peak_map_plots
@@ -1131,39 +1157,44 @@ class DeconvolutionPipeline:
     def pipe_correct_baseline(
         self,
         data: DataFrame[com_schs.X_Schema],
-        n_iter: int = 250,
-        window_size: float = 5,
+        n_iter: int = 5,
         verbose: bool = True,
     ) -> tuple[pd.DataFrame, Any]:
-
-        bcorr = BaselineCorrection(
-            n_iter=n_iter, window_size=window_size, verbose=verbose
-        )
+        """
+        TODO: ringland optimal n_iter (identified manually) is 72 for first baseline 
+        correct, 50 for second. add this to a hyperperameter store
+        """
 
         X_np = data.pipe(pl.from_pandas).select(com_defs.X).to_series().to_numpy()
 
-        signals = bcorr.fit(X=X_np).correct_baseline()
-        bcorr_plot = bcorr.viz_baseline_correction(show=False)
+        bcorr1 = BaselineCorrection(
+            n_iter=n_iter,
+            verbose=verbose,
+            X=X_np,
+        )
+
+        signals = bcorr1.correct_baseline()
+        bcorr_plot = bcorr1.viz_baseline_correction(show=False)
 
         return signals, bcorr_plot
 
     def prepare_maxima_tbl(self, map_peaks_output):
         maxima: pl.DataFrame = (
-            map_peaks_output[self.__MAXIMA].pipe(pl.from_pandas)
-            .pivot(index=[self.__P_IDX, self.__PARAM], columns=self.__DIM, values=self.__VALUE)
+            map_peaks_output[self.keys.MAXIMA].pipe(pl.from_pandas)
+            .pivot(index=[self.keys.P_IDX, self.keys.PARAM], columns=self.keys.DIM, values=self.keys.VALUE)
             .rename({
-                self.__X_IDX:self.__IDX,
+                self.keys.X_IDX:self.keys.IDX,
             })
-            .melt(id_vars=[self.__P_IDX,self.__PARAM], value_vars=[self.__IDX,self.input_keys_time,self.__X], variable_name=self.__UNIT, value_name=self.__VALUE)
+            .melt(id_vars=[self.keys.P_IDX,self.keys.PARAM], value_vars=[self.keys.IDX,self.input_keys_time,self.keys.X], variable_name=self.keys.UNIT, value_name=self.keys.VALUE)
             .with_columns(
-                pl.when(pl.col(self.__UNIT).is_in([self.__IDX,self.input_keys_time])).then(pl.lit(self.input_keys_time)).when(pl.col(self.__UNIT)==self.__X).then(pl.lit(self.__Y)).alias(self.__DIM)
+                pl.when(pl.col(self.keys.UNIT).is_in([self.keys.IDX,self.input_keys_time])).then(pl.lit(self.input_keys_time)).when(pl.col(self.keys.UNIT)==self.keys.X).then(pl.lit(self.keys.Y)).alias(self.keys.DIM)
             )
-            .pivot(index=[self.__P_IDX,self.__PARAM], columns=self.__UNIT, values=self.__VALUE)
-            .with_columns(pl.col(self.__IDX).cast(int))
+            .pivot(index=[self.keys.P_IDX,self.keys.PARAM], columns=self.keys.UNIT, values=self.keys.VALUE)
+            .with_columns(pl.col(self.keys.IDX).cast(int))
             .melt(
-                id_vars=[self.__P_IDX,self.__IDX,self.__PARAM], value_vars=[self.input_keys_time,self.__X],variable_name=self.__UNIT,value_name=self.__VALUE
+                id_vars=[self.keys.P_IDX,self.keys.IDX,self.keys.PARAM], value_vars=[self.input_keys_time,self.keys.X],variable_name=self.keys.UNIT,value_name=self.keys.VALUE
             )
-            .rename({self.__PARAM:self.__MSNT})
+            .rename({self.keys.PARAM:self.keys.MSNT})
         )  # fmt: skip
 
         return maxima
@@ -1180,90 +1211,90 @@ class DeconvolutionPipeline:
             pl.concat(
                 [
                     maxima.with_columns(
-                        pl.col([self.__P_IDX]),
-                        pl.lit(None).alias(self.__SIDE),
-                        pl.col([self.__MSNT, self.__UNIT, self.__VALUE]),
+                        pl.col([self.keys.P_IDX]),
+                        pl.lit(None).alias(self.keys.SIDE),
+                        pl.col([self.keys.MSNT, self.keys.UNIT, self.keys.VALUE]),
                     ),
                     widths.with_columns(
-                        pl.col([self.__P_IDX]),
-                        pl.lit(None).alias(self.__SIDE),
-                        pl.col([self.__MSNT, self.__UNIT, self.__VALUE]),
+                        pl.col([self.keys.P_IDX]),
+                        pl.lit(None).alias(self.keys.SIDE),
+                        pl.col([self.keys.MSNT, self.keys.UNIT, self.keys.VALUE]),
                     ),
                     contour_line_bounds,
                 ],
                 how="diagonal_relaxed",
             )
             # select columns, excluding 'idx'.
-            .select(self.__P_IDX, self.__MSNT, self.__SIDE, self.__UNIT, self.__VALUE)
+            .select(self.keys.P_IDX, self.keys.MSNT, self.keys.SIDE, self.keys.UNIT, self.keys.VALUE)
             # add window type, idx to peak map
             .pipe(
                 lambda df: self.tbl_window_to_peak_idx.select(
-                    self.__W_TYPE, self.__W_IDX, self.__P_IDX
-                ).join(df, on=self.__P_IDX, how="left")
+                    self.keys.W_TYPE, self.keys.W_IDX, self.keys.P_IDX
+                ).join(df, on=self.keys.P_IDX, how="left")
             )
             # add dim column containing the dimension of the measurement, x or y.
             .with_columns(
-                pl.when(pl.col(self.__UNIT).is_in([self.input_keys_time, self.__X_IDX]))
-                .then(pl.lit(self.__TIME_UNIT))
-                .when(pl.col(self.__UNIT) == self.__X)
-                .then(pl.lit(self.__Y))
-                .otherwise(pl.lit(self.__UNASSIGNED))
-                .alias(self.__DIM)
+                pl.when(pl.col(self.keys.UNIT).is_in([self.input_keys_time, self.keys.X_IDX]))
+                .then(pl.lit(self.keys.keys_x_unit))
+                .when(pl.col(self.keys.UNIT) == self.keys.X)
+                .then(pl.lit(self.keys.Y))
+                .otherwise(pl.lit(self.keys.UNASSIGNED))
+                .alias(self.keys.DIM)
             )
             # want to add a unitcolumn for all x measurements currently in time units. do this by pivoting
             # on unit then adding a new column 'unit_idx' via transformation
             # pivot on 'unit' with index of 'w_type','w_idx','p_idx','msnt',side','dim' and values from 'value'
             .pivot(
                 index=[
-                    self.__W_TYPE,
-                    self.__W_IDX,
-                    self.__P_IDX,
-                    self.__MSNT,
-                    self.__SIDE,
-                    self.__DIM,
+                    self.keys.W_TYPE,
+                    self.keys.W_IDX,
+                    self.keys.P_IDX,
+                    self.keys.MSNT,
+                    self.keys.SIDE,
+                    self.keys.DIM,
                 ],
-                columns=self.__UNIT,
-                values=self.__VALUE,
+                columns=self.keys.UNIT,
+                values=self.keys.VALUE,
             )
             # replace the X field with "amp", a synonym
-            .rename({self.__X: self.__AMPLITUDE})
+            .rename({self.keys.X: self.keys.AMPLITUDE})
             # add unit_idx column based on transformation from time unit, division by timestep
             .with_columns(
                 pl.col(self.input_keys_time)
                 .truediv(self._timestep)
                 .round(0)
                 .cast(int)
-                .alias(self.__UNIT_IDX)
+                .alias(self.keys.UNIT_IDX)
             )
             # return to long form, excluding X_idx column which contains incorrect values.
             .melt(
                 id_vars=[
-                    self.__W_TYPE,
-                    self.__W_IDX,
-                    self.__P_IDX,
-                    self.__MSNT,
-                    self.__SIDE,
-                    self.__DIM,
+                    self.keys.W_TYPE,
+                    self.keys.W_IDX,
+                    self.keys.P_IDX,
+                    self.keys.MSNT,
+                    self.keys.SIDE,
+                    self.keys.DIM,
                 ],
-                value_vars=[self.input_keys_time, self.__AMPLITUDE, self.__UNIT_IDX],
-                value_name=self.__VALUE,
-                variable_name=self.__UNIT,
+                value_vars=[self.input_keys_time, self.keys.AMPLITUDE, self.keys.UNIT_IDX],
+                value_name=self.keys.VALUE,
+                variable_name=self.keys.UNIT,
             )
             # the transformations create spurious null cells which need tobe removed
-            .filter(~pl.col(self.__VALUE).is_null())
+            .filter(~pl.col(self.keys.VALUE).is_null())
             # add new columns
             .with_columns(
                 # create a new column: type_ describing the type of the measurement - width, point, contour_line_bound
-                pl.when(pl.col(self.__MSNT).str.contains(self.__WIDTH))
-                .then(pl.lit(self.__WIDTH))
-                .when(pl.col(self.__MSNT) == self.__MAXIMA)
-                .then(pl.lit(self.__POINT))
-                .when(pl.col(self.__SIDE).is_not_null())
-                .then(pl.lit(self.__CONTOUR_LINE_BOUND))
-                .otherwise(pl.lit(self.__UNASSIGNED))
-                .alias(self.__TYPE),
+                pl.when(pl.col(self.keys.MSNT).str.contains(self.keys.WIDTH))
+                .then(pl.lit(self.keys.WIDTH))
+                .when(pl.col(self.keys.MSNT) == self.keys.MAXIMA)
+                .then(pl.lit(self.keys.POINT))
+                .when(pl.col(self.keys.SIDE).is_not_null())
+                .then(pl.lit(self.keys.CONTOUR_LINE_BOUND))
+                .otherwise(pl.lit(self.keys.UNASSIGNED))
+                .alias(self.keys.TYPE),
                 # within msnt column, remove prefix "width_" as its information is now contained in type_
-                pl.col(self.__MSNT).str.replace("width_", ""),
+                pl.col(self.keys.MSNT).str.replace("width_", ""),
             )
         )
         return tbl_peak_map
@@ -1318,3 +1349,8 @@ class DeconvolutionPipeline:
         min_time_stats["stdev_elapsed_time"] = np.std(sample_pool)
 
         return min_time_stats
+
+
+def calculate_timestep(time: ArrayLike):
+    timestep = np.mean(np.diff(time))
+    return timestep

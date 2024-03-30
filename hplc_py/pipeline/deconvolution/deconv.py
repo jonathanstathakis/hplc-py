@@ -4,7 +4,7 @@ Methods relevant to the deconvolution pipeline
 
 import pandera as pa
 import polars as pl
-from hplc_py.deconvolution import definitions as Keys, schemas as dc_schs
+from hplc_py.deconvolution import definitions as KeysFitReport, schemas as dc_schs
 from hplc_py.map_peaks import schemas as mp_schs
 from hplc_py.map_peaks import definitions as mp_defs
 from pandera.typing import DataFrame
@@ -76,7 +76,9 @@ def window_peak_map(
         .filter(pl.col(mp_defs.DIM) == mp_defs.X_IDX)
         .select(pl.col(mp_defs.P_IDX), pl.col(mp_defs.VALUE).cast(int))
         .join(
-            X_w.pipe(pl.from_pandas).select([Keys.W_TYPE, Keys.W_IDX, Keys.X_IDX]),
+            X_w.pipe(pl.from_pandas).select(
+                [KeysFitReport.W_TYPE, KeysFitReport.W_IDX, KeysFitReport.X_IDX]
+            ),
             how="left",
             left_on=mp_defs.VALUE,
             right_on=mp_defs.X_IDX,

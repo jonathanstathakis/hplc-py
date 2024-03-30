@@ -1,3 +1,4 @@
+import numpy as np
 from scipy.optimize import least_squares, _minpack
 from scipy.optimize import _minpack
 from scipy.optimize._minpack_py import _lightweight_memoizer, _wrap_func
@@ -18,8 +19,8 @@ from hplc_py.common.common_schemas import X_Schema
 from hplc_py.io_validation import IOValid
 from hplc_py.map_windows.schemas import X_Windowed
 from hplc_py.pandera_helpers import PanderaSchemaMethods
-from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy
-from hplc_py.deconvolution import definitions as Keys
+from hplc_py.skewnorms.skewnorms import _compute_skewnorm_scipy, fit_skewnorms_jax
+from hplc_py.deconvolution import definitions as KeysFitReport
 from hplc_py.deconvolution import kwargs as dc_kwargs
 from .opt_params import DataPrepper
 
@@ -41,6 +42,13 @@ class OptFuncReg:
             from jaxfit import CurveFit
 
             self.opt_func = CurveFit().curve_fit
+
+        if self.optimizer_access_str == "jax_lsq":
+            import jaxfit
+
+            jf = jaxfit.LeastSquares()
+            fit_func = fit_skewnorms_jax
+            self.opt_func = jf.least_squares
 
         elif self.optimizer_access_str == "scipy":
             from scipy import optimize
@@ -166,7 +174,7 @@ class PeakDeconvolver(PanderaSchemaMethods, IOValid):
             .pipe(pl.from_pandas)
             .with_columns(
                 self.recon.pipe(pl.from_pandas)
-                .select(Keys.KEY_RECON)
+                .select(KeysFitReport.KEY_RECON)
             )
                 .to_pandas()
                 .pipe(DataFrame[dc_schs.X_Windowed_With_Recon])
@@ -198,30 +206,33 @@ def build_peak_report(
     # groupby peak idx and calculate the area as the sum of amplitudes, and the maxima
     # mst - measurement
     unmixed_mst = (
-        unmixed_df.groupby(Keys.P_IDX)[Keys.KEY_UNMIXED]
+        unmixed_df.groupby(KeysFitReport.P_IDX)[KeysFitReport.KEY_UNMIXED]
         .agg(["sum", "max"])
         .rename(
-            {"sum": Keys.area_unmixed, "max": Keys.KEY_MAXIMA_UNMIXED},
+            {
+                "sum": KeysFitReport.area_unmixed,
+                "max": KeysFitReport.KEY_MAXIMA_UNMIXED,
+            },
             axis=1,
             errors="raise",
         )
     )
 
     peak_report = (
-        popt.set_index(Keys.P_IDX)
+        popt.set_index(KeysFitReport.P_IDX)
         .join(unmixed_mst)
         .reset_index()
         .loc[
             :,
             [
-                Keys.W_IDX,
-                Keys.P_IDX,
-                Keys.MAXIMA,
-                Keys.LOC,
-                Keys.SCALE,
-                Keys.KEY_SKEW,
-                Keys.area_unmixed,
-                Keys.KEY_MAXIMA_UNMIXED,
+                KeysFitReport.W_IDX,
+                KeysFitReport.P_IDX,
+                KeysFitReport.MAXIMA,
+                KeysFitReport.LOC,
+                KeysFitReport.SCALE,
+                KeysFitReport.KEY_SKEW,
+                KeysFitReport.area_unmixed,
+                KeysFitReport.KEY_MAXIMA_UNMIXED,
             ],
         ]
         .pipe(dc_schs.PReport.validate, lazy=True)
@@ -452,14 +463,17 @@ def get_popt(
         from hplc_py.deconvolution.analysis import Inspector
 
         # breakpoint()
-        inspector = Inspector(
-            signal=X.to_pandas(),
-            popt=interm_dfs["results_df"].to_pandas().pipe(get_wide_popt),
-            x_unit="x",
-        )
+
+        # inspector = Inspector(
+        #     signal=X.to_pandas(),
+        #     popt=interm_dfs["results_df"].to_pandas().pipe(get_wide_popt),
+        #     x_unit="time",
+        # )
         # inspector.plot_results()
-        if success and terminate_on_fit:
-            break
+        # if success and terminate_on_fit:
+        #     break
+
+        # breakpoint()
     # test: if terminate_on_fit, the unique values in the nfev index should match the input n_interms.
 
     return output
@@ -495,11 +509,11 @@ def curve_fit_(
 
     dfs: dict = {k: pl.DataFrame(schema=schema) for k, schema in schemas.items()}
 
-    p0: NDArray[float64] = params.select(Keys.KEY_P0).to_numpy().ravel()
+    p0: NDArray[float64] = params.select(KeysFitReport.KEY_P0).to_numpy().ravel()
 
     bounds: tuple[NDArray[float64], NDArray[float64]] = (
-        params.select(Keys.KEY_LB).to_numpy().ravel(),
-        params.select(Keys.KEY_UB).to_numpy().ravel(),
+        params.select(KeysFitReport.KEY_LB).to_numpy().ravel(),
+        params.select(KeysFitReport.KEY_UB).to_numpy().ravel(),
     )
 
     x: NDArray[float64] = X[x_key].to_numpy().ravel()
@@ -515,9 +529,20 @@ def curve_fit_(
     if verbose:
         verbose_level = 2
 
+    # jax lsq call signature
+    # res = optimizer(
+    #     fun=in_func, x0=p0, xdata=x,ydata=y, bounds=bounds, max_nfev=max_nfev, verbose=verbose_level
+    # )
+    # scipy call sig
+
     res = least_squares(
         in_func, p0, bounds=bounds, max_nfev=max_nfev, verbose=verbose_level
     )
+
+    # TODO: get jax least_squares working - atm it seems to be passing too many parameters to fit func.
+
+    # scipy
+    # res = least_squares(in_func, p0, bounds=bounds, max_nfev=max_nfev, verbose=verbose_level)
 
     # members of res are: message, success, fun, x, cost, jac, grad, optimality, active mask, nfev, njev
     # right now missing: success, x, jac, active mask, njev
@@ -525,11 +550,12 @@ def curve_fit_(
     # passing the success bool out with the dicts then popping it above will allow me to stop iterations once a successful fit is achieved.
 
     results = res.x
+
     pcov = (
         res.jac
     )  # FIXME: modify this to match the curve_fit implementation, atm its just the jac
     success = res.success
-    infodict = dict(nfev=res.nfev, fvec=res.fun, success=success)
+    infodict = dict(nfev=res.nfev, fvec=np.asarray(res.fun), success=success)
     mesg = res.message
     ier = res.status
     result_idx_cols = [p_idx, param]
@@ -541,7 +567,10 @@ def curve_fit_(
     info_df_ = pl.DataFrame(
         {"nfev": infodict["nfev"], "mesg": mesg, "ier": ier, "success": success}
     )
-    pcov_df_ = pl.DataFrame(pcov).melt(variable_name="col", value_name="value")
+
+    pcov_df_ = pl.DataFrame(np.asarray(pcov)).melt(
+        variable_name="col", value_name="value"
+    )
     fvec_df_ = pl.DataFrame({"fvec": infodict["fvec"]})
 
     dfs["info_df"] = full_output_idx.join(info_df_, how="cross").unique()
@@ -558,7 +587,12 @@ def _skewnorm_signal_from_params(
     popt: DataFrame[dc_schs.ReconstructorPoptIn],
     x: Series[int],
 ) -> pd.DataFrame:
-    param_keys = [Keys.MAXIMA, Keys.LOC, Keys.SCALE, Keys.KEY_SKEW]
+    param_keys = [
+        KeysFitReport.MAXIMA,
+        KeysFitReport.LOC,
+        KeysFitReport.SCALE,
+        KeysFitReport.KEY_SKEW,
+    ]
 
     params: NDArray[float64] = (
             popt
@@ -570,12 +604,12 @@ def _skewnorm_signal_from_params(
     unmixed_signal: NDArray[float64] = _compute_skewnorm_scipy(x, params)
 
     unmixed_signal_df = (
-        pl.DataFrame(data={Keys.KEY_UNMIXED: unmixed_signal})
+        pl.DataFrame(data={KeysFitReport.KEY_UNMIXED: unmixed_signal})
         .with_row_index(name="idx")
         .select(
-            popt[Keys.P_IDX].pipe(pl.from_pandas),
+            popt[KeysFitReport.P_IDX].pipe(pl.from_pandas),
             x.pipe(pl.from_pandas),
-            pl.col(Keys.KEY_UNMIXED),
+            pl.col(KeysFitReport.KEY_UNMIXED),
         )
         .to_pandas()
     )
@@ -607,7 +641,7 @@ def construct_unmixed_signals(
     x: Series[int] = Series[int](X_w[x_unit])
 
     peak_signals = popt.groupby(
-        by=Keys.P_IDX,
+        by=KeysFitReport.P_IDX,
         group_keys=False,
     ).apply(
         _skewnorm_signal_from_params, x
@@ -623,13 +657,13 @@ def reconstruct_signal(
     recon = (
         peak_signals.pipe(pl.from_pandas)
         .pivot(
-            columns=Keys.P_IDX,
+            columns=KeysFitReport.P_IDX,
             index=x_unit,
-            values=Keys.KEY_UNMIXED,
+            values=KeysFitReport.KEY_UNMIXED,
         )
         .select(
             pl.col(x_unit),
-            pl.sum_horizontal(pl.exclude([x_unit])).alias(Keys.KEY_RECON),
+            pl.sum_horizontal(pl.exclude([x_unit])).alias(KeysFitReport.KEY_RECON),
         )
         .to_pandas()
         # .pipe(dc_schs.RSignal.validate, lazy=True)
@@ -677,7 +711,7 @@ def get_active_signal_as_mixed(
             }
         )
         .to_pandas()
-        .pipe(dc_schs.ActiveSignal.validate)
+        .pipe(dc_schs.ActiveSignal.validate, lazy=True)
         .pipe(DataFrame[dc_schs.ActiveSignal])
     )
 
@@ -694,14 +728,23 @@ def select_popt(opt_results: pl.DataFrame):
     return popt
 
 
+def is_pandas_dataframe(df):
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError
+
+    return df
+
+
 @pa.check_types
 def get_wide_popt(popt: pd.DataFrame) -> DataFrame[dc_schs.Popt]:
 
     popt_wide = (
         # pivot so that each parameter is a column
-        popt.pipe(pl.from_pandas)
+        popt.pipe(is_pandas_dataframe)
+        .pipe(pl.from_pandas)
         .pivot(index="p_idx", columns="param", values="p0")
         .to_pandas()
+        .pipe(dc_schs.ReconstructorPoptIn.validate, lazy=True)
         .pipe(DataFrame[dc_schs.Popt])
     )
 

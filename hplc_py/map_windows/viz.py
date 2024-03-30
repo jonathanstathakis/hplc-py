@@ -40,7 +40,7 @@ class WindowMapViz:
     ):
         """
         draw peak windows as vspans, returning a holoviews plot object. intended to be
-        combined with other plot objects to produce a complete imag.
+        combined with other plot objects to produce a complete image.
         """
 
         bounds = get_window_bounds(
@@ -51,11 +51,14 @@ class WindowMapViz:
             )
         ).to_pandas()
 
-        from bokeh.plotting import show
-
         span_dict = {}
 
-        bounds["color"] = ["red", "blue"]
+        import colorcet as cc
+        import seaborn as sns
+
+        
+        
+        bounds["color"] = sns.color_palette(cc.glasbey_dark, n_colors=bounds.shape[0])
 
         for i, x in bounds.groupby(mw_defs.W_IDX):
 

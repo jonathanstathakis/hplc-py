@@ -20,7 +20,7 @@ class VizBCorr:
         """
         Expected to be called after `correct_baseline` to plot the internally stored signals frame, returning a hvplot plot_obj which can be drawn with `hvplot.show`.
         """
-
+        
         plot_obj = self.signals.pipe(pl.from_pandas).plot(
             x=com_defs.X_IDX,
             y=com_defs.X,
@@ -28,6 +28,7 @@ class VizBCorr:
             grid=True,
             legend="top",
             title="Signal Baseline Correction",
+            height=750, width=1500,
         )
 
         if show:

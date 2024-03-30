@@ -1,4 +1,4 @@
-from hplc_py.deconvolution import definitions as Keys
+from hplc_py.deconvolution import definitions as KeysFitReport
 
 
 import pandas as pd
@@ -61,15 +61,15 @@ def print_report_card(
     report_str += "Reconstruction of Peaks\n"
     report_str += "=======================\n\n"
 
-    c_report_strs = scores.groupby([Keys.W_TYPE, Keys.W_IDX]).apply(
+    c_report_strs = scores.groupby([KeysFitReport.W_TYPE, KeysFitReport.W_IDX]).apply(
         gen_report_str,  # type: ignore
         warnings=warnings,
         **{
             "recon_score_col": "recon_score",
             "fano_factor_col": "mixed_fano",
             "status_col": "status",
-            "w_type_col": Keys.W_TYPE,
-            "w_idx_col": Keys.W_IDX,
+            "w_type_col": KeysFitReport.W_TYPE,
+            "w_idx_col": KeysFitReport.W_IDX,
             "t_start_col": "time_start",
             "t_end_col": "time_end",
         },
@@ -79,7 +79,7 @@ def print_report_card(
     # join the peak strings followed by a interpeak subheader then the interpeak strings
     c_report_strs = c_report_strs.reset_index()
     c_report_str = report_str + "\n".join(
-        c_report_strs.loc[c_report_strs[Keys.W_TYPE] == "peak", "report_strs"]
+        c_report_strs.loc[c_report_strs[KeysFitReport.W_TYPE] == "peak", "report_strs"]
     )
 
     c_report_str += "\n\n"
@@ -88,7 +88,9 @@ def print_report_card(
     c_report_str += "=======================\n\n"
 
     c_report_str += "\n".join(
-        c_report_strs.loc[c_report_strs[Keys.W_TYPE] == "interpeak", "report_strs"]
+        c_report_strs.loc[
+            c_report_strs[KeysFitReport.W_TYPE] == "interpeak", "report_strs"
+        ]
     )
 
     import os
