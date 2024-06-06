@@ -1,4 +1,4 @@
-from hplc_py.common.definitions import X, X_IDX
+from hplc_py.common.definitions import X, IDX
 from typing import TypedDict
 
 
@@ -11,5 +11,4 @@ N_ITER = 250
 
 class BlineKwargs(TypedDict, total=False):
     n_iter: int
-    window_size: int
     verbose: bool

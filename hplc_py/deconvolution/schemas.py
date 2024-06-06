@@ -29,10 +29,10 @@ from hplc_py.common.common_schemas import (
     BaseDF,
     HPLCBaseConfig,
     X_field_kwargs,
-    X_idx_field_kwargs,
+    idx_field_kwargs,
     BaseConfig,
     p_idx_field,
-    X_idx_field,
+    idx_field,
     p_idx_field_kwargs,
 )
 from hplc_py.map_windows.schemas import w_idx_field_kwargs
@@ -50,8 +50,8 @@ maxima_field = pa.Field()
 skew_field = pa.Field()
 
 # used for PSignals, a long frame containing the individual peak signals vstacked
-X_idx_field_not_unique_kwargs = {
-    k: v for k, v in X_idx_field_kwargs.items() if k not in ["unique"]
+idx_field_not_unique_kwargs = {
+    k: v for k, v in idx_field_kwargs.items() if k not in ["unique"]
 } | dict(unique=False)
 
 p_idx_field_duplicatable_kwargs = {
@@ -72,7 +72,7 @@ class InP0(pa.DataFrameModel):
     w_idx: int = w_idx_field
     p_idx: int = p_idx_field
     maxima: float = maxima_field
-    X_idx: int = X_idx_field
+    idx: int = idx_field
     whh_width: float
 
     class Config(BaseConfig):
@@ -138,7 +138,7 @@ class Popt(BaseDF):
 
     p_idx: int = p_idx_field_duplicatable
     maxima: float = maxima_field
-    loc: float = pa.Field(**X_idx_field_kwargs)
+    loc: float = pa.Field(**idx_field_kwargs)
     scale: float = pa.Field()
     skew: float = skew_field
 
@@ -155,7 +155,7 @@ class PSignals(pa.DataFrameModel):
     """
 
     p_idx: int = p_idx_field_duplicatable
-    X_idx: int = pa.Field(**X_idx_field_not_unique_kwargs)
+    idx: int = pa.Field(**idx_field_not_unique_kwargs)
     unmixed: float = unmixed_field
 
     class Config(HPLCBaseConfig):
@@ -169,7 +169,7 @@ recon_field = pa.Field(**X_field_kwargs)
 
 
 class RSignal(BaseDF):
-    X_idx: int = X_idx_field
+    idx: int = idx_field
     recon: float = recon_field
 
     class Config(HPLCBaseConfig):
@@ -232,8 +232,8 @@ class FitAssessScores(pa.DataFrameModel):
 
     w_type: str = w_type_field
     w_idx: int = w_idx_field
-    time_start: float = pa.Field(**X_idx_field_kwargs)
-    time_end: float = pa.Field(**X_idx_field_kwargs)
+    time_start: float = pa.Field(**idx_field_kwargs)
+    time_end: float = pa.Field(**idx_field_kwargs)
     area_mixed: float = pa.Field(**area_kwargs)
     area_unmixed: float = pa.Field(**area_kwargs)
     var_mixed: float = pa.Field(**var_kwargs)
@@ -270,7 +270,7 @@ class PeakMsnts(pa.DataFrameModel):
     )
     dim: str = pa.Field(
         isin=[
-            mp_defs.X_IDX,
+            mp_defs.IDX,
             mp_defs.X,
             mp_defs.KEY_WIDTH,
         ]
@@ -318,7 +318,7 @@ class ActiveSignal(pa.DataFrameModel):
 
     class Config:
         name = "Active Signal (Windowed)"
-        
+
 
 class ReconstructorSignalIn(pa.DataFrameModel):
     w_type: str
@@ -346,8 +346,8 @@ class TblSignalMixed(pa.DataFrameModel):
     w_idx: int
     unit_idx: int
     time: float
-    signal: str = pa.Field(isin=["X","X_corrected","recon"])
+    signal: str = pa.Field(isin=["X", "X_corrected", "recon"])
     amplitude: float
-    
+
     class Config:
         name = "Table Mixed Signals"

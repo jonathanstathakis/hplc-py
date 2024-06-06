@@ -1,7 +1,7 @@
 from typing import Self
 from hplc_py.io_validation import IOValid
 import tqdm
-
+import warnings
 import numpy as np
 from numpy import float64
 from numpy.typing import NDArray
@@ -54,12 +54,12 @@ class ComputeBackground(IOValid):
 
     def transform(
         self,
-    ) -> Self:
+    ) -> NDArray[np.float64]:
         """
         Transform the input amplitude signal by subtracting the fitted background
         """
         self.background = compute_background(self._X, self._n_iter, self._verbose)
-        return self
+        return self.background
 
 
 def shift_amp(
@@ -142,13 +142,6 @@ def compute_s_compressed_minimum(
     else:
         iterator = compute_iterator(n_iter)  # type: ignore
 
-    import matplotlib.pyplot as plt
-
-    plt.plot(s_compressed)
-
-    plot_steps = 1
-    plot_range = list(np.arange(n_iter-10, n_iter, plot_steps)) + [n_iter]
-
     for i in iterator:
         s_compressed_prime = _s_compressed.copy()
 
@@ -157,19 +150,19 @@ def compute_s_compressed_minimum(
                 _s_compressed[j],
                 0.5 * (_s_compressed[j + i] + _s_compressed[j - i]),
             )
-        if i in plot_range:
-            plt.plot(_s_compressed, label=i)
         _s_compressed = s_compressed_prime
-    # plt.legend()
-    # plt.show()
 
     return _s_compressed
 
 
 def compute_background(amp: NDArray[float64], n_iter: int, verbose: bool = True):
-
+    
+    if type(amp) is not np.ndarray:
+        raise TypeError("expected np array")
+    if amp.ndim != 1:
+        raise ValueError("expcted a 1-dim np array")
+    
     shift = compute_shift(amp)
-    import hplc
 
     amp_shifted = shift_amp(amp, shift)
 

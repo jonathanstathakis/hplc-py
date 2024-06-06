@@ -9,6 +9,7 @@ from pandera.typing import DataFrame
 from hplc_py.deconvolution.schemas import FitAssessScores
 from hplc_py.deconvolution.schemas import PSignals
 
+
 @pa.check_types
 def test_compare_scores(
     asschrom_scores: DataFrame[FitAssessScores],

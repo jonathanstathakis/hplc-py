@@ -5,9 +5,10 @@ import pandera as pa
 from pandera.dtypes import String
 
 from hplc_py.common.common_schemas import HPLCBaseConfig
-from hplc_py.map_peaks.schemas import PeakMap
-from hplc_py.map_windows.schemas import w_idx_field
-from hplc_py.map_windows.schemas import w_type_field
+from hplc_py.map_signal.map_peaks.schemas import PeakMap
+from hplc_py.map_signal.map_windows.schemas import w_idx_field
+from hplc_py.map_signal.map_windows.schemas import w_type_field
+
 
 class Data(pa.DataFrameModel):
     """

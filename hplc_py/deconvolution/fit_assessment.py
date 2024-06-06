@@ -30,6 +30,7 @@ from hplc_py.deconvolution.fit_assessment_grading_tables import (
 
 from dataclasses import dataclass
 
+
 @dataclass
 class KeysFitReport:
     w_type: str = "w_type"
@@ -63,7 +64,7 @@ class KeysFitReport:
 class Reporter:
 
     def __init__(self, data: DataFrame[dc_schs.ActiveSignal], key_time: str):
-        
+
         self.data = data
         self.keys_fit_report = KeysFitReport(time=key_time)
 

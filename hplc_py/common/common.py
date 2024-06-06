@@ -76,14 +76,41 @@ def prepare_signal_store(
 
     tbl_signal: pl.DataFrame = (
         data.pipe(pl.from_pandas)
-        .with_row_index(name=com_defs.X_IDX)
+        .with_row_index(name=com_defs.IDX)
         .select(
             [
-                pl.col(com_defs.X_IDX).cast(int),
+                pl.col(com_defs.IDX).cast(int),
                 pl.col(key_time).alias(com_defs.X),
                 pl.col(key_amp).alias(com_defs.KEY_TIME),
             ]
         )
     )
-    
+
     return tbl_signal
+
+
+class PolarsDataObjMixin:
+    """
+    Mixin class for classes containing Polars tables
+    """
+def tbl_repr_formatter(self, tbl_names: list[str], tbl_props: list[str]):
+    """
+    take list of polars dataframes and a list of table properties "tbl_props" to display and return a pretty-formatted string 
+
+    tbls: dict of {"table_name", tbl}
+    tbl_props: list of attrs present in the tbls
+    """
+
+    tbls = {tbl: getattr(self, tbl) for tbl in tbl_names}
+
+    tbl_attr_mapping = {
+        type(self).__name__: {
+            tbl_name: {attr: getattr(tbl, attr) for attr in tbl_props}
+            for tbl_name, tbl in tbls.items()
+        }
+    }
+    import pprint
+
+    out_str = pprint.pformat(tbl_attr_mapping, sort_dicts=False)
+
+    return out_str

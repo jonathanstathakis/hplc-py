@@ -89,8 +89,8 @@ def get_corrected_background(X: DataFrame[X_Schema]) -> pd.DataFrame:
 def get_peak_map(X: DataFrame[X_Schema]) -> DataFrame[PeakMap]:
     mp = PeakMapper()
     mp.fit(X=X)
-    mp.transform()
-    peak_map = mp.peak_map
+    mp.predict()
+    peak_map = mp.peak_map_
 
     return peak_map
 

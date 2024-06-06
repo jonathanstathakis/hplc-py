@@ -11,7 +11,7 @@ from hplc_py.hplc_py_typing.hplc_py_typing import (
 from hplc_py.map_peaks.schemas import PeakMap, PeakMapWideColored
 
 from hplc_py.map_peaks.viz import (
-    assign_colors_to_p_idx,
+    __assign_colors_to_p_idx,
     VizPeakMapFactory,
 )
 
@@ -19,7 +19,7 @@ from hplc_py.map_peaks.viz import (
 @pytest.fixture
 def color_map(peak_map: DataFrame[PeakMap]) -> DataFrame[ColorMap]:
 
-    colormap = assign_colors_to_p_idx(peak_map=peak_map)
+    colormap = __assign_colors_to_p_idx(peak_map=peak_map)
 
     return colormap
 

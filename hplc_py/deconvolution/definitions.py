@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 import polars as pl
-from hplc_py.common.definitions import X, X_IDX
+from hplc_py.common.definitions import X, IDX
 from hplc_py.map_windows.definitions import W_IDX, W_TYPE
 
 from hplc_py.map_peaks.definitions import MAXIMA, P_IDX, KEY_WIDTH_WHH
@@ -97,6 +97,7 @@ class KeysTblMixedSignal:
     AMPLITUDE: str
     RECON: str
     MIXED: str
+
 
 SIGNAL = "signal"
 AMPLITUDE = "amplitude"

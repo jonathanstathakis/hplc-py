@@ -59,8 +59,7 @@ def test_pipeline(asschrom_dset: pd.DataFrame, asschrom_pipeline):
         pipeline.tbl_fit_report,
         asschrom_pipeline.tbl_fit_report,
     )
-    
-    
+
     assert True
 
     # TODO:

@@ -16,7 +16,7 @@ from hplc_py.common.definitions import (
     WHH_WIDTH_HALF_KEY,
     SKEW_KEY,
     P_IDX_KEY,
-    X_IDX,
+    IDX,
     RECON_KEY,
     AREA_UNMIXED_KEY,
     MAXIMA_UNMIXED_KEY,
@@ -66,7 +66,7 @@ def psignals(
         width_key=WHH_WIDTH_HALF_KEY,
         skew_key=SKEW_KEY,
         p_idx_key=P_IDX_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         unmixed_key=RECON_KEY,
     )
 
@@ -89,7 +89,7 @@ def r_signal(
     r_signal = reconstruct_signal(
         peak_signals=psignals,
         p_idx_key=P_IDX_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         unmixed_key=RECON_KEY,
         recon_key=RECON_KEY,
     )

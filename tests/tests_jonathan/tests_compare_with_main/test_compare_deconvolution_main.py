@@ -41,7 +41,7 @@ def test_p_signals_compare_main(
     Test the asschrom dataset through my pipeline compared to main. Takes the output
     individual peak signals and compares the amplitude values of each peak to main.
     Total variation greater than 5% is treated as a failure.
-    
+
     Note: This has untested behavior in the case that the number of peaks differ.
     """
     psignals_: pl.DataFrame = (

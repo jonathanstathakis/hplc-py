@@ -73,15 +73,15 @@ def window_peak_map(
 
     windowed_peaks = (
         peak_msnts.pipe(pl.from_pandas)
-        .filter(pl.col(mp_defs.DIM) == mp_defs.X_IDX)
+        .filter(pl.col(mp_defs.DIM) == mp_defs.IDX)
         .select(pl.col(mp_defs.P_IDX), pl.col(mp_defs.VALUE).cast(int))
         .join(
             X_w.pipe(pl.from_pandas).select(
-                [KeysFitReport.W_TYPE, KeysFitReport.W_IDX, KeysFitReport.X_IDX]
+                [KeysFitReport.W_TYPE, KeysFitReport.W_IDX, KeysFitReport.IDX]
             ),
             how="left",
             left_on=mp_defs.VALUE,
-            right_on=mp_defs.X_IDX,
+            right_on=mp_defs.IDX,
         )
         .select(pl.col([mp_defs.P_IDX, mw_defs.W_TYPE, mw_defs.W_IDX]))
     )

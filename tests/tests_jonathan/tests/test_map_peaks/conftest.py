@@ -37,7 +37,7 @@ def X_bcorr(
         bc.correct_baseline()
         .pipe(pl.from_pandas)
         .pivot(index=["X_idx"], values=["amp"], columns=["signal"])
-        .select(pl.col([com_defs.X_IDX, bc_defs.KEY_CORRECTED]))
+        .select(pl.col([com_defs.IDX, bc_defs.KEY_CORRECTED]))
         .rename({bc_defs.KEY_CORRECTED: com_defs.X})
         .to_pandas()
         .pipe(X_Schema.validate, lazy=True)

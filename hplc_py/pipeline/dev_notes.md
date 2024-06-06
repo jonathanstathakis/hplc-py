@@ -12,3 +12,7 @@ Anyway, its a quick modification. An interface needs to be defined, i.e. fit, tr
 
 For example, `pipe_preprocess_data` could initialise with which transformations to use (i.e. "correct_baseline") and their kwargs, have a `fit` function which takes the `data`, `key_time`, and `key_amp`, and then call a `transform` function, which would return the output (the overall API is base on [scikit-learn](https://scikit-learn.org/stable/developers/develop.html) with downtrack goal of full scikit learn integration).
 
+2024-03-31 06:31:20
+
+That has worked exceptionally well. Defining the external interface occludes the chaos below, and enables the pure pipeline flow of data to be seperated from dev and debugging functionality. During development, it was found to be logical to wrap viz into report, and to begin to consider defining a formal structure for report through yet another abstract base class - a Report type. it would have to be simplistic to be usable throughout the pipeline, but would enable clear use of the report downpipe. For example, it could contain a table property, obviosuly containing relevant tabular data, and a viz property, containing a viz. They could then be whatever is best for the specific Pipeline. for example the table property could contain an intermediate values table and a scores table, or aggregations.
+

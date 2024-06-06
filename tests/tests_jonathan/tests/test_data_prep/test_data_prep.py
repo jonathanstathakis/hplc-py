@@ -16,7 +16,7 @@ from hplc_py.common.definitions import (
     W_TYPE_KEY,
     WHH_WIDTH_HALF_KEY,
     WHH_WIDTH_KEY,
-    X_IDX,
+    IDX,
     X,
     SKEW_LB_SCALAR,
     SKEW_UB_SCALAR,
@@ -60,10 +60,10 @@ def wpm(
     wpm: DataFrame[WdwPeakMapWide] = window_peak_map(
         peak_msnts=peak_map,
         X_w=X_windowed,
-        t_idx_key=X_IDX,
+        t_idx_key=IDX,
         w_idx_key=W_IDX_KEY,
         w_type_key=W_TYPE_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
     )
     return wpm
 
@@ -81,7 +81,7 @@ def p0(
     p0 = p0_factory(
         windowed_peak_params=wpm,
         maxima_key=MAXIMA_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         p0_key=P0_KEY,
         p_idx_key=P_IDX_KEY,
         param_key=PARAM_KEY,
@@ -118,7 +118,7 @@ def bounds(
         whh_width_half_key=WHH_WIDTH_HALF_KEY,
         skew_key=SKEW_KEY,
         X_key=X,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         w_idx_key=W_IDX_KEY,
         w_type_key=W_TYPE_KEY,
         p_idx_key=P_IDX_KEY,

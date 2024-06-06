@@ -101,16 +101,20 @@ class Analyzer:
     ):
         reporter = fit_assessment.Reporter(data=data, key_time=self._x_unit)
         fit_report = reporter.calc_fit_report()
-        
+
         return fit_report
 
+
 from hplc_py.map_peaks import map_peaks, viz as mp_viz
+
 
 class InspectorViz:
     def __init__(self, X, peak_map):
         self.peak_map = mp_viz.VizPeakMapFactory(
-            X=X, peak_map=peak_map,
+            X=X,
+            peak_map=peak_map,
         )
+
 
 class Inspector:
     """
@@ -145,8 +149,6 @@ class Inspector:
         )
 
         self.analyzer = Analyzer(data=analyzer_in, x_unit=x_unit)
-    
-    
 
     def plot_results(self):
         self.mixed_signals_overlay = self._plot_mixed_signals_overlay(

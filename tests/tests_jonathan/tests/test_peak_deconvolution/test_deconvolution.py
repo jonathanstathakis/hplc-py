@@ -23,7 +23,7 @@ from hplc_py.common.definitions import (
     UB_KEY,
     VALUE_KEY,
     W_IDX_KEY,
-    X_IDX,
+    IDX,
     X,
 )
 
@@ -74,7 +74,7 @@ def popt_scipy(
         value_key=VALUE_KEY,
         verbose=True,
         w_idx_key=W_IDX_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         X_key=X,
     )
 
@@ -110,7 +110,7 @@ def popt(
         value_key=VALUE_KEY,
         verbose=True,
         w_idx_key=W_IDX_KEY,
-        X_idx_key=X_IDX,
+        X_idx_key=IDX,
         X_key=X,
     )
 

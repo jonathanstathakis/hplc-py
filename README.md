@@ -80,3 +80,14 @@ After rewriting the pipeline, the fit isnt any good. Primarily, the width is way
 Need better notes on the skewnorm model.
 
 from the cremerlab [docs](https://cremerlab.github.io/hplc-py/methodology/fitting.html) the whh_width_half is their p0 for scale.
+
+## Precision
+
+2024-04-17 13:27:33
+
+When modeling physical phenomenon with computers, floating point errors are a major pain in the ass. In this package, they are handled by setting the precision at appropriat intermediate points in the calculation, and are set through the `hplc_py.precision` global, with a default of 9 decimal places.
+
+**Dev note:** this is achieved by inheriting `hplc_py.precision.Precision` (not necessary to initialise) and accessing the precision value from the inherited `self._precision` attribute. Best practice is to define a `property.getter` that rounds a given attribute when it is accessed, storing the full float in the data object for inspection (i.e. debugging).
+
+
+TODO: move all this into devnotes.md
